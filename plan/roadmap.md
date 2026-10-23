@@ -20,7 +20,7 @@ Target: Microsoft Surface Pro 11, 13" LCD, Snapdragon X Plus X1P64100 (10 cores)
 | ID | Milestone | Owner | Done when |
 |:--|:--|:--|:--|
 | M1 | Vanilla 7.3 builds as a Fedora RPM with BTF | kernel | RPM installs in the container; `vmlinux` has a `.BTF` section |
-| M2 | Vanilla ISO boots and writes logs to the stick | image | `/EFI/sp11-logs/<boot-id>/dmesg` exists after one boot, LCD state recorded either way |
+| M2 | Vanilla ISO boots and writes logs to the stick | image | L0 and L1 pass (D10); on the device, `<boot-id>/dmesg` exists on `SP11LOGS` after one boot, LCD state recorded either way |
 | M3 | LCD with backlight at 60 and 120 Hz | display-lcd | Acceptance in `hardware/display-lcd/README.md` |
 | M4 | GPU accelerated | gpu | Acceptance in `hardware/gpu/README.md` |
 

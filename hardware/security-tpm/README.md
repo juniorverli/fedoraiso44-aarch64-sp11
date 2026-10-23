@@ -18,6 +18,7 @@ The TPM 2.0 implemented by Pluton/TrEE as a QSEE application, plus secure apps a
 
 | Package (`sources/windows/DriverStore/<name>.inf_arm64_*`) | Role |
 |:--|:--|
+| `qcsp8380` | Secure Processor (SPSS) apps: `asym*.sig`, `crypt*.sig`, `macch*.sig` are signed ARM32 images |
 | `plutonqc` | TBD |
 | `qctree` | TBD |
 | `qctree_i` | TBD |

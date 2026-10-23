@@ -28,7 +28,8 @@ Nobody edits `sources/`. A new input (an official Microsoft package, a linux-fir
 
 | Path | Writer |
 |:--|:--|
-| `hardware/<component>/**` | that component's worker |
+| `hardware/<component>/**` except `crosscheck/` | that component's worker |
+| `hardware/<component>/crosscheck/` | that component's cross-check worker |
 | `kernel/**` | kernel worker |
 | `firmware/**` | firmware worker |
 | `image/**` | image worker |
@@ -53,6 +54,7 @@ The repository and the kernel tree are both used through `git worktree`, so para
 
 - Because write ownership is disjoint (§3), merges into `main` cannot conflict. A conflict means a worker broke §3; the merge is refused.
 - A worker rebases on `main` at the start of a session to see merged results of others.
+- `sources/windows`, `sources/linux` and `out/` in a worktree are links to the main checkout (made by `scripts/worker.sh`). All builds, RPMs, ISOs and the build lock live in the main checkout's `out/`.
 
 ### 4.2 Kernel tree
 
@@ -79,6 +81,16 @@ Every hardware value (GPIO, address, clock, regulator, delay, ID, firmware name)
 | TBD | Unknown | What would answer it |
 
 Linux source facts cite `sources/linux/<path>:<line>`.
+
+Before analysing any file, look it up in `sources/binary-catalog.tsv` (`sources/binary-formats.md`) and use the Ghidra language it gives. A file catalogued as data is never disassembled; a file with "NO GHIDRA LANGUAGE" is never decoded under a guessed CPU.
+
+### 5.1 Cross-check
+
+A value that ends up in a patch, a DT property or a safety decision (GPIOs, PMIC channels, regulator voltages, delays, speaker parameters, current limits) must be reproduced by an independent cross-check before the component reaches `sw-ready`:
+
+1. The orchestrator starts `scripts/worker.sh <id> --crosscheck --runtime <other runtime>` on the runtime that did **not** produce the value.
+2. The cross-check worker sees only the open questions, not the answers, and writes `hardware/<id>/crosscheck/<runtime>-<date>.md`.
+3. The component worker compares: values that agree keep their grade; values that disagree drop to Hypothesis until resolved from `sources/`.
 
 ## 6. Component status
 
@@ -123,9 +135,11 @@ Inside `hardware/<component>/`:
 ## 9. Reverse engineering
 
 1. Look for the answer in this order: Linux 7.3 source; linux-next and lore; ACPI tables in `sources/windows/live-inventory/acpi/`; INF and registry data; only then the Windows binary in REA.
-2. REA runs with the Ghidra provider. Record for each result: the binary path, its SHA-256, the function address, the `evidence_id`.
-3. Decompiled code stays in REA snapshots outside git. Evidence files contain addresses and conclusions, not pasted pseudocode.
-4. REA tool setup is the sources worker's job; workers report tool failures as requests.
+2. REA runs with the Ghidra provider and the language **forced** from the catalog: `REA_GHIDRA_LANGUAGE_ID=<ghidra_language of the row>` in the environment of the REA process (CLI or MCP server). Never let Ghidra auto-detect. For large images raise `GHIDRA_MAXMEM` (e.g. `4G`) and `REA_GHIDRA_STARTUP_TIMEOUT_MS` (default 330000). Record for each result: the binary path, its SHA-256, the language used, the function address, the `evidence_id`.
+3. Address procedures that exist: list them with `rea search <path> . --kind procedures --mode regex --provider ghidra` (MCP: `list_procedures`) before decompiling. An ELF `e_entry` of 0 or a header address is not a function.
+4. ARM32 entry points with the lowest bit set are Thumb code; decoding them as ARM produces garbage (seen on `qcsp8380/*.sig`). Set the Thumb context before trusting any output.
+5. Decompiled code stays in REA snapshots outside git. Evidence files contain addresses and conclusions, not pasted pseudocode.
+6. REA tool setup is the sources worker's job; workers report tool failures as requests.
 
 ## 10. Handing back
 

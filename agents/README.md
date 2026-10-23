@@ -37,10 +37,28 @@
 
 `firmware-updates` and `wwan` have dossiers but no worker: the first is out of scope until the operator asks, the second is absent on this unit.
 
+## Runtimes
+
+Every prompt is runtime-neutral: Claude Code reads `CLAUDE.md`, Codex reads `AGENTS.md`, both lead to `agents/protocol.md`. Both runtimes have the REA MCP server registered (Claude Code: local scope of this repository; Codex: `~/.codex/config.toml`).
+
+| Runtime | Model | Effort | Launch |
+|:--|:--|:--|:--|
+| `claude` | Sonnet 5.5 (`claude-sonnet-5-5`) | high | `claude --model claude-sonnet-5-5 --effort high "<task>"` |
+| `codex` | Sol 6.1 (`gpt-6.1-sol`) | xhigh | `codex -m gpt-6.1-sol -c model_reasoning_effort="xhigh" "<task>"` |
+
+Default assignment (the orchestrator may swap per session):
+
+| Runtime | Workers | Why |
+|:--|:--|:--|
+| `codex` (Sol 6.1 xhigh) | `display-lcd`, `gpu`, `touch-pen`, `audio-speakers`, `cameras`, `usb4`, `security-tpm`, `power-thermal` | Deep reverse engineering in REA, long reasoning chains over decompiled code |
+| `claude` (Sonnet 5.5 high) | `sources`, `kernel`, `firmware`, `image`, `soc-boot`, `dsp-subsystems`, `ec-sam`, `wifi`, `bluetooth`, `usb-typec`, `storage`, `audio-mics`, `sensors`, `npu`, `video-codec` | Build plumbing, upstream research, DT work, documentation |
+| the other one | every `--crosscheck` run | Independent second read (`agents/protocol.md` §5.1) |
+
 ## Launch
 
 ```bash
-scripts/worker.sh display-lcd --kernel   # creates worktrees, prints the launch command
+scripts/worker.sh display-lcd --kernel --runtime codex          # main worker
+scripts/worker.sh display-lcd --crosscheck --runtime claude     # independent second read
 ```
 
 Workers of the same phase run in parallel. They all read `sources/`, `plan/` and `agents/protocol.md`, and they never write to each other's folders, so the orchestrator can merge their branches in any order.

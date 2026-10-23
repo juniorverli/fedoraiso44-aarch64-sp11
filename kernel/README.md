@@ -22,4 +22,4 @@ Owner: kernel worker (`agents/workers/kernel.md`).
    - `make CHECK_DTBS=y qcom/x1p64100-microsoft-denali.dtb`
    - on the device: `/sys/kernel/btf/vmlinux` exists
 
-Packaging method (binrpm-pkg or Fedora `kernel.spec`) is decision D3 in `plan/decisions.md`.
+Packaging: Fedora's `kernel.spec` in vanilla mode with our patches and fragment (D13, under the Fedora-native rule D12).

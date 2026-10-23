@@ -3,7 +3,7 @@ name = "Bluetooth: WCN7850 on UART14"
 phase = 2
 status = "survey"
 depends_on = ["soc-boot"]
-updated = "2026-10-23"
+updated = "2026-10-24"
 
 [windows]
 hardware_ids = ["ACPI\\VEN_QCOM&DEV_0C6B&SUBSYS_CRD08380 (UART transport)"]
@@ -13,7 +13,7 @@ packages = ["qcbluetooth8380", "qcbtacx_transportdriver8380", "qcbtaddvscregistr
 drivers = ["bluetooth/hci_qca (qcom,wcn7850-bt)"]
 dt = ["x1-microsoft-denali.dtsi &uart14 bluetooth"]
 native = "full"
-gaps = ["per-board NVM (hmtnv20.b3b and variants) selection", "BD address source"]
+gaps = ["per-board NVM (hmtnv20.b3b and variants) selection", "BD address: controller may stay unconfigured if it reports the NVM default address; set from the Windows factory address at boot (local only)"]
 
 [firmware]
 needs = ["qca/hmtbtfw20.tlv (linux-firmware)", "qca/hmtnv20.* (board NVM)"]

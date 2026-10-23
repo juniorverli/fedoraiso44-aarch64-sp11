@@ -49,6 +49,8 @@ OVERRIDES = {
     "cdsp_dtbs.elf": ("data", "none (not code: do not disassemble)",
         "DSP device-tree container in a signed PIL ELF; segment starts with 'CFGL', holds FDTs "
         "(Verified: FDT magic present); e_machine 1 is meaningless here"),
+    "phy_ucode20.elf": ("code", "NO GHIDRA LANGUAGE: e_machine 3 (x86) is implausible for WCN7850 PHY microcode, do not guess",
+        "Wi-Fi PHY microcode; the declared CPU is not trusted (Hypothesis)"),
     "qcav1e8380.mbn": ("code", "NO GHIDRA LANGUAGE: unknown core (e_machine 106), do not guess",
         "AV1 encoder firmware; the CPU core is unidentified (TBD)"),
 }

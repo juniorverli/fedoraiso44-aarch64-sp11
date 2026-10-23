@@ -36,6 +36,11 @@ Where the RGB stage can run on Linux:
 
 A camera counts as working only when an app receives **RGB/YUV** frames with correct colours, not when CAMSS delivers RAW.
 
+Why CAMSS cannot do the RGB stage on this SoC (Verified, 2026-10-24):
+
+- X1E80100 VFEs (`vfe0`, `vfe1`, `vfe_lite0`, `vfe_lite1`) all use `vfe_ops_680` (`sources/linux/drivers/media/platform/qcom/camss/camss.c`, `vfe_res_x1e80100`), and `camss-vfe-680.c:105` states: "This macro only works because RDI is all we support right now." RDI is the raw dump interface that bypasses the processing pipeline.
+- Even on the old SoCs where Linux drives the VFE PIX path (MSM8916, MSM8996; kernel documentation `media/v4l-drivers/qcom_camss`, v4.20), PIX only converts packed YUV 4:2:2 to NV12/NV16, crops and downscales up to 16x. It never demosaics Bayer. So the RGB stage is always outside CAMSS: libcamera Software ISP now, Spectra BPS/IPE (no Linux driver) later.
+
 ## 3. Windows
 
 | Package (`sources/windows/DriverStore/<name>.inf_arm64_*`) | Role |

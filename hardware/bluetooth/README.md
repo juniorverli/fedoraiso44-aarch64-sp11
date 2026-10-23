@@ -10,6 +10,12 @@ Bluetooth of the WCN7850, on UART14, handled by `hci_qca`. Status: `survey`.
 |:--|:--|:--|:--|
 | Windows device | `ACPI\VEN_QCOM&DEV_0C6B&SUBSYS_CRD08380 (UART transport)` | Verified | `sources/windows/live-inventory/pnp-present.json` |
 
+### BD address
+
+- `btqca` reads the controller's address; if it equals the default address inside the NVM file, it sets `HCI_QUIRK_USE_BDADDR_PROPERTY` (`sources/linux/drivers/bluetooth/btqca.c:683-708`). The core then wants a `local-bd-address` DT property; without a valid one the controller stays **unconfigured** and BlueZ does not use it until userspace sets an address (`sources/linux/net/bluetooth/hci_sync.c:5265-5296`). Grade: Verified (source).
+- Whether this unit's controller has a factory address or the NVM default is TBD until M2 (`btmgmt info`, `dmesg | grep -i bluetooth`).
+- Plan if it is unconfigured: the image worker generates, at ISO build time and on this machine only, `/etc/sp11/bt-address` from `BT_MAC` in `sources/windows/live-inventory/sp11-mac.conf`, and a boot unit runs `btmgmt --index 0 public-addr <addr>` only when the controller reports unconfigured. The address is not put in the shared DTB, git or any published file (risk S5).
+
 ## 3. Windows
 
 | Package (`sources/windows/DriverStore/<name>.inf_arm64_*`) | Role |
@@ -49,3 +55,4 @@ Bluetooth of the WCN7850, on UART14, handled by `hci_qca`. Status: `survey`.
 ## 9. Log
 
 - 2026-10-23: dossier created from the static survey.
+- 2026-10-24: BD address path verified in btqca/hci_sync; plan for an unconfigured controller recorded.
