@@ -1,0 +1,18 @@
+# local inputs
+/sources/windows
+/sources/linux
+# generated
+/out/
+__pycache__/
+# never commit device firmware or Windows binaries
+*.mbn
+*.elf
+*.sys
+*.dll
+*.exe
+*.cat
+*.jsn
+*.acdb
+*.b3b
+*.tlv
+*.bin

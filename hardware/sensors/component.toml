@@ -1,0 +1,19 @@
+id = "sensors"
+name = "Sensors on the ADSP sensor core (SSC): accelerometer, gyroscope, magnetometer, ambient light, orientation"
+phase = 4
+status = "survey"
+depends_on = ["dsp-subsystems"]
+updated = "2026-10-23"
+
+[windows]
+hardware_ids = ["ACPI\\VEN_MSHW&DEV_048A&SUBSYS_MSHW0487", "ACPI\\VEN_MSHW&DEV_048B&SUBSYS_MSHW0487", "Simple Device Orientation Sensor"]
+packages = ["qcsensors", "surfacepro_snscfgcrd8380", "sensorshidclassdriver", "sensorsalsdriver", "sensorsservicedriver"]
+
+[linux]
+drivers = ["misc/fastrpc", "userspace: hexagonrpcd, libssc, iio-sensor-proxy"]
+dt = []
+native = "none"
+gaps = ["no kernel driver: SSC is reached over FastRPC/QMI from userspace", "physical sensor chips unidentified", "sensor registry/config files from the ADSP package"]
+
+[firmware]
+needs = ["ADSP sensor registry and config (from surfacepro_ext_adsp8380 / surfacepro_snscfgcrd8380)"]

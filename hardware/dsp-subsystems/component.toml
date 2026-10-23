@@ -1,0 +1,19 @@
+id = "dsp-subsystems"
+name = "ADSP and CDSP remote processors, GLINK, QRTR, protection domains, pmic-glink"
+phase = 1
+status = "survey"
+depends_on = ["soc-boot"]
+updated = "2026-10-23"
+
+[windows]
+hardware_ids = ["ACPI\\VEN_QCOM&DEV_0C1B&SUBSYS_MSHW0486&REV_000D", "ACPI\\VEN_QCOM&DEV_0CB0", "ACPI\\VEN_QCOM&DEV_06E0", "ACPI\\VEN_QCOM&DEV_06DF", "ACPI\\VEN_QCOM&DEV_0C0D", "ACPI\\VEN_QCOM&DEV_0C8E", "ACPI\\VEN_QCOM&DEV_0C5C", "ACPI\\VEN_QCOM&DEV_0C20"]
+packages = ["qcsubsys8380", "qcpil", "qcpilext8380", "qcpilfilterext", "surfacepro_ext_adsp8380", "qcnspmcdm_ext_cdsp8380", "qcsubsys_ext_cdsp8380", "qcsubsys_ext_spss8380", "qcpdsr", "qcipcrouter8380", "qcpmicglink8380", "qcadsprpc8380", "qcadsprpcd8380"]
+
+[linux]
+drivers = ["remoteproc/qcom_q6v5_pas", "rpmsg/qcom_glink", "qrtr", "soc/qcom/pmic_glink", "misc/fastrpc", "userspace: pd-mapper, qrtr-ns, rmtfs not needed (no modem)"]
+dt = ["x1-microsoft-denali.dtsi &remoteproc_adsp, &remoteproc_cdsp, pmic-glink"]
+native = "full"
+gaps = ["firmware names differ between Windows and Linux", "JSON service maps (*.jsn) consumer and path unknown"]
+
+[firmware]
+needs = ["qcom/x1e80100/microsoft/Denali/qcadsp8380.mbn", "qcom/x1e80100/microsoft/Denali/adsp_dtb.mbn", "qcom/x1e80100/microsoft/Denali/qccdsp8380.mbn", "qcom/x1e80100/microsoft/Denali/cdsp_dtb.mbn", "*.jsn service maps"]

@@ -1,0 +1,30 @@
+# Pinned inputs. Owner: sources worker. Every other worker reads only what is pinned here.
+
+[windows]
+path = "sources/windows"
+origin = "~/sp11-windows-dumps, extracted from this Surface Pro 11 (Windows 11, arm64)"
+manifest = "MANIFEST.sha256"
+manifest_sha256 = "3fd57d73e423a6c64210d440a0f254c596b3763f7ffd5e0b9b74d4923cba69c8"
+pnp_present_sha256 = "7c6c4ab8a82ee2b5b1df32407ff69e1f7bf72fdda8ba4fe4c8adc550006e772b"
+dsdt_aml_sha256 = "7df886d8f79964f9b16f428fc889892d7706c8e6e59710f531537c2b003e4ea7"
+dsdt_dsl_sha256 = "8a7b849b9ac2148a9806d967612eb0d5195020c3e29ffd834b837767256a8ede"
+driver_inventory_sha256 = "e5265e4dba11c5bc0cc7bcad63fa78124e00e5dca29b9ca1bd7a75fd0046ed64"
+authenticity = "verified 2026-10-23: 243/243 catalogs WHQL-signed, 778/778 files match catalog hashes"
+
+[linux]
+path = "sources/linux"
+url = "https://github.com/juniorverli/sp11-linux.git"
+tag = "v7.3"
+commit = "c03c1a14507dfaf8b856c2608f9ac216021fc222"
+
+[fedora]
+release = 44
+arch = "aarch64"
+# Pinned by the image worker when the first ISO is built: compose ID, linux-firmware and mesa NEVRAs.
+
+[tools]
+# Found installed on 2026-10-23; the sources worker verifies and pins hashes.
+rea = "~/tools/rea/node_modules/.bin/rea, version 6.7.0-surface.xtensa.1 (local patched build of npm rea-agents 6.7.0)"
+ghidra = "~/tools/ghidra_12.1.4_PUBLIC"
+jdk = "~/tools/jdk-21.0.12.1+1"
+rea_mcp_registered_for_this_repo = false

@@ -1,0 +1,19 @@
+id = "wwan"
+name = "5G modem (SDX65) and GNSS"
+phase = 99
+status = "absent"
+depends_on = []
+updated = "2026-10-23"
+
+[windows]
+hardware_ids = []  # none present: no WWAN, MHI 17CB:0308 or GNSS device in pnp-present.json; TCON capsule is the Wi-Fi-only LCD variant
+packages = ["qcwwanpowerdown", "surface_mbbnetadapter", "surface_mbbfwupdatedriver", "surface_mhihost", "surface_qmuxmdm", "surface_gnss", "surface_5gnrcoexmgr", "surface_5gnrcoexmgr_ext", "surface_thermalmdm", "hidtelephonydriver"]
+
+[linux]
+drivers = []
+dt = []
+native = "n/a"
+gaps = []
+
+[firmware]
+needs = []

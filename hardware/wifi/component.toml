@@ -1,0 +1,19 @@
+id = "wifi"
+name = "Wi-Fi: Qualcomm WCN7850 (FastConnect 7800) on PCIe4, ath12k"
+phase = 2
+status = "survey"
+depends_on = ["soc-boot"]
+updated = "2026-10-23"
+
+[windows]
+hardware_ids = ["PCI\\VEN_17CB&DEV_1107", "ACPI\\VEN_QCOM&DEV_0CD5 (WLAN thermal)", "ACPI\\VEN_QCOM&DEV_0CFC (WLAN limits)"]
+packages = ["qcwlanhmt8380", "qcwlanhmt_ext8380", "surfacesarmanager", "surfaceradiotelemetrydriver"]
+
+[linux]
+drivers = ["net/wireless/ath/ath12k", "power/sequencing pwrseq-qcom-wcn"]
+dt = ["x1-microsoft-denali.dtsi &pcie4_port0 wifi@0 (pci17cb,1107), wcn7850-pmu"]
+native = "full"
+gaps = ["board data file selection (Fedora board-2.bin vs Windows bdwlan_*.elf)", "SAR / regulatory power tables"]
+
+[firmware]
+needs = ["ath12k/WCN7850/hw2.0/* from linux-firmware", "board data (TBD)"]

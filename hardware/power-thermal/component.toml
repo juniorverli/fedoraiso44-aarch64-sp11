@@ -1,0 +1,19 @@
+id = "power-thermal"
+name = "Thermal zones, limits and policies, fuel-gauge BCL, suspend (s2idle), power meters"
+phase = 4
+status = "survey"
+depends_on = ["soc-boot", "ec-sam"]
+updated = "2026-10-23"
+
+[windows]
+hardware_ids = ["ACPI\\VEN_QCOM&DEV_0C5A/0C58/0C59/0C91/0CBF/0D01 (temperature)", "ACPI\\VEN_QCOM&DEV_0C5E..0C64 (ADC TM)", "ACPI\\VEN_QCOM&DEV_0CF2..0CF6 (CPU parking/DCVS)", "ACPI\\VEN_QCOM&DEV_0C77 (FGBCL)", "ACPI\\VEN_QCOM&DEV_0C11 (ADC)", "ACPI\\VEN_QCOM&DEV_06E5 (subsystem thermal)", "ACPI\\VEN_MSHW&DEV_0187/0188 (Surface thermal)"]
+packages = ["qcpep.wd8380", "qcadc8380", "qcfgbcl8380", "qcfgbclext8380", "qcsubsysthermalmgr", "mstemperaturesensor", "surfacethermalpolicy", "surfacepowermeterdriver", "surfacepowertrackercore"]
+
+[linux]
+drivers = ["thermal/qcom/tsens", "thermal/qcom/lmh", "iio/adc/qcom-spmi-adc5-gen3", "cpuidle-psci", "qcom-pdc"]
+dt = ["hamoa.dtsi thermal-zones"]
+native = "partial"
+gaps = ["Windows trip points and limits not mapped to Linux zones", "fan control path (SAM)", "s2idle wake sources", "BCL"]
+
+[firmware]
+needs = []

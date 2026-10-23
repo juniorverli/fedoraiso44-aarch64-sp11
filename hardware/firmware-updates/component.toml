@@ -1,0 +1,19 @@
+id = "firmware-updates"
+name = "Device firmware updates: UEFI, SAM, TCON, retimers, Touch G6, Type Cover, pen, NVMe, docks"
+phase = 99
+status = "survey"
+depends_on = []
+updated = "2026-10-23"
+
+[windows]
+hardware_ids = ["UEFI\\RES_{4a5d1268-...} (UEFI)", "UEFI\\RES_{632cbe1c-...} (SAM)", "UEFI\\RES_{82e97d6d-...} (TCON)", "UEFI\\RES_{81a1a6b3-...} (SMF)", "UEFI\\RES_{1da748b0-...} (DPP)", "HID MSHW0484 Col06/Col08 (touch/pen)", "HID Target_KIP Col02 (Type Cover)"]
+packages = ["surface_uefi", "surface_uefi_stpm", "surfacenullcapsule", "surfacetconwifionlylcd", "surfaceretimer0", "surfaceretimer1", "surface.smf.117.0.*", "surfacetouchg6fwupdateextnpackage*", "surfacetypecoverv7fwupdate", "surfacepen0c0ffirmwareupdate", "surfacestoragefwupdate*", "hidcfu (inbox)"]
+
+[linux]
+drivers = ["efi capsule loader / fwupd (UEFI ESRT)"]
+dt = []
+native = "partial"
+gaps = ["out of scope until the operator asks (risk S3)"]
+
+[firmware]
+needs = []

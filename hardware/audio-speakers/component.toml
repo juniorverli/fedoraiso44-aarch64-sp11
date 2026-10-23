@@ -1,0 +1,19 @@
+id = "audio-speakers"
+name = "Speakers: 2x WSA8845 on SoundWire, with speaker protection (SP + VI feedback) on the ADSP"
+phase = 3
+status = "survey"
+depends_on = ["dsp-subsystems"]
+updated = "2026-10-23"
+
+[windows]
+hardware_ids = ["MEDIA ADCM\\VEN_QCOM&DEV_0CE6&SUBSYS_MSHW0486&REV_0d (ACX audio)", "ADCM\\VEN_QCOM&DEV_0CC1&SUBSYS_MSHW0486&REV_0d", "AUCD\\VEN_QCOM&DEV_0C29&SUBSYS_MSHW0486&REV_0d", "ADSP\\VEN_QCOM&DEV_0C22&SUBSYS_MSHW0486&REV_0d (calibration manager)", "ADSP\\VEN_QCOM&DEV_0C0F (slimbus/soundwire)"]
+packages = ["qcaudminiport_base8380", "qcaudminiport_apo8380", "qcaucd8380", "surface_aucdext8380", "qcadcm8380", "surface_acsp8380", "surface_audiominiext8380", "qcasd8380", "qcasd_apo8380", "surface_asdext8380", "qcslimbus8380", "dax3_ext_qc", "surfaceapoextension", "surfaceaposwcinstaller", "surfaceihvaudiofilterdriver"]
+
+[linux]
+drivers = ["sound/soc/qcom/x1e80100.c", "codecs/wsa884x", "codecs/lpass-wsa-macro", "qdsp6 q6apm/audioreach (MODULE_ID_SPEAKER_PROTECTION, _VI)", "soundwire/qcom", "userspace: AudioReach topology, alsa-ucm-conf"]
+dt = ["x1-microsoft-denali.dtsi sound, &swr0 left_spkr/right_spkr, &lpass_tlmm"]
+native = "partial"
+gaps = ["protection graph (SP/VI) not wired in topology", "per-unit calibration (ACDB REV_0D) to Linux format", "VI capture path", "amplifier reset GPIO and port map are reference-design values", "UCM profile"]
+
+[firmware]
+needs = ["AudioReach topology for X1E80100-Microsoft-Surface-Pro-11", "speaker calibration data"]

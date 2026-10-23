@@ -1,0 +1,6 @@
+# Kernel base. Owner: kernel worker.
+url = "https://github.com/juniorverli/sp11-linux.git"
+tag = "v7.3"
+commit = "c03c1a14507dfaf8b856c2608f9ac216021fc222"
+dtb = "qcom/x1p64100-microsoft-denali.dtb"
+localversion = ".sp11"

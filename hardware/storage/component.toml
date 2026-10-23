@@ -1,0 +1,19 @@
+id = "storage"
+name = "NVMe SSD (WD SN740 SDDPTQD-512G) on PCIe6a"
+phase = 2
+status = "survey"
+depends_on = ["soc-boot"]
+updated = "2026-10-23"
+
+[windows]
+hardware_ids = ["PCI\\VEN_15B7&DEV_5015&SUBSYS_501515B7"]
+packages = ["stornvme (inbox)", "surfacestoragefwupdate* (firmware update only)"]
+
+[linux]
+drivers = ["pci/controller/dwc/pcie-qcom", "phy-qcom-qmp-pcie", "nvme"]
+dt = ["x1-microsoft-denali.dtsi &pcie6a, &pcie6a_phy, &pcie6a_port0"]
+native = "full"
+gaps = ["install target alongside Windows: partition plan and BitLocker (risk S4)"]
+
+[firmware]
+needs = []

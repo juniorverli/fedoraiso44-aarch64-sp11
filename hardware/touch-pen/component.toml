@@ -1,0 +1,19 @@
+id = "touch-pen"
+name = "Touchscreen and pen: MSHW0484 HID over SPI (Surface Touch G6)"
+phase = 2
+status = "survey"
+depends_on = ["soc-boot"]
+updated = "2026-10-23"
+
+[windows]
+hardware_ids = ["ACPI\\VEN_MSHW&DEV_0484&REV_0001", "HID\\VEN_MSHW&DEV_0484&REV_0001&Col01..Col0A", "ACPI\\VEN_QCOM&DEV_0C0E&SUBSYS_MSHW0489 (SPI)"]
+packages = ["hidspi_km (inbox)", "qcspi8380", "surfacedigitizerwotextnpackage", "surfacetouchg6fwupdateextnpackage0c80", "surfacetouchg6fwupdateextnpackage0c83", "surfacetouchpenprocessor0c80update", "surfacetouchpenprocessor0c83update", "surfacepenblelcaddradaptationdriver", "surfacepen0c0ffirmwareupdate", "surfacepenwirelesschargerhotkey"]
+
+[linux]
+drivers = ["spi-geni-qcom"]
+dt = []
+native = "none"
+gaps = ["no HID-over-SPI driver in 7.3", "no DT node for the touch controller", "GENI SE may come up unprogrammed (protocol 0)", "SPI speed, IRQ, reset and supply GPIOs from ACPI _CRS/_PS0/_RST"]
+
+[firmware]
+needs = ["qcom/x1e80100/qupv3fw.elf (if the SPI engine is unprogrammed)"]

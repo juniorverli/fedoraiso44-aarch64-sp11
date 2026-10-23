@@ -1,0 +1,4 @@
+# Integrated patch series, applied in order on top of kernel/base.toml.
+# Owner: kernel worker. Each line is a path relative to the repository root,
+# pointing into hardware/<component>/patches/. Empty until phase 1 patches
+# are approved.

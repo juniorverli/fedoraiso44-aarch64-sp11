@@ -1,0 +1,19 @@
+id = "security-tpm"
+name = "TPM 2.0 (Pluton / TrEE over QSEECOM), secure apps, UEFI variables, Secure Boot"
+phase = 4
+status = "survey"
+depends_on = ["soc-boot"]
+updated = "2026-10-23"
+
+[windows]
+hardware_ids = ["Root\\PlutonQc", "{1F75CF6D-...}\\TrEETPM", "ACPI\\VEN_QCOM&DEV_0CE4 (secapp)", "ACPI\\VEN_QCOM&DEV_0C87 / 0C8D (secure processor)", "ACPI\\VEN_QCOM&DEV_0CAC (secure kernel ext)"]
+packages = ["plutonqc", "qctree", "qctree_i", "qctreeextqcom8380", "qcsecapp", "qcscm", "qcskext8380", "qcssgservicesumd", "qcconnectionsecurity8380", "qcrpen", "qcsocpartition", "surface_uefi_stpm"]
+
+[linux]
+drivers = ["firmware/qcom/qcom_scm", "qcom_qseecom", "qcom_qseecom_uefisecapp (microsoft,denali allowlisted)"]
+dt = []
+native = "partial"
+gaps = ["no TPM driver over the QSEE TPM app", "TPM2 ACPI table start method not supported by tpm_crb"]
+
+[firmware]
+needs = []

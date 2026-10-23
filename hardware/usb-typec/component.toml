@@ -1,0 +1,19 @@
+id = "usb-typec"
+name = "Two USB-C ports: DWC3, PS8830 retimers, pmic-glink UCSI, DisplayPort Alt Mode, charging"
+phase = 2
+status = "survey"
+depends_on = ["soc-boot", "dsp-subsystems"]
+updated = "2026-10-23"
+
+[windows]
+hardware_ids = ["ACPI\\VEN_QCOM&DEV_0C8B", "ACPI\\VEN_QCOM&DEV_0C8C", "ACPI\\VEN_QCOM&DEV_0D08 (multiport xHCI)", "ACPI\\VEN_QCOM&DEV_0CA4 (Type-C)", "ACPI\\VEN_USB&DEV_C000 (UCSI)", "UEFI\\RES_{05575d61-...} / {59b50971-...} (retimers)"]
+packages = ["qcusbcucsi8380", "surfaceucmucsihidclient", "qcxhcifilter8380", "qcusbfnssfilter8380", "surfaceretimer0", "surfaceretimer1", "surfaceude"]
+
+[linux]
+drivers = ["usb/dwc3/dwc3-qcom", "phy-qcom-qmp-combo", "phy-qcom-eusb2 + smb2360 repeater", "typec/mux/ps883x", "soc/qcom/pmic_glink_altmode", "typec/ucsi/ucsi_glink", "drm/msm/dp (DP0/DP1)"]
+dt = ["x1-microsoft-denali.dtsi pmic-glink connectors, &i2c3/&i2c7 typec-mux@8, &usb_1_ss0/1, &mdss_dp0/1"]
+native = "partial"
+gaps = ["retimer 1 reset line has no pinctrl state", "multiport controller QCOM0D08 purpose on this chassis", "dr_mode host only (no gadget)"]
+
+[firmware]
+needs = []

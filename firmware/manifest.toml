@@ -1,0 +1,83 @@
+# Firmware manifest. Owner: firmware worker.
+# Maps a Windows file (by DriverStore path and SHA-256) or a linux-firmware file
+# to the path the Linux 7.3 kernel requests. No binary is ever stored in git.
+# The image worker copies files from sources/windows into the ISO, locally only.
+#
+# origin = "driverstore" | "linux-firmware"
+# status = "needed" | "mapped" | "verified-on-device"
+
+[[blob]]
+component = "gpu"
+linux_path = "qcom/x1e80100/microsoft/qcdxkmsuc8380.mbn"
+requested_by = "sources/linux/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi (&gpu_zap_shader firmware-name)"
+origin = "driverstore"
+source = "DriverStore/qcdx8380.inf_arm64_34a2c09c0e5b25ac/qcdxkmsuc8380.mbn"
+sha256 = "950f17eb439326548cba20603b30cda653d612d1564feb397ddbd92987f0e8ac"
+phase = 1
+status = "mapped"
+
+[[blob]]
+component = "gpu"
+linux_path = "qcom/gen70500_sqe.fw"
+requested_by = "sources/linux/drivers/gpu/drm/msm/adreno/a6xx_catalog.c (chip 0x43050c01)"
+origin = "linux-firmware"
+phase = 1
+status = "needed"   # confirm the Fedora 44 linux-firmware NEVRA ships it
+
+[[blob]]
+component = "gpu"
+linux_path = "qcom/gen70500_gmu.bin"
+requested_by = "sources/linux/drivers/gpu/drm/msm/adreno/a6xx_catalog.c (chip 0x43050c01)"
+origin = "linux-firmware"
+phase = 1
+status = "needed"
+
+[[blob]]
+component = "dsp-subsystems"
+linux_path = "qcom/x1e80100/microsoft/Denali/qcadsp8380.mbn"
+requested_by = "x1-microsoft-denali.dtsi (&remoteproc_adsp firmware-name)"
+origin = "driverstore"
+source = "DriverStore/surfacepro_ext_adsp8380.inf_arm64_3cc952aaca3564ae/qcadsp8380.mbn"
+sha256 = "921870a839ee2aba647b04598d62ed96f3d2d5dfbb2499fc842f9a6ff0e0da13"
+phase = 1
+status = "mapped"
+
+[[blob]]
+component = "dsp-subsystems"
+linux_path = "qcom/x1e80100/microsoft/Denali/adsp_dtb.mbn"
+requested_by = "x1-microsoft-denali.dtsi (&remoteproc_adsp firmware-name)"
+origin = "driverstore"
+source = "DriverStore/surfacepro_ext_adsp8380.inf_arm64_3cc952aaca3564ae/adsp_dtbs.elf"
+sha256 = "544bd795cb06cf8dee8119ede2a667f01066b2f1b9e4348f1772d080e2026ff4"
+phase = 1
+status = "mapped"   # name differs: Windows adsp_dtbs.elf, Linux adsp_dtb.mbn (Inference: same content)
+
+[[blob]]
+component = "dsp-subsystems"
+linux_path = "qcom/x1e80100/microsoft/Denali/qccdsp8380.mbn"
+requested_by = "x1-microsoft-denali.dtsi (&remoteproc_cdsp firmware-name)"
+origin = "driverstore"
+source = "DriverStore/qcnspmcdm_ext_cdsp8380.inf_arm64_4a8c3ebe3aad408a/qccdsp8380.mbn"
+sha256 = "4a67a03367f2eff2f8a0e867ca25d2bf2fcd5aee3e41e2c9f436c804e257c789"
+phase = 1
+status = "mapped"
+
+[[blob]]
+component = "dsp-subsystems"
+linux_path = "qcom/x1e80100/microsoft/Denali/cdsp_dtb.mbn"
+requested_by = "x1-microsoft-denali.dtsi (&remoteproc_cdsp firmware-name)"
+origin = "driverstore"
+source = "DriverStore/qcnspmcdm_ext_cdsp8380.inf_arm64_4a8c3ebe3aad408a/cdsp_dtbs.elf"
+sha256 = "93941f040da14b8305d39579686d886706d22954a538b03da676c1aaa191797f"
+phase = 1
+status = "mapped"
+
+[[blob]]
+component = "dsp-subsystems"
+linux_path = "qcom/x1e80100/microsoft/Denali/battmgr.jsn"
+requested_by = "pd-mapper / qrtr userspace (TBD which path it reads)"
+origin = "driverstore"
+source = "DriverStore/surfacepro_ext_adsp8380.inf_arm64_3cc952aaca3564ae/battmgr.jsn"
+sha256 = "b8aad1d149128f414eb1fd6fcbb6e0a5b7dabcd2cba001599e1ce9a0e2e291a4"
+phase = 1
+status = "needed"   # with adspr.jsn, adsps.jsn, adspua.jsn, cdspr.jsn; firmware worker confirms

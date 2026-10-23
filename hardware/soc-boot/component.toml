@@ -1,0 +1,19 @@
+id = "soc-boot"
+name = "SoC bring-up: CPUs, PSCI, cpufreq, idle, clocks, interconnect, SMMU, GPIO, PMICs"
+phase = 1
+status = "survey"
+depends_on = []
+updated = "2026-10-23"
+
+[windows]
+hardware_ids = ["ACPI\\VEN_ACPI&DEV_0007 (x10)", "ACPI\\VEN_QCOM&DEV_0C17", "ACPI\\VEN_QCOM&DEV_0C09", "ACPI\\VEN_QCOM&DEV_068F", "ACPI\\VEN_QCOM&DEV_0C0C", "ACPI\\VEN_QCOM&DEV_0C2B", "ACPI\\VEN_QCOM&DEV_0C2D", "ACPI\\VEN_QCOM&DEV_0C0B", "ACPI\\VEN_QCOM&DEV_0C83", "ACPI\\VEN_QCOM&DEV_04DD"]
+packages = ["qcpep.wd8380", "qcppx8380", "qcsmmu8380", "qciommu", "qcgpio8380", "qcpmic8380", "qcpmicgpio8380", "qcpmicapps8380", "qcpmicext8380", "qcspmi8380", "qcscm", "qcsyscache8380", "qcgpi8380", "qci2c8380", "qcspi8380", "qcuart8380", "qcipcc8380", "qcglink8380"]
+
+[linux]
+drivers = ["psci", "cpufreq/scmi-cpufreq", "cpuidle-psci", "clk/qcom/gcc-x1e80100", "interconnect/qcom/x1e80100", "arm-smmu", "pinctrl-x1e80100", "pinctrl-spmi-gpio", "spmi-pmic-arb", "qcom_scm", "geni-se"]
+dt = ["arch/arm64/boot/dts/qcom/hamoa.dtsi", "arch/arm64/boot/dts/qcom/x1p64100-microsoft-denali.dts"]
+native = "partial"
+gaps = ["hamoa.dtsi describes 12 CPUs, X1P64100 has 10", "idle-state safety on this firmware unverified", "kernel command line (clk_ignore_unused / pd_ignore_unused) need unknown"]
+
+[firmware]
+needs = ["qcom/x1e80100/qupv3fw.elf (GENI engines, if unprogrammed)"]

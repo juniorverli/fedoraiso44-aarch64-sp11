@@ -1,0 +1,19 @@
+id = "video-codec"
+name = "Iris video decoder/encoder (and the separate AV1 encoder)"
+phase = 4
+status = "survey"
+depends_on = ["soc-boot"]
+updated = "2026-10-23"
+
+[windows]
+hardware_ids = ["part of ACPI\\VEN_QCOM&DEV_0C36 (GPU/display device)"]
+packages = ["qcdx8380 (qcvss8380.mbn, qcav1e8380.mbn, video MFTs)"]
+
+[linux]
+drivers = ["media/platform/qcom/iris (matches qcom,sm8550-iris)"]
+dt = ["hamoa.dtsi iris: video-codec@aa00000, qcom,x1e80100-iris + qcom,sm8550-iris, status disabled"]
+native = "partial"
+gaps = ["node disabled in Denali", "firmware name and signing (Windows qcvss8380.mbn vs linux-firmware vpu file)", "AV1 encoder has no Linux driver"]
+
+[firmware]
+needs = ["Iris firmware (TBD name)"]

@@ -1,0 +1,19 @@
+id = "usb4"
+name = "USB4 / Thunderbolt host router and tunnels"
+phase = 4
+status = "survey"
+depends_on = ["usb-typec"]
+updated = "2026-10-23"
+
+[windows]
+hardware_ids = ["ACPI\\VEN_QCOM&DEV_0C6D (USB4 host router bus)"]
+packages = ["qcusb4bus8380", "qcusb4filter8380", "surfaceusb4dockfwupdate", "surfacethunderbolt4dockfwupdate", "surfacedock2fwupdate"]
+
+[linux]
+drivers = ["thunderbolt (no Qualcomm host router glue)"]
+dt = []
+native = "none"
+gaps = ["host router driver", "PCIe/DP tunnel root complexes", "large reverse-engineering effort"]
+
+[firmware]
+needs = []
