@@ -39,7 +39,8 @@ clearpart --all
 part / --size 8576 --fstype ext4
 services --enabled=NetworkManager,ModemManager --disabled=sshd
 network --bootproto=dhcp --device=link --activate
-rootpw --lock --iscrypted locked
+# no password hash: shadow-utils 4.19 chpasswd -e rejects the placeholder "!locked" ("invalid password hash")
+rootpw --lock
 shutdown
 
 # Repositories. SP11: Fedora 44 hard-coded (no $releasever), Fedora's kernels are excluded
@@ -104,6 +105,8 @@ grub2-efi-aa64
 grub2-efi-aa64-cdboot
 shim-aa64
 efibootmgr
+# SP11: ausearch for the SELinux AVC capture of the log collector (D15)
+audit
 grub2-tools
 grub2-tools-extra
 
@@ -190,7 +193,7 @@ rm -f /var/lib/systemd/random-seed
 echo 'File created by kickstart. See systemd-update-done.service(8).' \
     | tee /etc/.updated >/var/.updated
 rm -f /boot/*-rescue*
-systemctl disable network
+systemctl disable network || true   # F44 has no network.service (legacy initscripts); set -e would abort
 rm -f /etc/machine-id
 touch /etc/machine-id
 

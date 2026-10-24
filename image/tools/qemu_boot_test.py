@@ -32,7 +32,8 @@ FATAL = [
     (rb"Kernel panic - not syncing", "kernel panic"),
     (rb"[Ee]mergency mode", "emergency mode"),
     (rb"Dropping to debug shell", "dracut debug shell"),
-    (rb"dracut-emergency", "dracut emergency"),
+    # not the bare unit name: systemd debug (kernel arg "debug") lists dracut-emergency.service at every boot
+    (rb"Starting dracut-emergency\.service|Starting Dracut Emergency Shell|Generating \"/run/initramfs/rdsosreport\.txt\"", "dracut emergency"),
     (rb"Warning: .*could not boot", "dracut: could not boot"),
 ]
 

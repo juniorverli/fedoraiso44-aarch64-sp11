@@ -13,6 +13,7 @@ RUN dnf -y --setopt=install_weak_deps=False install \
         squashfs-tools erofs-utils createrepo_c cpio kmod rpm-build \
         dtc edid-decode v4l-utils \
         qemu-system-aarch64-core qemu-img edk2-aarch64 \
+        qemu-device-display-virtio-gpu qemu-device-display-virtio-gpu-pci qemu-device-usb-host \
         python3 python3-pexpect jq git curl tar xz zstd file findutils procps-ng \
  && dnf clean all
 
