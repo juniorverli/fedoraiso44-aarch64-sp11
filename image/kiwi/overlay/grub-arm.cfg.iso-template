@@ -8,11 +8,10 @@
 #   - `set default=0` and timeout_style=menu with a fixed timeout: the menu is always shown;
 #   - every device entry has a `devicetree` line (GRUB 2 command, D9); the VM test entry has none;
 #   - every entry has sp11.entry=<id>; only the VM entry adds the serial console (D15);
-#   - kernel arguments are ${boot_options}: kiwi's live options (root=live:CDLABEL=..., rd.live.image)
-#     plus the verbose kernelcmdline patched into components/liveinstall.xml (no quiet, no rhgb).
-# This is a Python string.Template of kiwi: $$ is a literal dollar sign for GRUB.
-# scripts/image-build.sh and scripts/image-test-static.sh fail when `quiet`, `rhgb` or `splash`
-# reach any grub.cfg of the ISO.
+#   - the common kernel arguments are kiwi's boot options: its live options (root=live:CDLABEL, rd.live.image)
+#     plus the verbose kernelcmdline patched into components/liveinstall.xml (patch 0002).
+# This file is a Python string.Template of kiwi, so a double dollar sign stands for a GRUB dollar sign.
+# The build script and image-test-static.sh fail when a forbidden boot word (see README) reaches any grub.cfg.
 
 function load_video {
 	insmod efi_gop

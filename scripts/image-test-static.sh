@@ -45,6 +45,9 @@ skip() { nskip=$((nskip + 1)); say "SKIP $1: $2"; }
 jq_() { jq -r "$1" "$rec"; }
 
 smoke=$(jq_ '.smoke')
+# D16: the record says which builder made the ISO. kiwi and livemedia-creator lay the media out
+# differently; each difference below is marked "kiwi:" and listed in image/README.md ("L0 on kiwi").
+builder=$(jq_ '.builder // "lmc"')
 dtb=$(jq_ '.dtb')
 want_nevra=$(jq_ '.kernel_nevra')
 say "L0 static checks: $name (sha256 in record: $(jq_ '.iso_sha256' | cut -c1-16)..., smoke=$smoke)"
@@ -60,11 +63,26 @@ x() { xorriso -osirrox on -indev "$iso" -extract "$1" "$2" >/dev/null 2>&1; }
 rm -rf "$W/iso-tree"
 mkdir -p "$W/iso-tree"
 x /EFI "$W/iso-tree/EFI"
-x /images "$W/iso-tree/images-small" # includes pxeboot and efiboot.img (squashfs is under /LiveOS)
-for f in .treeinfo .discinfo; do x "/$f" "$W/iso-tree/$f"; done
-chmod -R u+rw "$W/iso-tree" 2>/dev/null
-pxe=$W/iso-tree/images-small/pxeboot
-esp_img=$W/iso-tree/images-small/efiboot.img
+if [ "$builder" = kiwi ]; then
+	# kiwi: kernel, initrd, DTB and the real grub.cfg are under /boot; the embedded ESP is only
+	# the GPT partition 2 / El Torito image (no /images/efiboot.img)
+	x /boot "$W/iso-tree/boot"
+	chmod -R u+rw "$W/iso-tree" 2>/dev/null
+	kimg=$W/iso-tree/boot/aarch64/loader/linux
+	initrd_img=$W/iso-tree/boot/aarch64/loader/initrd
+	rm -rf "$W/boot-images"
+	xorriso -osirrox on -indev "$iso" -extract_boot_images "$W/boot-images/" >/dev/null 2>&1
+	esp_img=$W/boot-images/eltorito_img1_uefi.img
+	dtb_iso_path=/boot/dtb/$dtb
+else
+	x /images "$W/iso-tree/images-small" # includes pxeboot and efiboot.img (squashfs is under /LiveOS)
+	for f in .treeinfo .discinfo; do x "/$f" "$W/iso-tree/$f"; done
+	chmod -R u+rw "$W/iso-tree" 2>/dev/null
+	kimg=$W/iso-tree/images-small/pxeboot/vmlinuz
+	initrd_img=$W/iso-tree/images-small/pxeboot/initrd.img
+	esp_img=$W/iso-tree/images-small/efiboot.img
+	dtb_iso_path=/images/pxeboot/dtb/$dtb
+fi
 
 # ---------------------------------------------------------------- check 1 ----
 xorriso -indev "$iso" -report_el_torito plain >"$W/eltorito.txt" 2>&1
@@ -78,7 +96,7 @@ fi
 sgdisk -i 2 "$iso" >"$W/gpt2.txt" 2>&1
 start=$(awk -F'[: ]+' '/First sector/{print $3}' "$W/gpt2.txt")
 if [ -n "$start" ] && [ -f "$esp_img" ] && dd if="$iso" bs=512 skip="$start" count=$(($(stat -c %s "$esp_img") / 512)) status=none 2>/dev/null | cmp -s - "$esp_img"; then
-	pass 1.3 "GPT partition 2 is identical to images/efiboot.img"
+	pass 1.3 "GPT partition 2 is identical to the El Torito/efiboot ESP image"
 else
 	fail 1.3 "GPT partition 2 differs from images/efiboot.img (start sector '${start:-?}')"
 fi
@@ -88,16 +106,38 @@ if checkisomd5 "$iso" >"$W/checkisomd5.txt" 2>&1; then pass 1.4 "checkisomd5 pas
 cfg_iso=$W/iso-tree/EFI/BOOT/grub.cfg
 cfg_esp=$W/esp-grub.cfg
 mcopy -n -i "$esp_img" ::EFI/BOOT/grub.cfg "$cfg_esp" 2>/dev/null
-for pair in "iso:$cfg_iso" "esp:$cfg_esp"; do
-	tag=${pair%%:*} cfg=${pair#*:}
-	[ -s "$cfg" ] || { fail 2.1 "$tag grub.cfg missing"; continue; }
-	if grep -v '^[[:space:]]*#' "$cfg" | grep -w -E 'quiet|rhgb|splash' >/dev/null; then fail 2.1 "$tag grub.cfg has quiet/rhgb/splash"; else pass 2.1 "$tag grub.cfg has no quiet/rhgb/splash"; fi
-	if grep -q '^set timeout_style=menu' "$cfg" && grep -E '^set timeout=[1-9]' "$cfg" >/dev/null; then pass 2.2 "$tag grub.cfg shows the menu (timeout_style=menu, timeout>0)"; else fail 2.2 "$tag grub.cfg may hide the menu"; fi
-done
-cmp -s "$cfg_iso" "$cfg_esp" && pass 2.3 "ISO and ESP grub.cfg are identical" || fail 2.3 "ISO and ESP grub.cfg differ"
-# any other grub.cfg anywhere in the ISO
-other=$(xorriso -indev "$iso" -find / -name 'grub*.cfg' 2>/dev/null | grep -v -E "^'/EFI/BOOT/grub.cfg'$" || true)
-[ -z "$other" ] && pass 2.4 "no other grub.cfg in the ISO" || fail 2.4 "other grub config: $other"
+if [ "$builder" = kiwi ]; then
+	# kiwi: the menu lives in /boot/grub2/grub.cfg on the ISO file system. The ISO's EFI/BOOT and
+	# EFI/fedora grub.cfg and the one in the embedded ESP are stubs: `search` + `configfile` to it.
+	cfg_main=$W/iso-tree/boot/grub2/grub.cfg
+	x /EFI/fedora/grub.cfg "$W/iso-tree/EFI/fedora-grub.cfg"
+	for pair in "iso-EFI/BOOT:$cfg_iso" "iso-EFI/fedora:$W/iso-tree/EFI/fedora-grub.cfg" "esp:$cfg_esp" "main:$cfg_main"; do
+		tag=${pair%%:*} cfg=${pair#*:}
+		[ -s "$cfg" ] || { fail 2.1 "$tag grub.cfg missing"; continue; }
+		if grep -v '^[[:space:]]*#' "$cfg" | grep -w -E 'quiet|rhgb|splash' >/dev/null; then fail 2.1 "$tag grub.cfg has quiet/rhgb/splash"; else pass 2.1 "$tag grub.cfg has no quiet/rhgb/splash"; fi
+	done
+	grep -q '^set timeout_style=menu' "$cfg_main" && grep -E '^set timeout=[1-9]' "$cfg_main" >/dev/null && pass 2.2 "main grub.cfg shows the menu (timeout_style=menu, timeout>0)" || fail 2.2 "main grub.cfg may hide the menu"
+	stub_ok=1
+	for c in "$cfg_iso" "$W/iso-tree/EFI/fedora-grub.cfg" "$cfg_esp"; do
+		grep -v '^[[:space:]]*$' "$c" | grep -q -v -E '^(search --file --set=root /boot/|set prefix=\(\$root\)/boot/grub2$|configfile \(\$root\)/boot/grub2/grub.cfg$)' && stub_ok=0
+	done
+	[ "$stub_ok" = 1 ] && pass 2.3 "the three EFI grub.cfg are stubs that chain to /boot/grub2/grub.cfg" || fail 2.3 "an EFI grub.cfg is more than a chain stub"
+	other=$(xorriso -indev "$iso" -find / -name '*.cfg' 2>/dev/null | grep -i grub | grep -v -E "^'/(EFI/BOOT/grub.cfg|EFI/fedora/grub.cfg|boot/grub2/grub.cfg|boot/grub2/loopback.cfg)'$" || true)
+	[ -z "$other" ] && pass 2.4 "no other grub config in the ISO (loopback.cfg only sources the main one)" || fail 2.4 "other grub config: $other"
+	[ "$(grep -c . "$W/iso-tree/boot/grub2/loopback.cfg")" = 1 ] && grep -q '^source /boot/grub2/grub.cfg$' "$W/iso-tree/boot/grub2/loopback.cfg" || fail 2.4 "loopback.cfg is not a plain source line"
+	cfg_esp=$cfg_main   # the entry checks below read the main config
+else
+	for pair in "iso:$cfg_iso" "esp:$cfg_esp"; do
+		tag=${pair%%:*} cfg=${pair#*:}
+		[ -s "$cfg" ] || { fail 2.1 "$tag grub.cfg missing"; continue; }
+		if grep -v '^[[:space:]]*#' "$cfg" | grep -w -E 'quiet|rhgb|splash' >/dev/null; then fail 2.1 "$tag grub.cfg has quiet/rhgb/splash"; else pass 2.1 "$tag grub.cfg has no quiet/rhgb/splash"; fi
+		if grep -q '^set timeout_style=menu' "$cfg" && grep -E '^set timeout=[1-9]' "$cfg" >/dev/null; then pass 2.2 "$tag grub.cfg shows the menu (timeout_style=menu, timeout>0)"; else fail 2.2 "$tag grub.cfg may hide the menu"; fi
+	done
+	cmp -s "$cfg_iso" "$cfg_esp" && pass 2.3 "ISO and ESP grub.cfg are identical" || fail 2.3 "ISO and ESP grub.cfg differ"
+	# any other grub.cfg anywhere in the ISO
+	other=$(xorriso -indev "$iso" -find / -name 'grub*.cfg' 2>/dev/null | grep -v -E "^'/EFI/BOOT/grub.cfg'$" || true)
+	[ -z "$other" ] && pass 2.4 "no other grub.cfg in the ISO" || fail 2.4 "other grub config: $other"
+fi
 titles=$(grep -o "^menuentry '[^']*'" "$cfg_esp" | sed "s/menuentry '//;s/'\$//")
 expect=$'SP11 debug\nSP11 debug + DRM trace\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)'
 [ "$titles" = "$expect" ] && pass 2.5 "exactly the five entries, in order" || fail 2.5 "entries differ: $(echo "$titles" | tr '\n' '|')"
@@ -105,12 +145,25 @@ expect=$'SP11 debug\nSP11 debug + DRM trace\nSP11 debug nomodeset\nSP11 debug, s
 bad=0
 awk '/^menuentry /{t=$0} /^\tdevicetree /{print $2 "\t" t}' "$cfg_esp" >"$W/dt-lines.txt"
 while IFS=$'\t' read -r path entry; do
+	path=${path#'($root)'}   # kiwi writes devicetree ($root)/boot/dtb/...
 	p=${path#/}
 	if xorriso -indev "$iso" -find "/$p" -type f 2>/dev/null | grep -q .; then :; else bad=1; fail 2.7 "devicetree target /$p missing ($entry)"; fi
 done <"$W/dt-lines.txt"
 sp11_entries=$(grep -c "^menuentry 'SP11" "$cfg_esp")
 [ "$(wc -l <"$W/dt-lines.txt")" -eq "$sp11_entries" ] && [ "$sp11_entries" -gt 0 ] || { bad=1; fail 2.7 "not every SP11 entry has a devicetree line"; }
 [ "$bad" = 0 ] && pass 2.7 "every SP11 entry has a devicetree line to a file that exists"
+# D15 / D9: every entry names itself on the command line; only the VM entry has the serial console
+ids_ok=1
+awk '/^menuentry /{t=$0} /^[[:space:]]+linux /{print t "\t" $0}' "$cfg_esp" >"$W/linux-lines.txt"
+while IFS=$'\t' read -r t l; do
+	id=$(echo "$t" | sed -n "s/.*--id sp11-\([a-z-]*\).*/\1/p")
+	case $id in drm-trace | debug | nomodeset | initramfs | vmtest) ;; *) ids_ok=0 ;; esac
+	want=$id; [ "$id" = drm-trace ] && want=drm-trace
+	case $l in *" sp11.entry=$want"*) ;; *) ids_ok=0; fail 2.12 "entry '$t' lacks sp11.entry=$want" ;; esac
+	case $l in *console=ttyAMA0*) [ "$id" = vmtest ] || { ids_ok=0; fail 2.12 "serial console on a device entry: $t"; } ;; *) [ "$id" != vmtest ] || { ids_ok=0; fail 2.12 "VM entry lacks the serial console"; } ;; esac
+	case $l in *" debug "*loglevel=8*ignore_loglevel*) ;; *) ids_ok=0; fail 2.12 "entry '$t' is not verbose (debug loglevel=8 ignore_loglevel)" ;; esac
+done <"$W/linux-lines.txt"
+[ "$ids_ok" = 1 ] && [ "$(wc -l <"$W/linux-lines.txt")" = 5 ] && pass 2.12 "every entry has sp11.entry=<id> and is verbose; serial console only on the VM entry"
 vm=$(awk '/^menuentry .VM test/{f=1} f&&/^[[:space:]]+devicetree /{print "x"}' "$cfg_esp")
 [ -z "$vm" ] && pass 2.8 "VM test entry has no devicetree" || fail 2.8 "VM test entry has a devicetree line"
 [ "$(grep -c "^menuentry '" "$cfg_esp")" = 5 ] && [ "$(grep '^set default' "$cfg_esp")" = "set default=0" ] && pass 2.9 "VM test entry is not the default"
@@ -147,7 +200,7 @@ rpm --root "$ROOT" -qla 2>/dev/null | sort >"$W/rpm-files.txt"
 
 # ---------------------------------------------------------------- check 3 ----
 dtbf=$W/denali.dtb
-x "/images/pxeboot/dtb/$dtb" "$dtbf"
+x "$dtb_iso_path" "$dtbf"
 if [ -s "$dtbf" ]; then
 	pass 3.1 "DTB $dtb present on the ISO"
 	if dtc -I dtb -O dts -o "$W/denali.dts" "$dtbf" 2>"$W/dtc.txt"; then pass 3.2 "DTB decompiles with dtc"; else fail 3.2 "dtc failed: $(head -n3 "$W/dtc.txt")"; fi
@@ -168,7 +221,7 @@ if [ -s "$dtbf" ]; then
 	fi
 	cmp -s "$dtbf" "$ROOT/lib/modules/$kver/dtb/$dtb" && pass 3.5 "ISO DTB equals the kernel package DTB" || fail 3.5 "ISO DTB differs from lib/modules/$kver/dtb/$dtb"
 else
-	fail 3.1 "DTB /images/pxeboot/dtb/$dtb missing"
+	fail 3.1 "DTB $dtb_iso_path missing"
 fi
 
 # ---------------------------------------------------------------- check 4 ----
@@ -177,8 +230,8 @@ got_nevra=$(rpm --root "$ROOT" -q kernel-core --qf '%{name}-%{version}-%{release
 if [ "$smoke" = false ]; then
 	ls "$OUT"/rpms/kernel-core-*.rpm >/dev/null 2>&1 && { rpm -qp --qf '%{name}-%{version}-%{release}.%{arch}\n' "$OUT"/rpms/kernel-core-*.rpm | grep -qx "$got_nevra" && pass 4.2 "kernel-core is the RPM of out/rpms" || fail 4.2 "kernel-core is not in out/rpms"; }
 fi
-cmp -s "$pxe/vmlinuz" "$ROOT/lib/modules/$kver/vmlinuz" && pass 4.3 "ISO kernel image equals lib/modules/$kver/vmlinuz" || fail 4.3 "ISO kernel image differs from the package"
-kimg_ver=$(python3 -I - "$pxe/vmlinuz" <<'PY'
+cmp -s "$kimg" "$ROOT/lib/modules/$kver/vmlinuz" && pass 4.3 "ISO kernel image equals lib/modules/$kver/vmlinuz" || fail 4.3 "ISO kernel image differs from the package"
+kimg_ver=$(python3 -I - "$kimg" <<'PY'
 import gzip, lzma, re, struct, sys
 d = open(sys.argv[1], 'rb').read()
 if d[4:8] == b'zimg':                       # EFI zboot: payload offset/size at 8/12, type at 24
@@ -229,7 +282,7 @@ else
 fi
 
 # ---------------------------------------------------------------- check 5 ----
-lsinitrd "$pxe/initrd.img" >"$W/initrd-list.txt" 2>&1
+lsinitrd "$initrd_img" >"$W/initrd-list.txt" 2>&1
 builtin=$ROOT/lib/modules/$kver/modules.builtin
 find "$ROOT/lib/modules/$kver" -type f \( -name '*.ko' -o -name '*.ko.*' \) 2>/dev/null | sed 's|.*/||;s|\.ko.*||;s|-|_|g' | sort -u >"$W/ko-names.txt"
 sed 's|.*/||;s|\.ko$||;s|-|_|g' "$builtin" 2>/dev/null | sort -u >"$W/builtin-names.txt"
@@ -312,6 +365,15 @@ macs=$(cd "$ROOT" && sed 's|^/||' "$W/unowned.txt" | xargs -r -d '\n' grep -I -H
 # only files not owned by an RPM: packaged text (the magic database mentions DriverStore) is not ours
 hits=$(cd "$ROOT" && sed 's|^/||' "$W/unowned.txt" | xargs -r -d '\n' grep -IlF -e 'sp11-windows-dumps' -e 'sources/windows' -e 'DriverStore' -e 'juniormverli' 2>/dev/null | head -n 5)
 [ -z "$hits" ] && pass 7.2 "no sources/windows path, DriverStore or host user name in any file not owned by an RPM" || fail 7.2 "private strings in: $hits"
+# RPM-owned files that %post or the overlay changed (orchestrator follow-up of the M2 report): rpm -Va
+# lists them; those whose content differs (flag 5) get the same scan as the unowned files.
+say "...rpm -Va on the image (a few minutes)"
+rpm --root "$ROOT" -Va >"$W/rpm-va.txt" 2>"$W/rpm-va.err"
+awk '$1 ~ /^..5/ {print $NF}' "$W/rpm-va.txt" | sort -u >"$W/rpm-modified.txt"
+mods=$(grep -c . "$W/rpm-modified.txt")
+mac_mod=$(cd "$ROOT" && sed 's|^/||' "$W/rpm-modified.txt" | xargs -r -d '\n' grep -I -H -o -E '\b([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b' 2>/dev/null | grep -v -i -E ':(00:00:00:00:00:00|ff:ff:ff:ff:ff:ff)$' | head -n 5)
+hits_mod=$(cd "$ROOT" && sed 's|^/||' "$W/rpm-modified.txt" | xargs -r -d '\n' grep -IlF -e 'sp11-windows-dumps' -e 'sources/windows' -e 'DriverStore' -e 'juniormverli' 2>/dev/null | head -n 5)
+[ -z "$mac_mod$hits_mod" ] && pass 7.4 "no MAC address or private string in the $mods RPM-owned files whose content rpm -Va reports changed ($(tr '\n' ' ' <"$W/rpm-modified.txt" | cut -c1-200))" || fail 7.4 "private strings in modified RPM files: $mac_mod $hits_mod"
 priv_iso=$(grep -rIlF -e 'sp11-windows-dumps' -e 'sources/windows' -e 'juniormverli' "$W/iso-tree" 2>/dev/null | head -n3)
 [ -z "$priv_iso" ] && pass 7.3 "no private string in the ISO boot files" || fail 7.3 "private strings in ISO boot files: $priv_iso"
 
@@ -329,7 +391,17 @@ for t in debug loglevel=8 ignore_loglevel; do grep -q "$t" "$ROOT/etc/default/gr
 # ------------------------------------------------------------ extra (D9) ----
 v=$(grep -s -w -E 'quiet|rhgb|splash' "$ROOT"/etc/default/grub "$ROOT"/etc/kernel/cmdline "$ROOT"/usr/lib/kernel/cmdline "$ROOT"/boot/loader/entries/*.conf 2>/dev/null | grep -v '^[^:]*:[[:space:]]*#' | head -n3)
 [ -z "$v" ] && pass 9.1 "no quiet/rhgb/splash in the installed-system boot configuration" || fail 9.1 "quiet/rhgb in: $v"
-rpm --root "$ROOT" -q plymouth >/dev/null 2>&1 && fail 9.2 "plymouth is installed" || pass 9.2 "plymouth is not installed"
+if [ "$builder" = kiwi ]; then
+	# kiwi: Fedora's package groups require plymouth, excluding it makes dnf5 fail; it is installed
+	# but off: units masked, and (check 5.4) not in the initramfs, rd.plymouth=0 on every entry
+	pm=0
+	for u in start quit quit-wait read-write switch-root halt reboot poweroff kexec; do
+		[ "$(readlink "$ROOT/etc/systemd/system/plymouth-$u.service")" = /dev/null ] || pm=1
+	done
+	[ "$pm" = 0 ] && pass 9.2 "plymouth units are masked (kiwi: the package stays installed)" || fail 9.2 "a plymouth unit is not masked"
+else
+	rpm --root "$ROOT" -q plymouth >/dev/null 2>&1 && fail 9.2 "plymouth is installed" || pass 9.2 "plymouth is not installed"
+fi
 rpm --root "$ROOT" -q qcom-firmware >/dev/null 2>&1 && pass 9.3 "qcom-firmware is installed" || fail 9.3 "qcom-firmware is not installed"
 for p in pd-mapper; do rpm --root "$ROOT" -q "$p" >/dev/null 2>&1 && fail 9.4 "$p is installed (obsolete in Fedora 44)"; done
 

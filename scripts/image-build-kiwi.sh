@@ -16,8 +16,10 @@ set -euo pipefail
 
 OUT=${SP11_OUT:-/out}
 REPO=/sp11
+name_arg= post_only=
+if [ "${1:-}" = --post-only ]; then post_only=${2:?build id}; shift 2; fi   # redo steps 7-9 of a finished kiwi run
 name_arg=${1:-}
-id=$(date -u +%Y%m%dT%H%M%SZ)
+id=${post_only:-$(date -u +%Y%m%dT%H%M%SZ)}
 name=${name_arg:-sp11-fedora44-aarch64-kiwi-$id}
 work=$OUT/image-work/$id
 isodir=$OUT/iso
@@ -25,6 +27,7 @@ mkdir -p "$work/tmp" "$isodir" "$OUT/kiwi"
 cd "$work"   # /sp11 is a worktree whose .git file points outside the container
 log() { echo "image-build[kiwi]: $*" >&2; }
 
+if [ -z "$post_only" ]; then
 # ---- 1. Fedora's description at the pinned commit
 pin=$(tr -d '[:space:]' <"$REPO/image/kiwi/DESCRIPTION_COMMIT")
 src=$OUT/kiwi/fedora-kiwi-descriptions.git
@@ -45,7 +48,7 @@ for p in "$REPO"/image/kiwi/patches/*.patch; do
 	patch -p1 --no-backup-if-mismatch -s <"$p"
 done
 cp -a "$REPO/image/overlay/." "$desc/root/"
-rm -f "$desc/root/etc/default/grub" "$desc/root/etc/sp11-log-collector.conf"   # lmc-only; the kiwi overlay has its own
+rm -f "$desc/root/etc/sp11-log-collector.conf"   # lmc-only; the kiwi overlay has its own (ESP label BOOT)
 cp -a "$REPO/image/kiwi/overlay/root/." "$desc/root/"
 cp -a "$REPO/image/kiwi/overlay/sp11.xml" "$REPO/image/kiwi/overlay/grub-arm.cfg.iso-template" "$desc/"
 chmod 0755 "$desc/root/usr/libexec/sp11-log-collector"
@@ -87,7 +90,7 @@ tar -C "$dtbtmp" -cf "$desc/config-cdroot.tar" boot
 # ---- 5. pins for the build record
 dnf -q repoinfo fedora updates --setopt=reposdir=/etc/yum.repos.d 2>/dev/null |
 	grep -E '^(Repo-id|Repo-revision|Repo-updated)' >"$work/repos.txt" || true
-
+echo "pin=$pin head=$head kver=$kver" >"$work/build-vars.env"
 # ---- 6. kiwi, through Fedora's own wrapper
 log "kiwi-ng via kiwi-build, log: $work/kiwi.log (several tens of minutes)"
 start=$(date +%s)
@@ -102,4 +105,91 @@ elapsed=$(($(date +%s) - start))
 iso=$(ls "$work"/out-build/*.iso 2>/dev/null | head -n1)
 [ -f "$iso" ] || { log "no ISO in $work/out-build"; ls -la "$work/out-build" >&2; exit 1; }
 log "ISO $iso after ${elapsed}s"
-echo "$id $name $elapsed $iso" >"$work/kiwi-result.txt"
+echo "elapsed=$elapsed" >>"$work/build-vars.env"
+else
+	[ -f "$work/build-vars.env" ] || { log "no finished run $post_only"; exit 1; }
+	# shellcheck disable=SC1091
+	. "$work/build-vars.env"
+	iso=$(ls "$work"/out-build/*.iso | head -n1)
+fi
+cd "$work"
+
+# ---- 7. the checks of the task: no quiet/rhgb/splash in any grub.cfg of the ISO and its ESP
+log "grep check: quiet/rhgb/splash in every grub.cfg"
+chk=$work/grubcheck
+rm -rf "$chk"; mkdir -p "$chk"
+for f in /boot/grub2/grub.cfg /boot/grub2/loopback.cfg /EFI/BOOT/grub.cfg /EFI/fedora/grub.cfg; do
+	xorriso -osirrox on -indev "$iso" -extract "$f" "$chk/$(echo "$f" | tr / _)" >/dev/null 2>&1 || { log "FAIL: $f not in the ISO"; exit 1; }
+done
+xorriso -osirrox on -indev "$iso" -extract_boot_images "$chk/bi/" >/dev/null 2>&1
+mcopy -i "$chk/bi/eltorito_img1_uefi.img" ::EFI/BOOT/grub.cfg "$chk/esp-grub.cfg"
+for f in "$chk"/_* "$chk/esp-grub.cfg"; do
+	if grep -v '^[[:space:]]*#' "$f" | grep -w -E 'quiet|rhgb|splash' >/dev/null; then log "FAIL: quiet/rhgb/splash in $f"; exit 1; fi
+done
+n=$(grep -c "^menuentry '" "$chk/_boot_grub2_grub.cfg"); [ "$n" = 5 ] || { log "FAIL: $n menu entries, expected 5"; exit 1; }
+for e in debug drm-trace nomodeset initramfs vmtest; do grep -q "sp11.entry=$e\$" "$chk/_boot_grub2_grub.cfg" || { log "FAIL: no entry with sp11.entry=$e"; exit 1; }; done
+
+# ---- 8. publish
+mv -f "$iso" "$isodir/$name.iso"
+( cd "$isodir" && sha256sum "$name.iso" >"$name.iso.sha256" )
+sha=$(cut -d' ' -f1 "$isodir/$name.iso.sha256")
+
+# ---- 9. build record
+python3 - "$isodir/$name.json" "$name" "$sha" "$id" "$elapsed" "$work" "$REPO" "$OUT" "$pin" "$head" <<'PYEOF'
+import hashlib, json, os, re, subprocess, sys
+rec, name, sha, bid, elapsed, work, repo, out, pin, head = sys.argv[1:11]
+
+def sha256(p):
+    h = hashlib.sha256()
+    with open(p, 'rb') as f:
+        for b in iter(lambda: f.read(1 << 20), b''):
+            h.update(b)
+    return h.hexdigest()
+
+def read(p, default=''):
+    try:
+        return open(p).read()
+    except OSError:
+        return default
+
+pk = []
+for l in read(f"{work}/out-build/Fedora.aarch64-44.packages").splitlines():
+    f = l.split('|')
+    if len(f) >= 5:
+        pk.append(f"{f[0]}-{0 if f[1] == '(none)' else f[1]}:{f[2]}-{f[3]}.{f[4]}")
+pk.sort()
+fw = [l.split() for l in read(f"{out}/image-work/firmware-installed.sha256").splitlines() if l]
+cfg = read(f"{work}/grubcheck/_boot_grub2_grub.cfg")
+entries = []
+for m in re.finditer(r"menuentry '([^']*)'.*?\{(.*?)\n\}", cfg, re.S):
+    lin = re.search(r"^\s*linux \S+ (.*)$", m.group(2), re.M)
+    entries.append({"title": m.group(1), "linux_args": lin.group(1).strip() if lin else None,
+                    "devicetree": bool(re.search(r"^\s*devicetree ", m.group(2), re.M))})
+series = f"{repo}/kernel/series"
+manifest = f"{repo}/firmware/manifest.toml"
+patches = sorted(os.listdir(f"{repo}/image/kiwi/patches"))
+record = {
+    "name": name, "kind": "kiwi", "builder": "kiwi", "smoke": False, "build_id": bid,
+    "iso_sha256": sha, "iso_size": os.path.getsize(f"{out}/iso/{name}.iso"),
+    "build_seconds": int(elapsed),
+    "kernel_nevra": read(f"{out}/image-work/kernel-nevra.txt").strip(),
+    "kernel_series_sha256": sha256(series) if os.path.exists(series) else None,
+    "firmware_manifest_sha256": sha256(manifest) if os.path.exists(manifest) else None,
+    "firmware_installed": [{"sha256": a, "path": b} for a, b in fw],
+    "firmware_installed_listing_sha256": hashlib.sha256("\n".join(" ".join(x) for x in fw).encode()).hexdigest(),
+    "dtb": "qcom/x1p64100-microsoft-denali.dtb",
+    "kernel_cmdline_reasons": "image/README.md, GRUB 2 and the kernel command line",
+    "grub_entries": entries,
+    "kiwi_description": {"url": "https://pagure.io/fedora-kiwi-descriptions.git", "branch": "f44", "pinned_commit": pin,
+                         "branch_head_at_build": head, "profile": "Workstation-Live", "kiwi_file": "Fedora.kiwi",
+                         "sp11_patches": patches},
+    "repos": read(f"{work}/repos.txt").strip().splitlines(),
+    "container_image": os.environ.get("SP11_IMAGE_ID", ""),
+    "package_count": len(pk), "packages": pk,
+    "tools": {t: subprocess.run(["rpm", "-q", t], capture_output=True, text=True).stdout.strip()
+              for t in ("kiwi-cli", "dnf5", "grub2-efi-aa64", "shim-aa64", "dracut", "xorriso", "erofs-utils")},
+}
+json.dump(record, open(rec, "w"), indent=1)
+PYEOF
+log "done: $isodir/$name.iso ($sha)"
+log "record: $isodir/$name.json"
