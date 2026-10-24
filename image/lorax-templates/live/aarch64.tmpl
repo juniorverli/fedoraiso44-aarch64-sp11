@@ -1,0 +1,115 @@
+## SP11: derived from lorax-templates-generic 44.7 live/aarch64.tmpl. See image/README.md
+## ("Lorax template changes") for every difference.
+<%page args="kernels, runtime_img, basearch, inroot, outroot, product, isolabel, extra_boot_args"/>
+<%
+configdir="tmp/config_files/aarch64"
+PXEBOOTDIR="images/pxeboot"
+KERNELDIR=PXEBOOTDIR
+LIVEDIR="LiveOS"
+LORAXDIR="usr/share/lorax/"
+
+## Don't allow spaces or escape characters in the iso label
+def valid_label(ch):
+    return ch.isalnum() or ch == '_'
+
+isolabel = ''.join(ch if valid_label(ch) else '-' for ch in isolabel)
+
+import os
+from os.path import basename
+from pylorax.sysutils import joinpaths
+
+## SP11 change 1: locate the DTB in the kernel package. Fedora's kernel.spec
+## installs DTBs in /lib/modules/<kver>/dtb/; /boot/dtb-<kver>/ is the layout
+## of an installed system. Fail the build when the DTB is not there.
+SP11_DTB = os.environ.get("SP11_DTB", "qcom/x1p64100-microsoft-denali.dtb")
+if len(kernels) != 1:
+    raise Exception("SP11: exactly one kernel is expected in the image, found %d" % len(kernels))
+sp11_kver = kernels[0].version
+sp11_dtb_src = None
+for cand in ("lib/modules/%s/dtb/%s" % (sp11_kver, SP11_DTB),
+             "boot/dtb-%s/%s" % (sp11_kver, SP11_DTB)):
+    if os.path.exists(joinpaths(inroot, cand)):
+        sp11_dtb_src = cand
+        break
+if sp11_dtb_src is None:
+    raise Exception("SP11: %s not found for kernel %s (searched lib/modules/<kver>/dtb and boot/dtb-<kver>)" % (SP11_DTB, sp11_kver))
+## Path of the DTB inside the ISO, as GRUB sees it (root = the ISO file system).
+sp11_dtb_iso = "/images/pxeboot/dtb/" + SP11_DTB
+
+# Test the runtime_img, if it is > 4GiB we need to set -iso-level to 3
+if os.stat(joinpaths(inroot, runtime_img)).st_size >= 4*1024**3:
+    isoargs = "-iso-level 3"
+else:
+    isoargs = ""
+%>
+
+mkdir ${LIVEDIR}
+install ${runtime_img} ${LIVEDIR}/squashfs.img
+treeinfo stage2 mainimage ${LIVEDIR}/squashfs.img
+
+## install kernels
+mkdir ${KERNELDIR}
+%for kernel in kernels:
+    ## normal aarch64
+    installkernel images-${basearch} ${kernel.path} ${KERNELDIR}/vmlinuz
+    installinitrd images-${basearch} ${kernel.initrd.path} ${KERNELDIR}/initrd.img
+%endfor
+
+## SP11 change 2: ship the DTB on the ISO, next to the kernel and initrd.
+mkdir ${KERNELDIR}/dtb/${os.path.dirname(SP11_DTB)}
+install ${sp11_dtb_src} ${KERNELDIR}/dtb/${SP11_DTB}
+
+#FIXME: this will need adjusted when we have a real bootloader.
+## WHeeeeeeee, EFI.
+## We could remove the basearch restriction someday..
+<% efiargs=""; efigraft="" %>
+%if exists("boot/efi/EFI/*/gcdaa64.efi"):
+    <%
+    efiarch32 = None
+    efiarch64 = 'AA64'
+    efigraft="EFI/BOOT={0}/EFI/BOOT".format(outroot)
+    images = ["images/efiboot.img"]
+    %>
+    %for img in images:
+        <%
+        efiargs += " -eltorito-alt-boot -e {0} -no-emul-boot".format(img)
+        efigraft += " {0}={1}/{0}".format(img,outroot)
+        %>
+        treeinfo images-${basearch} ${img|basename} ${img}
+    %endfor
+    <%include file="efi.tmpl" args="configdir=configdir, KERNELDIR=KERNELDIR, efiarch32=efiarch32, efiarch64=efiarch64, isolabel=isolabel, extra_boot_args=extra_boot_args, dtbpath=sp11_dtb_iso"/>
+%endif
+
+# Create optional product.img and updates.img
+<% filegraft=""; images=["product", "updates"] %>
+%for img in images:
+    %if exists("%s/%s/" % (LORAXDIR, img)):
+        installimg ${LORAXDIR}/${img}/ images/${img}.img
+        treeinfo images-${basearch} ${img}.img images/${img}.img
+        <% filegraft += " images/{0}.img={1}/images/{0}.img".format(img, outroot) %>
+    %endif
+%endfor
+
+# Add the license files
+%for f in glob("usr/share/licenses/*-release-common/*"):
+    install ${f} ${f|basename}
+    <% filegraft += " {0}={1}/{0}".format(basename(f), outroot) %>
+%endfor
+
+%if exists("boot/efi/EFI/*/gcdaa64.efi"):
+## make boot.iso
+## SP11 change 3: hybrid ISO (decision D7). The appended GPT partition 2 is the EFI
+## system partition (same image as the El Torito one), so a raw (DD) copy on a USB
+## stick boots in UEFI without El Torito support. Same options as lorax x86.tmpl.
+runcmd xorrisofs ${isoargs} -o ${outroot}/images/boot.iso \
+       -R -J -V '${isolabel}' \
+       -appended_part_as_gpt \
+       -append_partition 2 C12A7328-F81F-11D2-BA4B-00A0C93EC93B ${outroot}/images/efiboot.img \
+       -iso_mbr_part_type EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 \
+       -eltorito-alt-boot -e '--interval:appended_partition_2:all::' -no-emul-boot \
+       -graft-points \
+       ${KERNELDIR}=${outroot}/${KERNELDIR} \
+       ${LIVEDIR}=${outroot}/${LIVEDIR} \
+       ${efigraft} ${filegraft}
+treeinfo images-${basearch} boot.iso images/boot.iso
+%endif
