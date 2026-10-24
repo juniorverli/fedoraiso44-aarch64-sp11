@@ -1,0 +1,18 @@
+[Unit]
+Description=SP11 log collector (writes boot logs to the SP11LOGS partition or the embedded EFI partition)
+# Needs only the base system: runs without GDM and without a working display.
+After=local-fs.target systemd-journald.service systemd-udevd.service
+Wants=systemd-udevd.service
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/sp11-log-collector run
+# SIGTERM at shutdown triggers a last snapshot (trap in the script).
+KillMode=mixed
+TimeoutStopSec=90
+Nice=10
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

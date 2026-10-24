@@ -1,0 +1,12 @@
+# Lines that must appear, whitespace-normalised, in the decompiled shipped DTB
+# (scripts/image-test-static.sh check 3). One per line; "#" starts a comment.
+# Verified against sources/linux/arch/arm64/boot/dts/qcom/x1p64100-microsoft-denali.dts:11-14,
+# x1-microsoft-denali.dtsi:723-724, 1038-1043, 1045-1050, 901.
+# Owner: image worker. Component workers add the nodes their patches add or change as a
+# request in their dossier ("image: expect <line> in the DTB"); the image worker appends it here.
+model = "Microsoft Surface Pro 11th Edition (LCD)";
+compatible = "microsoft,denali-lcd", "microsoft,denali", "qcom,x1p64100", "qcom,x1e80100";
+firmware-name = "qcom/x1e80100/microsoft/qcdxkmsuc8380.mbn";
+firmware-name = "qcom/x1e80100/microsoft/Denali/qcadsp8380.mbn", "qcom/x1e80100/microsoft/Denali/adsp_dtb.mbn";
+firmware-name = "qcom/x1e80100/microsoft/Denali/qccdsp8380.mbn", "qcom/x1e80100/microsoft/Denali/cdsp_dtb.mbn";
+compatible = "edp-panel";

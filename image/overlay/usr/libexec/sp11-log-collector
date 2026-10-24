@@ -1,0 +1,356 @@
+#!/usr/bin/bash
+# SP11 log collector (image worker, image/README.md "Must have" item 3, decision D7).
+#
+# Runs from sp11-log-collector.service (WantedBy=multi-user.target, so it needs
+# neither GDM nor a working display). Writes everything below <target>/<boot-id>/:
+#   1. the FAT partition labelled SP11LOGS, if present;
+#   2. else /EFI/sp11-logs/ on the embedded EFI system partition of the boot stick
+#      (FAT label ANACONDA), compressed and size-capped;
+#   3. else only /run/sp11-logs (RAM), and a line in the journal.
+# It only reads from the system (sysfs, debugfs, /dev/drm_dp_aux*, journal); the
+# only writes are to the target and to /run. Nothing is ever written to the NVMe.
+#
+#   sp11-log-collector run     loop: snapshot now, then at growing intervals
+#   sp11-log-collector final   one last snapshot and unmount (manual; SIGTERM does the same)
+#   sp11-log-collector once    one snapshot and exit (manual use)
+set -u
+export LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin
+
+CONF=/etc/sp11-log-collector.conf
+# shellcheck disable=SC1090
+[ -r "$CONF" ] && . "$CONF"   # settings of the operator first, then the defaults below
+: "${LOGS_LABEL:=SP11LOGS}"
+: "${ESP_LABEL:=ANACONDA}"
+: "${CAP_LOGS_KIB:=262144}"   # total cap of the SP11LOGS partition use
+: "${CAP_ESP_KIB:=6144}"      # total cap of /EFI/sp11-logs on the embedded EFI partition
+: "${RESERVE_KIB:=512}"       # always keep this much free on the target
+: "${INTERVALS:=20 60 120 300}"   # seconds before snapshot 2, 3, 4, then the last one repeats
+: "${FILE_CAP:=1048576}"      # bytes read from one file of a tree dump
+: "${READ_TIMEOUT:=3}"        # seconds for one sysfs/debugfs read
+: "${CMD_TIMEOUT:=30}"        # seconds for one command (journalctl, lspci, dtc, ...)
+: "${GZIP_MIN:=65536}"        # on SP11LOGS, gzip files above this size (ESP: everything)
+
+BOOT_ID=${SP11_TEST_BOOT_ID:-$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo unknown-boot)}
+WORK=/run/sp11-logs
+export WORK
+MNT=/run/sp11-logs-mnt
+OUT=$WORK/$BOOT_ID
+TARGET_KIND=none
+TARGET_DIR=
+CYCLE=0
+
+say() { echo "sp11-log-collector: $*" >&2; }
+
+# ---------------------------------------------------------------- target ----
+live_parent_disk() {
+	local src
+	src=$(findmnt -n -o SOURCE /run/initramfs/live 2>/dev/null) || return 1
+	lsblk -ndo PKNAME "$src" 2>/dev/null | head -n1
+}
+
+mount_fat() { # dev
+	mkdir -p "$MNT"
+	findmnt -n "$MNT" >/dev/null 2>&1 && umount "$MNT" 2>/dev/null
+	modprobe vfat 2>/dev/null
+	mount -t vfat -o rw,noatime,nodev,nosuid,noexec,umask=0077,shortname=winnt "$1" "$MNT" 2>/dev/null
+}
+
+find_target() {
+	local dev parent cand
+	# test hook (image/tools/collector_selftest.sh): a plain directory acts as SP11LOGS
+	if [ -n "${SP11_TEST_TARGET:-}" ]; then
+		TARGET_KIND=${SP11_TEST_KIND:-logs}
+		TARGET_DIR=$SP11_TEST_TARGET
+		mkdir -p "$TARGET_DIR"
+		return 0
+	fi
+	[ "$TARGET_KIND" != none ] && findmnt -n "$MNT" >/dev/null 2>&1 && return 0
+	TARGET_KIND=none
+	dev=$(blkid -L "$LOGS_LABEL" 2>/dev/null | head -n1)
+	if [ -n "$dev" ] && mount_fat "$dev" && touch "$MNT/.sp11-w" 2>/dev/null; then
+		rm -f "$MNT/.sp11-w"
+		TARGET_KIND=logs
+		TARGET_DIR=$MNT
+		return 0
+	fi
+	[ -n "$dev" ] && umount "$MNT" 2>/dev/null
+	# fallback: embedded EFI partition, preferably on the disk the live image came from
+	parent=$(live_parent_disk)
+	dev=
+	for cand in $(blkid -t "LABEL=$ESP_LABEL" -o device 2>/dev/null); do
+		if [ -n "$parent" ] && [ "$(lsblk -ndo PKNAME "$cand" 2>/dev/null)" = "$parent" ]; then
+			dev=$cand
+			break
+		fi
+		[ -z "$dev" ] && dev=$cand
+	done
+	if [ -n "$dev" ] && mount_fat "$dev" && mkdir -p "$MNT/EFI/sp11-logs" && touch "$MNT/EFI/sp11-logs/.w" 2>/dev/null; then
+		rm -f "$MNT/EFI/sp11-logs/.w"
+		TARGET_KIND=esp
+		TARGET_DIR=$MNT/EFI/sp11-logs
+		return 0
+	fi
+	[ -n "$dev" ] && umount "$MNT" 2>/dev/null
+	return 1
+}
+
+# ------------------------------------------------------------- primitives ----
+# snap NAME CMD ARGS...   output of CMD (stdout+stderr) into $OUT/NAME
+snap() {
+	local name=$1
+	shift
+	timeout "$CMD_TIMEOUT" "$@" >"$OUT/$name" 2>&1
+}
+
+# shsnap NAME 'shell text'
+shsnap() {
+	timeout "$CMD_TIMEOUT" bash -c "$2" >"$OUT/$1" 2>&1
+}
+
+# dump_tree NAME DIR...   every readable regular file below DIR, as "=== path" + content
+# (read-only; skips blocking or binary files; every read has a timeout and a size cap)
+dump_tree() {
+	local name=$1 d f
+	shift
+	: >"$OUT/$name"
+	for d in "$@"; do
+		[ -e "$d" ] || continue
+		# -L follows the class symlinks of /sys/class/*
+		find -L "$d" -maxdepth 6 -type f -perm -u=r \
+			! -name trace_pipe ! -name 'pipe*' ! -name kmsg ! -name edid ! -name config \
+			! -name rom ! -path '*/crc/*' 2>/dev/null | sort | while IFS= read -r f; do
+			printf '=== %s\n' "$f"
+			timeout "$READ_TIMEOUT" head -c "$FILE_CAP" "$f" 2>&1 | tr -d '\000'
+			echo
+		done >>"$OUT/$name"
+	done
+}
+
+# attrs NAME GLOB...   one line per attribute: "path: value" for the files directly in each dir
+attrs() {
+	local name=$1 d f
+	shift
+	: >"$OUT/$name"
+	for d in "$@"; do
+		[ -d "$d" ] || continue
+		echo "== $d" >>"$OUT/$name"
+		for f in "$d"/*; do
+			[ -f "$f" ] && [ -r "$f" ] || continue
+			printf '%s: ' "$(basename "$f")" >>"$OUT/$name"
+			timeout "$READ_TIMEOUT" head -c 4096 "$f" 2>&1 | tr '\n\000' '  ' >>"$OUT/$name"
+			echo >>"$OUT/$name"
+		done
+	done
+}
+
+# dpcd NODE  read-only AUX reads of 0x000-0x0ff and 0x700-0x7ff
+dpcd() {
+	local n=$1 off
+	echo "== $n"
+	for off in 0 1792; do
+		printf 'DPCD 0x%03x-0x%03x\n' "$off" $((off + 255))
+		# read-only AUX reads; an error is logged in the file, never fatal
+	timeout 5 dd if="$n" bs=1 skip="$off" count=256 2>"$WORK/dd.err" | od -A x -t x1z -v
+	[ -s "$WORK/dd.err" ] && sed 's/^/dd: /' "$WORK/dd.err"
+	done
+}
+
+# --------------------------------------------------------------- snapshot ----
+snapshot() {
+	local d
+	mkdir -p "$OUT"
+	# debugfs is needed for dri, pinctrl, clk, regulator; a failure is logged, not fatal
+	if ! mountpoint -q /sys/kernel/debug 2>/dev/null; then
+		mount -t debugfs debugfs /sys/kernel/debug 2>"$OUT/debugfs-mount.txt" || say "cannot mount debugfs: $(cat "$OUT/debugfs-mount.txt")"
+		[ -s "$OUT/debugfs-mount.txt" ] || rm -f "$OUT/debugfs-mount.txt"
+	fi
+	CYCLE=$((CYCLE + 1))
+	{
+		echo "boot_id: $BOOT_ID"
+		echo "cycle: $CYCLE"
+		echo "date_utc: $(date -u +%FT%TZ)"
+		echo "uptime: $(cut -d' ' -f1 /proc/uptime)"
+		echo "target: $TARGET_KIND"
+	} >"$OUT/STATUS.new"
+
+	# --- kernel, boot
+	snap cmdline.txt cat /proc/cmdline
+	snap uname.txt uname -a
+	snap os-release.txt cat /etc/os-release
+	shsnap kernel-rpm.txt 'rpm -q kernel-core kernel-modules-core 2>&1'
+	shsnap dmesg.txt 'dmesg --time-format=iso 2>&1 || dmesg'
+	shsnap journal.txt 'journalctl -b --no-pager -o short-monotonic 2>&1'
+	shsnap journal-warnings.txt 'journalctl -b --no-pager -p warning -o short-monotonic 2>&1'
+	shsnap firmware-failures.txt "dmesg | grep -i -E 'firmware|request_firmware|Direct firmware load|failed to load|-ENOENT|error -2'"
+	shsnap deferred.txt 'cat /sys/kernel/debug/devices_deferred 2>&1'
+	shsnap btf.txt 'if [ -e /sys/kernel/btf/vmlinux ]; then echo "btf: present"; ls -l /sys/kernel/btf/vmlinux; echo "btf entries: $(ls /sys/kernel/btf | wc -l)"; else echo "btf: MISSING"; fi'
+	snap lsmod.txt lsmod
+	shsnap modules-loaded-late.txt 'cat /proc/modules'
+	shsnap procs.txt 'ps -eo pid,ppid,stat,etime,comm,args --sort=pid | head -n 400'
+	shsnap mounts.txt 'findmnt -A; echo; df -h; echo; lsblk -f; echo; blkid'
+
+	# --- systemd, session
+	shsnap units-failed.txt 'systemctl --no-pager --failed 2>&1'
+	shsnap units-state.txt 'systemctl is-active multi-user.target graphical.target gdm.service display-manager.service sp11-log-collector.service 2>&1; systemctl get-default'
+	shsnap gdm-status.txt 'systemctl status gdm.service --no-pager -l 2>&1'
+	shsnap sessions.txt 'loginctl list-sessions --no-pager 2>&1; loginctl list-seats --no-pager 2>&1'
+	shsnap analyze.txt 'systemd-analyze 2>&1; systemd-analyze blame --no-pager 2>&1 | head -n 40'
+
+	# --- cpu, soc
+	snap lscpu.txt lscpu
+	snap cpuinfo.txt cat /proc/cpuinfo
+	dump_tree cpufreq.txt /sys/devices/system/cpu/cpufreq
+	attrs cpu-policies.txt /sys/devices/system/cpu/cpu*/cpufreq /sys/devices/system/cpu/cpuidle
+	shsnap cpuidle.txt 'for s in /sys/devices/system/cpu/cpu*/cpuidle/state*; do echo "$s: $(cat $s/name 2>&1) usage=$(cat $s/usage 2>&1) time=$(cat $s/time 2>&1)"; done'
+	shsnap soc-bus.txt 'ls /sys/bus/soc/devices 2>&1; for s in /sys/bus/soc/devices/*; do for a in family machine soc_id revision serial_number; do [ -r $s/$a ] && echo "$s/$a: $(cat $s/$a)"; done; done'
+	shsnap compatible.txt 'tr "\0" " " </sys/firmware/devicetree/base/compatible 2>&1; echo; tr "\0" " " </sys/firmware/devicetree/base/model 2>&1; echo'
+	shsnap devicetree.dts 'dtc -I fs -O dts /sys/firmware/devicetree/base 2>&1 | head -c 4194304'
+	snap interrupts.txt cat /proc/interrupts
+	snap iomem.txt cat /proc/iomem
+	snap clk_summary.txt cat /sys/kernel/debug/clk/clk_summary
+	snap regulator_summary.txt cat /sys/kernel/debug/regulator/regulator_summary
+	snap genpd_summary.txt cat /sys/kernel/debug/pm_genpd/pm_genpd_summary
+	snap gpio.txt cat /sys/kernel/debug/gpio
+	dump_tree pinctrl.txt /sys/kernel/debug/pinctrl
+	# display-lcd request: pins, pinmux-pins, pinconf-pins of every controller (spmi-gpio of
+	# PMK8550 and PMC8380_3 included), plus the dmesg lines about the spmi-gpio subtype
+	shsnap pinctrl-pins.txt 'for c in /sys/kernel/debug/pinctrl/*/; do for f in pins pinmux-pins pinconf-pins; do [ -r "$c$f" ] && { echo "=== $c$f"; cat "$c$f"; }; done; done; echo "=== devices"; cat /sys/kernel/debug/pinctrl/pinctrl-devices 2>&1'
+	shsnap spmi-gpio-dmesg.txt "dmesg | grep -i -E 'subtype|func3|spmi-gpio|pmk8550|pmc8380'"
+	shsnap spmi-gpio-sysfs.txt 'ls -l /sys/bus/spmi/devices /sys/bus/platform/drivers/qcom-spmi-gpio 2>&1'
+	dump_tree devfreq.txt /sys/class/devfreq /sys/kernel/debug/devfreq
+	attrs thermal.txt /sys/class/thermal/thermal_zone* /sys/class/thermal/cooling_device*
+
+	# --- remoteprocs, power, backlight
+	attrs remoteproc.txt /sys/class/remoteproc/*
+	attrs power_supply.txt /sys/class/power_supply/*
+	attrs backlight.txt /sys/class/backlight/*
+	attrs leds.txt /sys/class/leds/*
+
+	# --- display
+	shsnap drm-tree.txt 'ls -lR /sys/class/drm /dev/dri 2>&1'
+	dump_tree drm-sysfs.txt /sys/class/drm
+	dump_tree drm-debugfs.txt /sys/kernel/debug/dri
+	shsnap drm-edid.txt 'for e in /sys/class/drm/*/edid; do [ -s "$e" ] && { echo "== $e"; od -A x -t x1z -v "$e"; }; done'
+	export -f dpcd
+	shsnap drm-dpcd.txt 'for n in /dev/drm_dp_aux*; do [ -e "$n" ] && dpcd "$n"; done; for n in /sys/class/drm_dp_aux_dev/*; do [ -e "$n" ] && echo "$n: $(cat $n/name 2>&1)"; done' 
+	shsnap drm-modules.txt 'for m in msm drm_dp_aux_bus panel_edp phy_qcom_edp pwm_bl simpledrm virtio_gpu; do [ -d /sys/module/$m ] && echo "$m: loaded"; done'
+
+	# --- buses
+	snap lspci.txt lspci -vv
+	snap lsusb-tree.txt lsusb -t
+	snap lsusb.txt lsusb -v
+
+	# --- packages, graphics userspace
+	shsnap vulkaninfo.txt 'timeout 20 vulkaninfo --summary 2>&1'
+	shsnap pkgs.txt 'rpm -qa | sort'
+
+	# --- extension point: drop-in snippets of component workers
+	for d in /etc/sp11-log-collector.d/*.sh; do
+		[ -r "$d" ] || continue
+		# shellcheck disable=SC1090
+		( . "$d" ) >"$OUT/extra-$(basename "$d" .sh).txt" 2>&1
+	done
+
+	mv -f "$OUT/STATUS.new" "$OUT/STATUS"
+}
+
+# --------------------------------------------------------------- publish ----
+used_kib() { du -sk "$1" 2>/dev/null | cut -f1; }
+free_kib() { df -Pk "$1" 2>/dev/null | awk 'NR==2{print $4}'; }
+
+enforce_cap() { # BOOTDIR
+	local bd=$1 root cap used free cur others old seq f
+	root=$TARGET_DIR
+	cap=$CAP_LOGS_KIB
+	[ "$TARGET_KIND" = esp ] && cap=$CAP_ESP_KIB
+	# cap by what is really free on the partition
+	cur=$(used_kib "$bd")
+	free=$(free_kib "$root")
+	if [ -n "$free" ] && [ $((cur + free - RESERVE_KIB)) -lt "$cap" ]; then
+		cap=$((cur + free - RESERVE_KIB))
+	fi
+	# 1. delete the oldest other boots first (by SEQ; the clock may be wrong)
+	while [ "$(used_kib "$root")" -gt "$cap" ]; do
+		old=
+		others=$(find "$root" -mindepth 1 -maxdepth 1 -type d ! -name "$BOOT_ID" 2>/dev/null)
+		[ -z "$others" ] && break
+		for f in $others; do
+			seq=$(cat "$f/SEQ" 2>/dev/null || echo 0)
+			echo "$seq $f"
+		done | sort -n | head -n1 | { read -r _ old; [ -n "$old" ] && rm -rf "$old"; }
+		sync
+	done
+	# 2. still too big: drop the biggest optional files of the current boot
+	for f in journal.txt.gz journal.txt journal-warnings.txt.gz devicetree.dts.gz devicetree.dts drm-debugfs.txt.gz drm-debugfs.txt pkgs.txt.gz pkgs.txt lsusb.txt.gz lsusb.txt lspci.txt.gz lspci.txt; do
+		[ "$(used_kib "$root")" -le "$cap" ] && break
+		rm -f "$bd/$f"
+	done
+}
+
+publish() {
+	local bd seq f
+	find_target || { say "no SP11LOGS and no writable embedded EFI partition; logs stay in $OUT"; return 1; }
+	bd=$TARGET_DIR/$BOOT_ID
+	mkdir -p "$bd" || return 1
+	if [ ! -e "$bd/SEQ" ]; then
+		seq=$(($(cat "$TARGET_DIR/.seq" 2>/dev/null || echo 0) + 1))
+		echo "$seq" >"$TARGET_DIR/.seq"
+		echo "$seq" >"$bd/SEQ"
+	fi
+	for f in "$OUT"/*; do
+		[ -f "$f" ] || continue
+		case $(basename "$f") in
+		STATUS | SEQ | COMPLETE) cp -f "$f" "$bd/" ;;
+		*)
+			if [ "$TARGET_KIND" = esp ] || [ "$(stat -c %s "$f")" -gt "$GZIP_MIN" ]; then
+				gzip -c -6 "$f" >"$bd/$(basename "$f").gz.new" && mv -f "$bd/$(basename "$f").gz.new" "$bd/$(basename "$f").gz"
+				rm -f "$bd/$(basename "$f")"
+			else
+				cp -f "$f" "$bd/"
+			fi
+			;;
+		esac
+	done
+	enforce_cap "$bd"
+	[ "$CYCLE" -ge 1 ] && [ ! -e "$bd/COMPLETE" ] && date -u +%FT%TZ >"$bd/COMPLETE"
+	sync -f "$TARGET_DIR" 2>/dev/null || sync
+	return 0
+}
+
+do_snapshot() {
+	mkdir -p "$WORK"
+	snapshot
+	publish && say "snapshot $CYCLE written to $TARGET_KIND:$TARGET_DIR/$BOOT_ID"
+}
+
+finish() {
+	do_snapshot
+	findmnt -n "$MNT" >/dev/null 2>&1 && umount "$MNT" 2>/dev/null
+}
+
+nap() { # interruptible sleep, so SIGTERM runs the trap at once
+	sleep "$1" &
+	wait $!
+}
+
+case ${1:-run} in
+run)
+	trap 'finish; exit 0' TERM
+	do_snapshot
+	for i in $INTERVALS; do
+		nap "$i"
+		do_snapshot
+	done
+	last=${INTERVALS##* }
+	while :; do
+		nap "$last"
+		do_snapshot
+	done
+	;;
+final) finish ;;
+once) do_snapshot ;;
+*)
+	echo "usage: $0 run|final|once" >&2
+	exit 2
+	;;
+esac

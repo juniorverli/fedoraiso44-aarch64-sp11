@@ -1,0 +1,19 @@
+# Fedora 44 aarch64 build and test container of the image worker.
+# Built and run by scripts/image-container.sh. Nothing is installed on the host.
+# Fedora-native (D12): official fedora:44 base, all tools from Fedora packages.
+FROM registry.fedoraproject.org/fedora:44
+
+RUN dnf -y --setopt=install_weak_deps=False install \
+        lorax lorax-lmc-novirt lorax-templates-generic \
+        anaconda anaconda-live pykickstart \
+        dracut dracut-live \
+        grub2-efi-aa64 grub2-efi-aa64-cdboot grub2-efi-aa64-modules grub2-tools grub2-tools-extra \
+        shim-aa64 \
+        xorriso mtools dosfstools isomd5sum gdisk util-linux parted \
+        squashfs-tools erofs-utils createrepo_c cpio kmod rpm-build \
+        dtc edid-decode v4l-utils \
+        qemu-system-aarch64-core qemu-img edk2-aarch64 \
+        python3 python3-pexpect jq git curl tar xz zstd file findutils procps-ng \
+ && dnf clean all
+
+WORKDIR /sp11
