@@ -16,13 +16,6 @@
 	</repository>
 
 	<packages type="image" patternType="plusRecommended" profiles="Workstation-Live">
-		<!-- SP11 change 1: Fedora's aarch64 live ISO uses kernel-uki-dtbloader (boot.xml,
-		     BootCoreLive). We boot a plain kernel from GRUB 2 with the `devicetree` command (D9),
-		     so the UKI package is not installed. kernel-core arrives through `kernel`. -->
-		<ignore name="kernel-uki-dtbloader"/>
-		<ignore name="kernel-uki-virt"/>
-		<ignore name="kernel-*debug*"/>
-
 		<!-- SP11 change 2: firmware. The DriverStore blobs come from out/firmware-root through
 		     the root overlay; qcom-firmware and linux-firmware carry the rest (qcom/gen70500_*). -->
 		<package name="qcom-firmware"/>
@@ -46,14 +39,10 @@
 		<!-- SP11 change 4/5: ausearch for the SELinux AVC capture of the log collector (D15) -->
 		<package name="audit"/>
 
-		<!-- SP11 change 3: no splash screen anywhere (D9) -->
-		<ignore name="plymouth"/>
-		<ignore name="plymouth-scripts"/>
-		<ignore name="plymouth-system-theme"/>
-		<ignore name="plymouth-graphics-libs"/>
-		<ignore name="plymouth-core-libs"/>
-		<ignore name="plymouth-plugin-label"/>
-		<ignore name="plymouth-plugin-two-step"/>
-		<ignore name="plymouth-theme-spinner"/>
+		<!-- SP11 change 3: no splash screen (D9). Plymouth stays installed: Fedora's GNOME/Workstation
+		     package groups require it, and excluding it makes dnf5 fail ("Argument 'plymouth' matches
+		     only excluded packages"). It is switched off instead: omitted from the initramfs
+		     (root/etc/dracut.conf.d/90-sp11.conf), rd.plymouth=0 plymouth.enable=0 on every entry,
+		     and its units masked (scripts/image-build-kiwi.sh). -->
 	</packages>
 </image>
