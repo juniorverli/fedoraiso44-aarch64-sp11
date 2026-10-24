@@ -75,3 +75,26 @@ A decompiler loaded with the wrong CPU still prints plausible-looking code. That
 - **Xtensa**: the **Spectra camera ICP** firmware (`CAMERA_ICP.mbn`, `CAMERA_ICP_AAAAAA.elf`), the **Iris video** firmware (`qcvss8380*.mbn`) and the **EVA** firmware (`evass.mbn`). Ghidra `Xtensa:LE:32:default`.
 - **ARM32**: Secure Processor (SPSS) apps in `qcsp8380` (`*.sig`) and the WCN7850 Wi-Fi firmware `wlanfw20.mbn`. Ghidra `ARM:LE:32:v8`.
 - **x86 (32-bit)**: x86 and CHPE user-mode DLLs of the GPU/video stack for emulated apps.
+
+## 7. REA self-test (2026-10-24)
+
+`scripts/rea-selftest.py` loaded one sample per CPU family with the catalog's Ghidra language forced (`REA_GHIDRA_LANGUAGE_ID`), listed procedures with `rea search --kind procedures`, and decompiled three real procedures (first, middle, last). REA 6.7.0-surface.xtensa.1, Ghidra 12.1.4, `GHIDRA_MAXMEM=4G`, `REA_GHIDRA_STARTUP_TIMEOUT_MS=2400000`. Outputs stay in `out/rea-selftest/` (not in git).
+
+| CPU | Sample | Procedures | Clean / decompiled | Verdict |
+|:--|:--|--:|:--|:--|
+| ARM64 (PE) | `acpials.sys` | 32 | 3 / 3 | works |
+| ARM64X (PE) | `libQCNspDxCoreUMDdrv.dll` | 241 | 2 / 3 | works; one procedure at a section start (`0x180008000`) hits bad data |
+| ARM64 (signed MBN, TrustZone app) | `hdcpsrm.mbn` | 156 | 2 / 3 | works; one procedure (`0x10b108`) hits bad data |
+| x86 (PE) | `qcvidencx86um.DLL` | 243 | 3 / 3 | works |
+| Hexagon v73 (CDSP image) | `qccdsp8380.mbn` | 9996 | 3 / 3 | works |
+| Hexagon v73 (ADSP image, 22 MB) | `qcadsp8380.mbn` | 39649 | 3 / 3 | works (needs the larger heap and deadline) |
+| Hexagon (small `.so` skel) | `libQ6MSFR_manager_skel_intermediate.so` | 0 | — | Ghidra found no procedures; use a larger module or seed functions from the dynamic symbol table |
+| Xtensa (Spectra camera ICP) | `CAMERA_ICP.mbn` | 190 | 2 / 3 | works; one procedure (`0x5de28`) hits bad data |
+| Xtensa (Iris video) | `qcvss8380.mbn` | 901 | 2 / 3 | works; one procedure (`0xd9c68`) hits bad data |
+| ARM32 (SPSS app) | `asym1p.sig` | 1 | 0 / 1 | not usable as decoded: entry `0x18a004dd` is Thumb; set the Thumb context first |
+
+Conclusions:
+
+1. REA + Ghidra decode every CPU family present in the dumps: ARM64, ARM64X, x86, Hexagon v73 and Xtensa (including the Spectra ICP firmware).
+2. Bad-instruction markers appear per **procedure**, not per file: a procedure that Ghidra placed on data or on a section boundary decodes to garbage while its neighbours are clean. Rule: **any procedure whose output contains a bad-instruction marker is discarded as evidence**, even when the rest of the file decodes cleanly.
+3. A clean decode is necessary, not sufficient: x86 decoding of `phy_ucode20.elf` produced no markers although x86 is implausible for that file (see §5). Only the catalog decides the CPU.
