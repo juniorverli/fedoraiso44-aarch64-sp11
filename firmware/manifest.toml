@@ -1,83 +1,232 @@
 # Firmware manifest. Owner: firmware worker.
-# Maps a Windows file (by DriverStore path and SHA-256) or a linux-firmware file
-# to the path the Linux 7.3 kernel requests. No binary is ever stored in git.
-# The image worker copies files from sources/windows into the ISO, locally only.
+# Maps a Windows file (by DriverStore path and SHA-256) or a Fedora linux-firmware
+# file to the path the Linux 7.3 kernel requests. No binary is ever stored in git.
+# scripts/firmware-stage.sh copies the `driverstore` blobs into
+# out/firmware-root/lib/firmware/<linux_path> after verifying every SHA-256.
+# `linux-firmware` blobs are NOT copied: the image installs the Fedora package.
 #
-# origin = "driverstore" | "linux-firmware"
-# status = "needed" | "mapped" | "verified-on-device"
+# Citations are relative to the project root; "sources/linux/<file>:<line>" is a
+# line in the pinned v7.3 tree (kernel/base.toml). Grades follow agents/protocol.md §5.
+#
+# [[blob]] fields
+#   id            stable key
+#   component     hardware/<component> that needs the file
+#   linux_path    path below /lib/firmware that the kernel requests (exact string)
+#   requested_by  where the NAME comes from (DT firmware-name or driver table)
+#   loaded_by     the code that opens the file and what it does with it
+#   origin        "driverstore" | "linux-firmware"
+#   status        "needed" | "mapped" | "verified-on-device"
+#                 mapped = requesting code AND source are both cited
+#   driverstore:    source (path below sources/windows), sha256, size, windows_name
+#                   (only when the Windows name differs), catalog (binary-catalog.tsv path)
+#   linux-firmware: package, package_path (path inside the RPM), sha256_packaged
+#                   (SHA-256 of the file as shipped, .xz), sha256 (of the decompressed
+#                   content the kernel sees)
+#
+# [[package]]  Fedora 44 packages the image must install (D12). Pins record what
+#              was seen with `dnf repoquery` in registry.fedoraproject.org/fedora:44.
+# [[not_shipped]]  files that exist and were considered, but no code in the
+#              phase 1 configuration requests them. Recorded so nobody re-asks.
+
+# ---------------------------------------------------------------------------
+# Fedora packages
+# ---------------------------------------------------------------------------
+
+[[package]]
+name = "qcom-firmware"
+# linux-firmware 20260309 and later is split into subpackages; `linux-firmware`
+# (the meta package) only recommends amd-gpu, intel, realtek, ... and does NOT
+# pull qcom-firmware (checked with --recommends/--whatrecommends/--whatrequires).
+# The image must name `qcom-firmware` explicitly.
+fedora_release = "qcom-firmware-0:20260309-1.fc44.noarch"
+fedora_release_rpm_sha256 = "8fb8205fb161943aca3c1f5dbaf5b1bdf41cbf116cbae85f0ae7628718fe2d1b"
+fedora_updates = "qcom-firmware-0:20261019-1.fc44.noarch"
+fedora_updates_rpm_sha256 = "b72830ace787efe3856e8dac80dfbbb72a02ce65fb4bfcb7c2a508ee99bb48b8"
+checked = "2026-10-24"
+note = "Both NEVRAs ship the blobs below with identical file digests (rpm -qp --qf FILEDIGESTS). Files are .xz; the Fedora kernel config sets CONFIG_FW_LOADER_COMPRESS_XZ=y (out/build/kernel/rpmbuild/SOURCES/kernel-aarch64-fedora.config:2945)."
+
+# ---------------------------------------------------------------------------
+# gpu
+# ---------------------------------------------------------------------------
 
 [[blob]]
+id = "gpu-zap"
 component = "gpu"
 linux_path = "qcom/x1e80100/microsoft/qcdxkmsuc8380.mbn"
-requested_by = "sources/linux/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi (&gpu_zap_shader firmware-name)"
+requested_by = "sources/linux/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi:723-725 (&gpu_zap_shader firmware-name); node declared at sources/linux/arch/arm64/boot/dts/qcom/hamoa.dtsi:4018-4020 with memory-region gpu_microcode_mem (hamoa.dtsi:598-601, 0x8d9fe000 size 0x2000)"
+loaded_by = "sources/linux/drivers/gpu/drm/msm/adreno/adreno_gpu.c:82-87 reads firmware-name and calls request_firmware_direct(); :141 qcom_mdt_load(); :156 qcom_pas_auth_and_reset(); entry a6xx_gpu.c:1137 adreno_zap_shader_load(). No gpulist fallback name exists for 0x43050c01 (a6xx_catalog.c:1573-1578 has no .zapfw), so the DT property is mandatory (adreno_gpu.c:91-102)"
 origin = "driverstore"
 source = "DriverStore/qcdx8380.inf_arm64_34a2c09c0e5b25ac/qcdxkmsuc8380.mbn"
 sha256 = "950f17eb439326548cba20603b30cda653d612d1564feb397ddbd92987f0e8ac"
+size = 12088
+catalog = "sources/binary-catalog.tsv: DriverStore/qcdx8380.inf_arm64_34a2c09c0e5b25ac/qcdxkmsuc8380.mbn (gpu-firmware, not code)"
+fedora = "none. Fedora qcom-firmware has qcom/x1e80100/gen70500_zap.mbn.xz (generic) and LENOVO/21N1, LENOVO/83ED, dell/xps13-9345 qcdxkmsuc8380.mbn.xz; none has this SHA-256 and none is requested by the Denali DT. Zap images are signed per OEM (Hypothesis), so another vendor's file is not a substitute"
+format_check = "Verified 2026-10-24 (local script, mirrors mdt_loader.c:22-45,296-319,350-440): ELF32 LE, 3 phdrs, phdr[0] not PT_LOAD, hash segment = ph2, no split segments (every segment inside the 12088-byte file). The one PT_LOAD is relocatable (0x1000, memsz 0x430): qcom_mdt_get_size = 0x1000 <= 0x2000 region"
 phase = 1
 status = "mapped"
 
 [[blob]]
+id = "gpu-sqe"
 component = "gpu"
 linux_path = "qcom/gen70500_sqe.fw"
-requested_by = "sources/linux/drivers/gpu/drm/msm/adreno/a6xx_catalog.c (chip 0x43050c01)"
+requested_by = "sources/linux/drivers/gpu/drm/msm/adreno/a6xx_catalog.c:1573-1578 (ADRENO_CHIP_IDS(0x43050c01), .fw[ADRENO_FW_SQE])"
+loaded_by = "sources/linux/drivers/gpu/drm/msm/adreno/adreno_gpu.c:634 (adreno_load_fw) -> :543 builds qcom/<name> -> :554 request_firmware_direct(); first caller adreno_device.c:92 from adreno_load_gpu(), run on first DRM open (msm_drv.c:266-273, comment: avoids firmware in the initrd). No initramfs copy needed"
 origin = "linux-firmware"
+package = "qcom-firmware"
+package_path = "/usr/lib/firmware/qcom/gen70500_sqe.fw.xz"
+sha256_packaged = "86d29c6ce8e55f7484ffd845d22bb26005d9128d3593783829d432c2a7283119"
+sha256 = "05ae89e6dea62268cec3f4abb5d7d6db2c95270ff105fd056f77262e39d2e527"
+fedora = "present in qcom-firmware 20260309-1.fc44 and 20261019-1.fc44"
 phase = 1
-status = "needed"   # confirm the Fedora 44 linux-firmware NEVRA ships it
+status = "mapped"
 
 [[blob]]
+id = "gpu-gmu"
 component = "gpu"
 linux_path = "qcom/gen70500_gmu.bin"
-requested_by = "sources/linux/drivers/gpu/drm/msm/adreno/a6xx_catalog.c (chip 0x43050c01)"
+requested_by = "sources/linux/drivers/gpu/drm/msm/adreno/a6xx_catalog.c:1573-1578 (ADRENO_CHIP_IDS(0x43050c01), .fw[ADRENO_FW_GMU])"
+loaded_by = "same path as gpu-sqe (adreno_gpu.c:634 -> :543/:554); consumed by a6xx_gmu.c:864-868 (a6xx_gmu_fw_load) and checked at a6xx_gmu.c:960"
 origin = "linux-firmware"
+package = "qcom-firmware"
+package_path = "/usr/lib/firmware/qcom/gen70500_gmu.bin.xz"
+sha256_packaged = "e40ca6591fd3857fc42fd2d2172f6209b38a2ade41ccd1ead644e13249c2a72c"
+sha256 = "5dfba247d548cabcb892ffa716e8dc82a345fd54b5dbae46ba523230e7ae37dd"
+fedora = "present in qcom-firmware 20260309-1.fc44 and 20261019-1.fc44"
 phase = 1
-status = "needed"
+status = "mapped"
+
+# ---------------------------------------------------------------------------
+# dsp-subsystems
+# ---------------------------------------------------------------------------
 
 [[blob]]
+id = "adsp-image"
 component = "dsp-subsystems"
 linux_path = "qcom/x1e80100/microsoft/Denali/qcadsp8380.mbn"
-requested_by = "x1-microsoft-denali.dtsi (&remoteproc_adsp firmware-name)"
+requested_by = "sources/linux/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi:1038-1043 (&remoteproc_adsp firmware-name[0]); read at sources/linux/drivers/remoteproc/qcom_q6v5_pas.c:838-842 (driver default adsp.mdt at :1246 is overridden)"
+loaded_by = "sources/linux/drivers/remoteproc/remoteproc_core.c:1971 request_firmware(rproc->firmware) at rproc_boot; then qcom_q6v5_pas.c qcom_pas_load/start load the MDT image with the PAS id (pas_id 1, :1248) via drivers/soc/qcom/mdt_loader.c"
 origin = "driverstore"
 source = "DriverStore/surfacepro_ext_adsp8380.inf_arm64_3cc952aaca3564ae/qcadsp8380.mbn"
 sha256 = "921870a839ee2aba647b04598d62ed96f3d2d5dfbb2499fc842f9a6ff0e0da13"
+size = 22092168
+catalog = "sources/binary-catalog.tsv: DriverStore/surfacepro_ext_adsp8380.inf_arm64_3cc952aaca3564ae/qcadsp8380.mbn (code, Hexagon:LE:32:default, v73)"
+fedora = "none with this SHA-256. Fedora has qcom/x1e80100/adsp.mbn.xz (generic) and LENOVO/21N1, LENOVO/83ED, dell/xps13-9345 qcadsp8380.mbn.xz; none matches. Not requested by the Denali DT"
+format_check = "Verified 2026-10-24: ELF32 LE, 58 phdrs, hash segment = ph57, no split segments; first PT_LOAD paddr 0x87e00000 equals adspslpi_mem (hamoa.dtsi:578-581, memory-region[0] of the ADSP at hamoa.dtsi:4300)"
 phase = 1
 status = "mapped"
 
 [[blob]]
+id = "adsp-dtb"
 component = "dsp-subsystems"
 linux_path = "qcom/x1e80100/microsoft/Denali/adsp_dtb.mbn"
-requested_by = "x1-microsoft-denali.dtsi (&remoteproc_adsp firmware-name)"
+windows_name = "adsp_dtbs.elf"
+requested_by = "sources/linux/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi:1038-1043 (&remoteproc_adsp firmware-name[1]); read at sources/linux/drivers/remoteproc/qcom_q6v5_pas.c:844-849 (driver default adsp_dtb.mdt at :1247; dtb_pas_id 0x24 at :1249)"
+loaded_by = "sources/linux/drivers/remoteproc/qcom_q6v5_pas.c:245 request_firmware(dtb_firmware_name); :252 qcom_mdt_pas_load()"
 origin = "driverstore"
 source = "DriverStore/surfacepro_ext_adsp8380.inf_arm64_3cc952aaca3564ae/adsp_dtbs.elf"
 sha256 = "544bd795cb06cf8dee8119ede2a667f01066b2f1b9e4348f1772d080e2026ff4"
+size = 73528
+catalog = "sources/binary-catalog.tsv: DriverStore/surfacepro_ext_adsp8380.inf_arm64_3cc952aaca3564ae/adsp_dtbs.elf (data, CFGL container with FDTs, never disassemble)"
+rename = "Windows adsp_dtbs.elf -> Linux adsp_dtb.mbn. The name is only the DT string: the kernel never derives anything from it for a non-split image (mdt_loader.c:296-319, name used only for .bNN segment files). Same Windows file is requested under its Windows name by the Surface Pro 12in DT (x1p42100-microsoft-sp12in.dts:910 qcom/x1p42100/Microsoft/Surface12/adsp_dtbs.elf) and by Lenovo/ASUS DTs. Verified: the file is a valid MDT image (ELF32 LE, 3 phdrs, hash segment ph2, not split) whose PT_LOAD paddr 0x8b800000 equals q6_adsp_dtb_mem (hamoa.dtsi:583-586, memory-region[1] at hamoa.dtsi:4301). Inference: no content change is needed, only the file name"
+fedora = "none with this SHA-256 (Fedora ships other vendors' adsp_dtbs.elf.xz under LENOVO/21N1, LENOVO/83ED, dell/xps13-9345 and a generic adsp_dtb.mbn.xz)"
 phase = 1
-status = "mapped"   # name differs: Windows adsp_dtbs.elf, Linux adsp_dtb.mbn (Inference: same content)
+status = "mapped"
 
 [[blob]]
+id = "cdsp-image"
 component = "dsp-subsystems"
 linux_path = "qcom/x1e80100/microsoft/Denali/qccdsp8380.mbn"
-requested_by = "x1-microsoft-denali.dtsi (&remoteproc_cdsp firmware-name)"
+requested_by = "sources/linux/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi:1045-1050 (&remoteproc_cdsp firmware-name[0]); read at sources/linux/drivers/remoteproc/qcom_q6v5_pas.c:838-842 (driver default cdsp.mdt at :1267)"
+loaded_by = "sources/linux/drivers/remoteproc/remoteproc_core.c:1971 request_firmware(rproc->firmware) at rproc_boot; MDT load with pas_id 18 (qcom_q6v5_pas.c:1269)"
 origin = "driverstore"
 source = "DriverStore/qcnspmcdm_ext_cdsp8380.inf_arm64_4a8c3ebe3aad408a/qccdsp8380.mbn"
 sha256 = "4a67a03367f2eff2f8a0e867ca25d2bf2fcd5aee3e41e2c9f436c804e257c789"
+size = 3195304
+catalog = "sources/binary-catalog.tsv: DriverStore/qcnspmcdm_ext_cdsp8380.inf_arm64_4a8c3ebe3aad408a/qccdsp8380.mbn (code, Hexagon:LE:32:default, v73)"
+fedora = "none with this SHA-256 (Fedora has other vendors' qccdsp8380.mbn.xz and a generic cdsp.mbn.xz)"
+format_check = "Verified 2026-10-24: ELF32 LE, 16 phdrs, hash segment = ph15, no split segments; first PT_LOAD paddr 0x8b900000 equals cdsp_mem (hamoa.dtsi:588-591, memory-region[0] of the CDSP at hamoa.dtsi:8972)"
 phase = 1
 status = "mapped"
 
 [[blob]]
+id = "cdsp-dtb"
 component = "dsp-subsystems"
 linux_path = "qcom/x1e80100/microsoft/Denali/cdsp_dtb.mbn"
-requested_by = "x1-microsoft-denali.dtsi (&remoteproc_cdsp firmware-name)"
+windows_name = "cdsp_dtbs.elf"
+requested_by = "sources/linux/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi:1045-1050 (&remoteproc_cdsp firmware-name[1]); read at sources/linux/drivers/remoteproc/qcom_q6v5_pas.c:844-849 (driver default cdsp_dtb.mdt at :1268; dtb_pas_id 0x25 at :1270)"
+loaded_by = "sources/linux/drivers/remoteproc/qcom_q6v5_pas.c:245 request_firmware(dtb_firmware_name); :252 qcom_mdt_pas_load()"
 origin = "driverstore"
 source = "DriverStore/qcnspmcdm_ext_cdsp8380.inf_arm64_4a8c3ebe3aad408a/cdsp_dtbs.elf"
 sha256 = "93941f040da14b8305d39579686d886706d22954a538b03da676c1aaa191797f"
+size = 40760
+catalog = "sources/binary-catalog.tsv: DriverStore/qcnspmcdm_ext_cdsp8380.inf_arm64_4a8c3ebe3aad408a/cdsp_dtbs.elf (data, CFGL container with FDTs, never disassemble)"
+rename = "Windows cdsp_dtbs.elf -> Linux cdsp_dtb.mbn, same reasoning as adsp-dtb. Verified: valid MDT image (ELF32 LE, 3 phdrs, hash segment ph2, not split) whose PT_LOAD paddr 0x8d900000 equals q6_cdsp_dtb_mem (hamoa.dtsi:593-596, memory-region[1] at hamoa.dtsi:8973). Inference: no content change is needed, only the file name"
+fedora = "none with this SHA-256 (other vendors only)"
 phase = 1
 status = "mapped"
 
-[[blob]]
+# ---------------------------------------------------------------------------
+# display-lcd, soc-boot: no firmware file is requested (see [[not_shipped]])
+# ---------------------------------------------------------------------------
+
+# display-lcd: Verified by grep, no request_firmware() in drivers/gpu/drm/msm
+# (outside adreno), drivers/phy/qualcomm/phy-qcom-edp.c, drivers/gpu/drm/panel/panel-edp.c,
+# drivers/video/backlight/pwm_bl.c, drivers/leds/rgb/leds-qcom-lpg.c.
+# The only display-side request is HDCP SRM in drivers/gpu/drm/display/drm_hdcp_helper.c:240,
+# not referenced by drm/msm. The TCON capsule is never flashed (risk S3).
+
+[[not_shipped]]
+id = "geni-qupv3fw"
+component = "soc-boot"
+linux_path = "qcom/x1e80100/qupv3fw.elf"
+reason = "No Denali DT node sets firmware-name on qupv3_0/1/2 (sources/linux/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi:1026-1037; hamoa.dtsi has none). geni_load_se_firmware() (sources/linux/drivers/soc/qcom/qcom-geni-se.c:1553-1601) is only called when an engine reports GENI_SE_INVALID_PROTO (i2c-qcom-geni.c:1083-1084, spi-geni-qcom.c:650-651, qcom_geni_serial.c:1359-1360) and without the property it fails with -EINVAL (qcom-geni-se.c:1565-1568). Only hamoa-iot-som.dtsi:450,456,462 sets qcom/x1e80100/qupv3fw.elf."
+source_if_needed = "Fedora qcom-firmware /usr/lib/firmware/qcom/x1e80100/qupv3fw.elf.xz (sha256_packaged 448c37c85f55b73dc038dca389774d9417051d9a28af5d03e12e443684b93f62, decompressed dcb4ca490098f081dd3f85d91ca230c4755d376a4cdca51e6a4ba918fa4ab077). The DriverStore has no qupv3 file (MANIFEST.sha256 has no match)."
+revisit_when = "M2 log shows an engine used by touch, pen or sensors failing with 'firmware load failed' or proto 0; then a Denali DT patch must add firmware-name to the qupv3 node (request to soc-boot/kernel), no new file is needed because qcom-firmware is installed anyway."
+grade = "Verified (code and package list); need on this unit is TBD"
+
+[[not_shipped]]
+id = "svcmap-adspr"
 component = "dsp-subsystems"
-linux_path = "qcom/x1e80100/microsoft/Denali/battmgr.jsn"
-requested_by = "pd-mapper / qrtr userspace (TBD which path it reads)"
-origin = "driverstore"
+windows_name = "adspr.jsn"
+source = "DriverStore/surfacepro_ext_adsp8380.inf_arm64_3cc952aaca3564ae/adspr.jsn"
+sha256 = "e9ba7199626b0c03f2ec02822d744f678ad567fe0625a28fe5f5908b7281e9db"
+reason = "No consumer in the phase 1 image, see the group note below. Domain msm/adsp/root_pd, instance 74, services tms/servreg and tms/pdr_enabled."
+
+[[not_shipped]]
+id = "svcmap-adsps"
+component = "dsp-subsystems"
+windows_name = "adsps.jsn"
+source = "DriverStore/surfacepro_ext_adsp8380.inf_arm64_3cc952aaca3564ae/adsps.jsn"
+sha256 = "19b1396b5e2c0d14fb8a4eb8e47181df7f62989f4af519b439cf0ee45a46f76e"
+reason = "No consumer in the phase 1 image. Domain msm/adsp/sensor_pd, instance 74, tms/servreg."
+
+[[not_shipped]]
+id = "svcmap-adspua"
+component = "dsp-subsystems"
+windows_name = "adspua.jsn"
+source = "DriverStore/surfacepro_ext_adsp8380.inf_arm64_3cc952aaca3564ae/adspua.jsn"
+sha256 = "d65dc1aedce2c1131da8ffaed7dcffc05cc9c58da491e0c39acb2ac5b3f4bc1d"
+reason = "No consumer in the phase 1 image. Domain msm/adsp/audio_pd, instance 74, tms/servreg and avs/audio."
+
+[[not_shipped]]
+id = "svcmap-battmgr"
+component = "dsp-subsystems"
+windows_name = "battmgr.jsn"
 source = "DriverStore/surfacepro_ext_adsp8380.inf_arm64_3cc952aaca3564ae/battmgr.jsn"
 sha256 = "b8aad1d149128f414eb1fd6fcbb6e0a5b7dabcd2cba001599e1ce9a0e2e291a4"
-phase = 1
-status = "needed"   # with adspr.jsn, adsps.jsn, adspua.jsn, cdspr.jsn; firmware worker confirms
+reason = "No consumer in the phase 1 image. Domain msm/adsp/charger_pd, instance 74, tms/servreg."
+
+[[not_shipped]]
+id = "svcmap-cdspr"
+component = "dsp-subsystems"
+windows_name = "cdspr.jsn"
+source = "DriverStore/qcnspmcdm_ext_cdsp8380.inf_arm64_4a8c3ebe3aad408a/cdspr.jsn"
+sha256 = "7e46c515ab1bb012768be6e961eca69b1c8aad9af1cbac886b3b5ae8d4228f64"
+reason = "No consumer in the phase 1 image. Domain msm/cdsp/root_pd, instance 76, tms/servreg."
+
+[[not_shipped]]
+id = "svcmap-group-note"
+component = "dsp-subsystems"
+reason = """The five *.jsn service maps are not needed. (1) Fedora 44 has no pd-mapper: qrtr-1.2-2.fc44 'Obsoletes: pd-mapper < 1.0-6' and ships only qrtr-cfg and qrtr-lookup (dnf repoquery, Verified 2026-10-24); no package provides /usr/bin/pd-mapper. qrtr-ns is gone too, the kernel has it (sources/linux/net/qrtr/Makefile:3, ns.c). (2) Linux 7.3 has an in-kernel protection domain mapper: drivers/soc/qcom/qcom_pd_mapper.c, table x1e80100_domains at :609-616 selected by the root compatible 'qcom,x1e80100' (:666; the Denali root compatible lists it, x1p64100-microsoft-denali.dts:13-14), started as an auxiliary device when the ADSP boots (qcom_common.c:550-562, qcom_q6v5_pas.c:918). Fedora builds it: CONFIG_QCOM_PD_MAPPER=m, CONFIG_QRTR=m (out/build/kernel/rpmbuild/SOURCES/kernel-aarch64-fedora.config:6868,6945). (3) The kernel table equals the Windows maps domain for domain: adsp root_pd, sensor_pd, audio_pd (avs/audio), charger_pd, all instance 74, and cdsp root_pd instance 76 (qcom_pd_mapper.c:253-312) (Verified by reading all five .jsn; each is also byte-identical to Fedora qcom-firmware 20261019 qcom/x1e80100/LENOVO/21N1/<same name>, Verified by SHA-256). Only difference: Windows adspr.jsn also lists tms/pdr_enabled, which the kernel adds only in adsp_root_pd_pdr (:280-287), not used by x1e80100_domains; nothing in the kernel looks that service up (grep), the remote DSP does (Hypothesis, harmless as on other X1E laptops). Where a userspace pd-mapper would read maps: upstream pd-mapper reads them under /lib/firmware next to the remoteproc firmware (Hypothesis from memory of the upstream tool, not verified here, not needed)."""
+revisit_when = "dmesg at M2 shows 'PDM: no support for the platform' (qcom_pd_mapper.c:690) or the ADSP service registry fails; then compare the in-kernel table with the .jsn files above."
+grade = "Verified (code, package metadata, .jsn content); the fallback path of a userspace tool is Hypothesis"
