@@ -101,6 +101,15 @@ series_hash=$(
       if [[ -n $p ]]; then echo "$p $(sha256sum < "$KERNEL_REPO/$p" | cut -d' ' -f1)"; fi
     done < "$KERNEL_REPO/kernel/series"
   fi | sha256sum | cut -d' ' -f1)
+# RPM metadata digest: names, deps, file lists with modes and owners (no sizes, digests or times),
+# to compare a ccache build against another build of the same inputs.
+for r in "$RPMDIR"/*.rpm; do
+  rpm -qp --qf '%{NEVRA}\n' "$r"
+  rpm -qp --requires "$r" | sort
+  rpm -qp --provides "$r" | sort
+  rpm -qp --qf '[%{FILENAMES} %{FILEMODES:octal} %{FILEUSERNAME} %{FILEGROUPNAME}\n]' "$r" | sed -E 's/(kernel-signing|signing_key)[^ ]*//' | sort
+done > "$CK/rpm-metadata.txt"
+cp "$CK/rpm-metadata.txt" "$KERNEL_RPMS_DIR/$nevra.metadata.txt"
 python3 -I - "$KERNEL_RPMS_DIR/$nevra.json" <<PY
 import json, hashlib, os, subprocess, sys, datetime, glob
 def sha(p): return hashlib.sha256(open(p, 'rb').read()).hexdigest()
@@ -126,7 +135,12 @@ rec = {
   'dtb_check': {'target': "$dtb", 'rc': "$dtb_rc", 'warning_lines': int("$dtb_warn")},
   'build': {'seconds': int("$seconds"), 'jobs': int("$jobs"), 'rpmbuild_rc': int("$rpmbuild_rc"),
             'peak_memory_cgroup_bytes': int("$mem_cgroup_peak_bytes"),
-            'peak_memory_anon_bytes_sampled_3s': int("$mem_anon_peak_bytes")},
+            'peak_memory_anon_bytes_sampled_3s': int("$mem_anon_peak_bytes"),
+            'ccache': {'direct_hit': int("${ccache_direct_cache_hit:-0}"), 'preprocessed_hit': int("${ccache_preprocessed_cache_hit:-0}"),
+                       'miss': int("${ccache_cache_miss:-0}"),
+                       'hit_rate': round((int("${ccache_direct_cache_hit:-0}") + int("${ccache_preprocessed_cache_hit:-0}")) /
+                                         max(1, int("${ccache_direct_cache_hit:-0}") + int("${ccache_preprocessed_cache_hit:-0}") + int("${ccache_cache_miss:-0}")), 4)}},
+  'rpm_metadata_sha256': sha("$CK/rpm-metadata.txt"),
   'rpms': rpms,
 }
 json.dump(rec, open(sys.argv[1], 'w'), indent=2); print('record', sys.argv[1])

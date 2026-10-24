@@ -26,3 +26,15 @@ KERNEL_BUILDID=".sp11"
 KERNEL_DIST=".fc44"
 
 die() { echo "kernel: $*" >&2; exit 1; }
+
+# D14: persistent ccache, used through Fedora's compiler wrappers (/usr/lib64/ccache/gcc ...) on PATH.
+KERNEL_CCACHE_DIR="$SP11_OUT/ccache"
+kernel_ccache_env() {   # call inside the container
+  mkdir -p "$KERNEL_CCACHE_DIR"
+  export CCACHE_DIR="$KERNEL_CCACHE_DIR" CCACHE_MAXSIZE=30G
+  # The tarball is unpacked anew for every rpmbuild: header mtimes/ctimes are new, contents are not.
+  export CCACHE_SLOPPINESS=include_file_mtime,include_file_ctime,time_macros
+  # Hash the compiler and the redhat-hardened/annobin spec files by content, not by mtime.
+  export CCACHE_COMPILERCHECK=content
+  export PATH="/usr/lib64/ccache:$PATH"
+}

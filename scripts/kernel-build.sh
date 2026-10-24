@@ -37,6 +37,9 @@ toml() { sed -n -E "s/^$1[[:space:]]*=[[:space:]]*\"?([^\"]*)\"?[[:space:]]*\$/\
 # inner: runs inside the container, does only rpmbuild + resource accounting
 if ((inner)); then
   stats="$KERNEL_BUILD_DIR/build-stats.env"
+  kernel_ccache_env
+  ccache -z >/dev/null
+  ccache --version | head -1
   ( peak=0
     while sleep 3; do
       a=$(awk '$1=="anon"{print $2}' /sys/fs/cgroup/memory.stat 2>/dev/null || echo 0)
@@ -53,6 +56,7 @@ if ((inner)); then
   kill "$sampler" 2>/dev/null || true
   {
     echo "start=$start"; echo "end=$end"; echo "seconds=$((end - start))"; echo "jobs=$jobs"; echo "rpmbuild_rc=$rc"
+    ccache --print-stats | sed -n -E 's/^(direct_cache_hit|preprocessed_cache_hit|cache_miss|files_in_cache|cache_size_kibibyte)\t/ccache_\1=/p'
     echo "mem_cgroup_peak_bytes=$(cat /sys/fs/cgroup/memory.peak 2>/dev/null || echo 0)"
     echo "mem_anon_peak_bytes=$(cat "$KERNEL_BUILD_DIR/mem-anon-peak.bytes" 2>/dev/null || echo 0)"
   } > "$stats"

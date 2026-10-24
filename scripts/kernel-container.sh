@@ -15,7 +15,7 @@ set -euo pipefail
 # Packages every kernel build needs, on top of the BuildRequires of kernel.spec.
 BASE_PKGS=(dwarves gcc gcc-c++ make bison flex bc openssl-devel elfutils-libelf-devel elfutils-devel
            dtc rpm-build rpmdevtools python3 python3-pyyaml git perl-interpreter perl-generators
-           dt-schema dnf-plugins-core util-linux procps-ng cpio xz zstd rsync jq sparse)
+           dt-schema ccache dnf-plugins-core util-linux procps-ng cpio xz zstd rsync jq sparse)
 
 cmd_image() {
   local spec="${1:-$KERNEL_BUILD_DIR/rpmbuild/SPECS/kernel.spec}"
