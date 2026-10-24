@@ -1,19 +1,19 @@
 id = "touch-pen"
 name = "Touchscreen and pen: MSHW0484 HID over SPI (Surface Touch G6)"
 phase = 2
-status = "survey"
+status = "designed"
 depends_on = ["soc-boot"]
-updated = "2026-10-23"
+updated = "2026-10-24"
 
 [windows]
 hardware_ids = ["ACPI\\VEN_MSHW&DEV_0484&REV_0001", "HID\\VEN_MSHW&DEV_0484&REV_0001&Col01..Col0A", "ACPI\\VEN_QCOM&DEV_0C0E&SUBSYS_MSHW0489 (SPI)"]
 packages = ["hidspi_km (inbox)", "qcspi8380", "surfacedigitizerwotextnpackage", "surfacetouchg6fwupdateextnpackage0c80", "surfacetouchg6fwupdateextnpackage0c83", "surfacetouchpenprocessor0c80update", "surfacetouchpenprocessor0c83update", "surfacepenblelcaddradaptationdriver", "surfacepen0c0ffirmwareupdate", "surfacepenwirelesschargerhotkey"]
 
 [linux]
-drivers = ["spi-geni-qcom"]
-dt = []
+drivers = ["spi-geni-qcom", "spi-hid", "spi-hid-of", "spi-hid-acpi"]
+dt = ["arch/arm64/boot/dts/qcom/x1p64100-microsoft-denali.dts (disabled draft only)"]
 native = "none"
-gaps = ["no HID-over-SPI driver in 7.3", "no DT node for the touch controller", "GENI SE may come up unprogrammed (protocol 0)", "SPI speed, IRQ, reset and supply GPIOs from ACPI _CRS/_PS0/_RST"]
+gaps = ["unchanged spi-hid v6 builds with BTF and new-file W=1 on v7.3, but lacks required quad-SPI transfers", "v7.3 spi-geni-qcom lacks quad mode and board quad pinmux is unknown", "GENI protocol 0 is rejected without requesting firmware; personality/state decision requested, actual device state unknown", "schema-valid disabled DT draft needs 300 ms reset and 10 ms shutdown sequencing support", "second ACPI GpioInt 0x0440 and panel/wake policy unresolved despite Windows WoT policy extension", "independent cross-check, central source pins and strict checkpatch clearance pending"]
 
 [firmware]
-needs = ["qcom/x1e80100/qupv3fw.elf (if the SPI engine is unprogrammed)"]
+needs = ["compatible GENI/QSPI firmware TBD; no firmware-name is requested by the disabled DT, and qupv3fw.elf is not a proven requirement"]
