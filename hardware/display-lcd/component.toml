@@ -13,7 +13,7 @@ packages = ["qcdx8380", "surface_dxext_8380", "surfaceoempanelcustomizationlcd",
 drivers = ["drm/msm (dpu1 catalog dpu_9_2_x1e80100.h)", "drm/msm/dp", "phy-qcom-edp", "panel-edp", "pwm_bl", "leds-qcom-lpg"]
 dt = ["x1-microsoft-denali.dtsi &mdss, &mdss_dp3, &mdss_dp3_phy, panel"]
 native = "partial"
-gaps = ["three draft patches prepared: LGD 0x077B, HPD mux and LCD PWM backlight; integration pending", "panel T3/T8/T9/T10/T12 requirements unverified; panel entry uses provisional LGD family delays", "Q1 strong inference: PMK8550 PWM index 0 GPIO5 at requested 200 Hz; PMC8380_3 GPIO4 enable and GPIO10 supply; actual Windows PWM resolution TBD", "independent other-runtime cross-check required before sw-ready", "panel DPCD and active link/bpp never observed; read-only collector prepared", "full integrated BTF kernel build and device acceptance pending"]
+gaps = ["0001 panel identity + 0002 HPD passed object build/CHECK_DTBS; first integration pending", "0003 backlight held for M2 GPIO5 LV/MV pad subtype and DPCD backlight caps; func3 unsupported on non-LV/MV pads", "Q1/Q2 cross-check reconciled: pins/method agree, PWM channel 0 downgraded to Hypothesis, actual Windows resolution TBD", "Windows 500 ms wait is in power-down ENTER; T12 relation and LGD family fallback Inference, panel-specific timing requirements TBD", "independent EDID timing/depth reproduction and device DPCD/active link evidence pending", "full integrated BTF kernel build and device acceptance pending"]
 
 [firmware]
 needs = []

@@ -50,7 +50,7 @@ Raw configuration records below are **Verified** at the stated offsets in IDP
 | Operation | Offset | Selected argument values |
 |:--|:--|:--|
 | FSTATE ENTER, TLMM power pin | 0x0f78 | `TLMMGPIO [70, 0, 0, 0, 1, 0]` |
-| FSTATE ENTER, delay | 0x0fd5 | `DELAY [500]` |
+| FSTATE ENTER (power-down), delay | 0x0fd5 | `DELAY [500]`, unit ms established by independent PEP REA |
 | FSTATE ENTER, HPD pin | 0x0ff3 | `TLMMGPIO [119, 1, 0, 0, 1, 0]` |
 | FSTATE ENTER, PMIC inputs | 0x1050 / 0x10c8 / 0x1140 | PMIC/index pairs `3/9`, `3/3`, `0/4` |
 | FSTATE EXIT, TLMM power pin | 0x150b | `TLMMGPIO [70, 1, 0, 1, 3, 7]` |
@@ -67,7 +67,7 @@ CRD has only the `3/3` PMIC output at 0x14a7 and does not have the IDP's
 
 | Required value | Conclusion and grade | Reason/citation |
 |:--|:--|:--|
-| PWM controller / channel | PMK8550 LPG, Linux PWM index 0 (**strong Inference**) | Exact-board posted backlight patch; Linux maps index 0 to base 0xe800 at `sources/linux/drivers/leds/rgb/leds-qcom-lpg.c:1814` |
+| PWM controller / channel | PMK8550 LPG (**Inference**), proposed Linux PWM index 0 (**Hypothesis after cross-check**) | Exact-board posted patch proposes 0, but independent Windows evidence names no channel; Linux maps index 0 to base 0xe800 at `sources/linux/drivers/leds/rgb/leds-qcom-lpg.c:1814`, not proof of routing |
 | PWM pin / mux | PMK8550 GPIO5, `func3` (**strong Inference**) | IDP `0/4` zero-based pair plus exact-board patch; Linux controller at `sources/linux/arch/arm64/boot/dts/qcom/hamoa-pmics.dtsi:265` |
 | Requested PWM period / frequency | 5000000 ns / 200 Hz (**strong Inference**) | Exact-board, LCD-tested posted patch; this matches, but is not proved by, reference XML |
 | Actual Windows PWM resolution | **TBD** | Reference `gpu0-rom-0.xml` says 12 bits, but describes B133HAN05.3; it is not a board measurement |
@@ -79,7 +79,16 @@ CRD has only the `3/3` PMIC output at 0x14a7 and does not have the IDP's
 
 The interpretation of Windows GPIO indices as one less than the physical
 PMIC GPIO numbers is an **Inference**, corroborated by the exact-board patch
-and the pre-existing Linux GPIO4 enable, not yet reproduced by another runtime.
+and the pre-existing Linux GPIO4 enable, independently reproduced by the
+Claude cross-check. See [Q1/Q2 reconciliation](2026-10-24-crosscheck-reconciliation.md)
+for agreements and differences, including resolution and the power-down wait.
+
+Patch 0003 remains held: func3 requires an LV/MV pad
+(`sources/linux/drivers/pinctrl/qcom/pinctrl-spmi-gpio.c:323`), while this
+unit's PMK8550 GPIO5 subtype is **TBD**. M2 must establish the subtype and
+DPCD backlight capabilities before review can release the patch. First
+integration is 0001/0002 only; absence of a pinctrl error without 0003 applied
+does not establish support for that mux.
 
 ## Upstream search, 2026-10-24
 

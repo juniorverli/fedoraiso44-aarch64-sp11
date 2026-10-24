@@ -12,8 +12,13 @@ The DENidp ACPI extension also configures the corresponding PMIC
 GPIO indices on display power transitions. The 5 ms PWM period
 comes from the posted, LCD-tested board patch.
 
+Hold this patch until the M2 log establishes the PMK8550 GPIO5 pad
+subtype and the panel's DPCD backlight capabilities. Linux accepts
+func3 only on LV/MV pads; this unit's subtype is unknown offline.
+The first integration uses patches 0001 and 0002 only.
+
 Link: https://lore.kernel.org/r/20261017-sp11-lcd-fixes-v1-2-0eb916c01a3d@gmail.com
-Signed-off-by: juniorverli <25966843+juniorverli@users.noreply.github.com>
+Assisted-by: Codex gpt-6.1-sol
 ---
 diff --git a/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi b/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi
 --- a/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi

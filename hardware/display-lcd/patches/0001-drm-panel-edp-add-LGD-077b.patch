@@ -12,7 +12,7 @@ not measured timings for LP129WT342166; the Windows panel timing
 requirements have not yet been established. Mode timings remain
 provided by EDID.
 
-Signed-off-by: juniorverli <25966843+juniorverli@users.noreply.github.com>
+Assisted-by: Codex gpt-6.1-sol
 ---
 diff --git a/drivers/gpu/drm/panel/panel-edp.c b/drivers/gpu/drm/panel/panel-edp.c
 index 2b455369e..09c052f58 100644

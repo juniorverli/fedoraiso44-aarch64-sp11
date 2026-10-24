@@ -16,19 +16,21 @@ and detailed outputs remain in `out/rea/display-lcd/`, not git.
 | The literal timing-key trace reports no references | Verified observation of that query | Same trace; this is not proof that no code consumes the table |
 | An exact-address query for 0x140329c34 also returns no references | Verified observation of that query | DX SHA above; REA `ev_1e8bb7d52e78fe5838b119d913581641358d884f9bff1a309c22bb6ac91a6d41`, `qcdxkm-timing-global-xrefs.txt` |
 | PEP has recovered procedures available for address-based work | Verified | PEP SHA `e5bdeb8c0fb8823990f7520a19c00807711cf909f91f8d67db78ffb18c1b2277`; REA `ev_a0dd212bebe4d2b254dcaebb1d0c893e0e516db6fe0bebacb26e4b028b42c2c0`, `qcpep-procedures.txt` |
-| IDP contains a `DELAY` record with integer 500 immediately after its TLMM GPIO70 ENTER record | Verified raw record | IDP SHA `581d11553cc9961da63b301ee81228f9495acad16983218b45d6329b1982fa47`, package offset 0x0fd5, integer argument header 0x0fe7 / payload 0x0feb |
+| IDP contains a `DELAY` record with integer 500 immediately after its TLMM GPIO70 record, in FSTATE 1 `ENTER` (power-down) | Verified raw record; direction Inference from rail votes | IDP SHA `581d11553cc9961da63b301ee81228f9495acad16983218b45d6329b1982fa47`, list 0x0bc0, delay package 0x0fd5, integer argument header 0x0fe7 / payload 0x0feb; zero LDO votes at 0x0e64 / 0x0eee versus nonzero EXIT votes |
+| PEP interprets `DELAY` integers in milliseconds | Verified by the independent cross-check's REA trace | PEP SHA above, `FUN_140128170`, REA `ev_bcb8b29ca707b96c265cdb35655a0ae1f184eed1f63d8b1150bf4f1b54978dd6`; see [reconciliation](2026-10-24-crosscheck-reconciliation.md) |
 
-The delay record's unit and relation to panel timing are **TBD**. In particular,
-the raw integer 500 must not be called T12=500 ms without following PEP's
-handler. Generic GPU FSTATE entry/exit is not necessarily the panel/backlight
-sequence, and the output pin configuration is not evidence of the duration
-between transitions.
+The independent cross-check resolved the unit: this is a **Verified 500 ms
+PEP wait**, in the **power-down** list, after the panel supply pin is parked
+and before HPD and the PMIC pins are parked. `ENTER` means entering a
+low-power F-state, not powering up the display. The interpretation as
+contributing to panel T12/off dwell is an **Inference**, not a recovered
+panel requirement or proof that Linux's sequencing is identical.
 
 The reference `_ROM` XMLs are for other panels and the extension blobs are
 method/rail overrides, not a recovered LP129WT342166 timing specification.
-No verified values for T3, T8, T9, T10 or T12 have yet been recovered from
-this Windows stack. Parser key names alone do not identify values or map
-the key suffixes to eDP timing labels.
+No panel-specific requirements for T3, T8, T9, T10 or T12 have been recovered
+from this Windows stack; the PEP wait is a Windows sequencing value. Parser
+key names alone do not identify values or map suffixes to eDP timing labels.
 
 ## Patch 0001 fallback, explicitly graded
 
@@ -54,9 +56,14 @@ EDID-provided modes rather than inventing a timing override. It is **not** a
 datasheet confirmation or a proof of safety/correctness on this panel.
 It shortens the unknown-panel driver's generic 2000 ms off dwell to 500 ms
 (`sources/linux/drivers/gpu/drm/panel/panel-edp.c:755`). This specific change
-needs the independent cross-check and device cold-boot evidence before the
-component can be treated as ready. If the family assumption is rejected,
-hold patch 0001 rather than claiming the Windows timing question is solved.
+has a compatible independently recovered Windows power-down wait, but still
+needs device cold-boot evidence. Patch 0001 is selected for the first
+integration, with this uncertainty explicit; Q2 is not fully solved.
+
+The cross-check's final fallback sentence mislabels this profile as 200 ms
+`hpd_reliable` / 500 ms `hpd_absent`. Reading the initializer at `:1853`
+resolves the disagreement: it is **200 ms `hpd_absent` / 500 ms `unprepare`**,
+with `hpd_reliable` left zero. The table above retains the source values.
 
 ## Next trace targets
 
@@ -72,5 +79,6 @@ locations and their initialization/copying before assigning units or values.
 
 PEP has `DELAY` text at file offset 0x284e24 / VA 0x140287424 and the digital
 output IOCTL name at offset 0x38ae90 / VA 0x14038e090 (Verified raw bytes,
-same PEP SHA above). Follow their handler selection after confirming procedure
-addresses against the saved inventory. Decompiled listings remain outside git.
+same PEP SHA above). The cross-check followed the DELAY handler; do not repeat
+that completed trace. The GPIO field enums remain open. Decompiled listings
+remain outside git; no REA/Ghidra invocation was needed in the resumed session.

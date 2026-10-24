@@ -9,7 +9,7 @@ Adapted from Dale Whinham's posted patch; the change is identical.
 
 Link: https://lore.kernel.org/r/20261017-sp11-lcd-fixes-v1-1-0eb916c01a3d@gmail.com
 
-Signed-off-by: juniorverli <25966843+juniorverli@users.noreply.github.com>
+Assisted-by: Codex gpt-6.1-sol
 ---
 diff --git a/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi b/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi
 index e3a53b893..332189839 100644
