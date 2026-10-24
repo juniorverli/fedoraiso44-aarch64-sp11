@@ -104,6 +104,8 @@ grub2-efi-aa64
 grub2-efi-aa64-cdboot
 shim-aa64
 efibootmgr
+# SP11: ausearch for the SELinux AVC capture of the log collector (D15)
+audit
 grub2-tools
 grub2-tools-extra
 

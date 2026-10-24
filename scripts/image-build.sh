@@ -34,6 +34,16 @@ if [ "$inside" = 0 ]; then
 		echo "image-build: $out/.kernel-build.lock is held (kernel build running); not starting the ISO build" >&2
 		exit 3
 	fi
+	# disk guard: the real limit is the Windows drive under the WSL2 VHDX, not `df /`
+	# shellcheck source=kernel-common.sh
+	. "$here/scripts/kernel-common.sh"
+	read -r h src < <(kernel_headroom)
+	min=${SP11_MIN_HEADROOM_GIB:-30}
+	echo "image-build: disk headroom $((h / KERNEL_GIB)) GiB [$src], need >= $min GiB"
+	if ((h < min * KERNEL_GIB)); then
+		echo "image-build: REFUSED: headroom $((h / KERNEL_GIB)) GiB < $min GiB [$src]" >&2
+		exit 4
+	fi
 	if [ "$smoke" = 0 ]; then
 		ls "$out"/rpms/kernel-core-*.rpm >/dev/null 2>&1 || { echo "image-build: no kernel-core RPM in $out/rpms/" >&2; exit 1; }
 		[ -d "$out/firmware-root/lib/firmware" ] || { echo "image-build: $out/firmware-root missing; run scripts/firmware-stage.sh" >&2; exit 1; }
@@ -95,7 +105,7 @@ rm -f "$OUT/image-work/packages.txt" "$OUT/image-work/kernel-nevra.txt" "$OUT/im
 log "livemedia-creator, log: $work/lmc.log (several tens of minutes)"
 mkdir -p "$work/tmp"
 start=$(date +%s)
-livemedia-creator --no-virt --make-iso --iso-only --iso-name "$name.iso" \
+livemedia-creator --no-virt --make-iso --nomacboot --iso-only --iso-name "$name.iso" \
 	--ks "$ks" \
 	--lorax-templates "$REPO/image/lorax-templates" \
 	--project Fedora --releasever 44 --release "SP11 $kind $id" \

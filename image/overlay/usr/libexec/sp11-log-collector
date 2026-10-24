@@ -190,6 +190,10 @@ snapshot() {
 	shsnap mounts.txt 'findmnt -A; echo; df -h; echo; lsblk -f; echo; blkid'
 
 	# --- systemd, session
+	# --- SELinux AVC denials (D15): audit log if present, else the journal
+	shsnap selinux-avc.txt 'echo "selinux: $(getenforce 2>&1)"; if command -v ausearch >/dev/null && [ -r /var/log/audit/audit.log ]; then echo "source: ausearch -m AVC,USER_AVC -ts boot"; ausearch -m AVC,USER_AVC -ts boot 2>&1; else echo "source: journal grep (no ausearch or no audit.log)"; journalctl -b --no-pager -o short-monotonic 2>&1 | grep -E "avc: +denied|type=1400|AVC"; fi'
+
+	# --- systemd, session
 	shsnap units-failed.txt 'systemctl --no-pager --failed 2>&1'
 	shsnap units-state.txt 'systemctl is-active multi-user.target graphical.target gdm.service display-manager.service sp11-log-collector.service 2>&1; systemctl get-default'
 	shsnap gdm-status.txt 'systemctl status gdm.service --no-pager -l 2>&1'

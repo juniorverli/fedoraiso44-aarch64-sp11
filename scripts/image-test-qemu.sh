@@ -28,6 +28,15 @@ if [ "${SP11_OUT:-}" = "" ] || [ ! -d /sp11 ]; then
 		echo "image-test-qemu: $out/.kernel-build.lock is held (kernel build running); not starting QEMU" >&2
 		exit 3
 	fi
+	# shellcheck source=kernel-common.sh
+	. "$here/scripts/kernel-common.sh"
+	read -r h src < <(kernel_headroom)
+	min=${SP11_MIN_HEADROOM_GIB:-30}
+	echo "image-test-qemu: disk headroom $((h / KERNEL_GIB)) GiB [$src], need >= $min GiB"
+	if ((h < min * KERNEL_GIB)); then
+		echo "image-test-qemu: REFUSED: headroom $((h / KERNEL_GIB)) GiB < $min GiB [$src]" >&2
+		exit 4
+	fi
 	exec env SP11_DOCKER_MEMORY="${SP11_DOCKER_MEMORY:-7g}" "$here/scripts/image-container.sh" run /sp11/scripts/image-test-qemu.sh "$@"
 fi
 OUT=$SP11_OUT
