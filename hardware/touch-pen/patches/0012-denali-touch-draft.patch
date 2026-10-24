@@ -1,0 +1,83 @@
+Subject: [PATCH RFC 12/12] arm64: dts: qcom: denali-lcd: draft disabled touch nodes
+
+Describe the SPI HID resources from the captured GTCH SSDT. Keep the SPI
+controller, HID child and supply disabled. This is a compilation and schema
+validation draft, not an integration patch. No voltage has been inferred.
+
+SSDT SHA-256:
+95ee103a7ad5d9b55cc84ff09065171d638b6de9d1aafcde6efc69ce6a824f1b
+Resources: ssdt.dsl:1564; sequencing: ssdt.dsl:1669 and :1726.
+Controller: dsdt.dsl:51534, SHA-256
+8a7b849b9ac2148a9806d967612eb0d5195020c3e29ffd834b837767256a8ede.
+
+Independent cross-check, longer reset timing, shutdown sequencing and the
+quad-SPI support for _DSM flags 0xa000 remain prerequisites to enabling
+this node. The protocol requires single-lane opcodes and quad-lane address
+and data; v7.3 spi-geni-qcom and unchanged spi-hid v6 cannot provide this.
+The additional wake resource 0x0440 is intentionally unresolved.
+
+---
+diff --git a/arch/arm64/boot/dts/qcom/x1p64100-microsoft-denali.dts b/arch/arm64/boot/dts/qcom/x1p64100-microsoft-denali.dts
+index d96202e2a..5eea36245 100644
+--- a/arch/arm64/boot/dts/qcom/x1p64100-microsoft-denali.dts
++++ b/arch/arm64/boot/dts/qcom/x1p64100-microsoft-denali.dts
+@@ -13,3 +13,59 @@ / {
+ 	compatible = "microsoft,denali-lcd", "microsoft,denali",
+ 		     "qcom,x1p64100", "qcom,x1e80100";
+ };
++
++/ {
++	touch_vdd: regulator-touch-vdd {
++		compatible = "regulator-fixed";
++		regulator-name = "touch-vdd";
++		gpio = <&tlmm 64 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++		startup-delay-us = <500000>;
++		pinctrl-names = "default";
++		pinctrl-0 = <&touch_vdd_default>;
++		status = "disabled";
++	};
++};
++
++&spi10 {
++	status = "disabled";
++
++	touchscreen: hid@0 {
++		compatible = "microsoft,g6-touch-digitizer", "hid-over-spi";
++		reg = <0>;
++		spi-max-frequency = <40000000>;
++		spi-rx-bus-width = <4>;
++		spi-tx-bus-width = <4>;
++		interrupts-extended = <&tlmm 51 IRQ_TYPE_EDGE_FALLING>;
++		reset-gpios = <&tlmm 48 GPIO_ACTIVE_LOW>;
++		vdd-supply = <&touch_vdd>;
++		pinctrl-names = "default";
++		pinctrl-0 = <&touch_irq_default>, <&touch_reset_default>;
++		input-report-header-address = <0x1000>;
++		input-report-body-address = <0x1004>;
++		output-report-address = <0x2000>;
++		read-opcode = /bits/ 8 <0xeb>;
++		write-opcode = /bits/ 8 <0xe2>;
++		status = "disabled";
++	};
++};
++
++&tlmm {
++	touch_irq_default: touch-irq-default-state {
++		pins = "gpio51";
++		function = "gpio";
++		bias-disable;
++	};
++
++	touch_reset_default: touch-reset-default-state {
++		pins = "gpio48";
++		function = "gpio";
++		bias-disable;
++	};
++
++	touch_vdd_default: touch-vdd-default-state {
++		pins = "gpio64";
++		function = "gpio";
++		bias-disable;
++	};
++};

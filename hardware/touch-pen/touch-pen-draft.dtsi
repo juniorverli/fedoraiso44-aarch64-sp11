@@ -1,0 +1,63 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * Software-only draft. Keep all devices disabled until cross-check and the
+ * timing, quad-SPI transport, wake-resource and GENI questions are resolved.
+ * Grades and citations: evidence/2026-10-24-acpi.md and
+ * evidence/2026-10-24-geni-and-dt.md. No supply voltage is established.
+ */
+
+/ {
+	touch_vdd: regulator-touch-vdd {
+		compatible = "regulator-fixed";
+		regulator-name = "touch-vdd";
+		gpio = <&tlmm 64 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		startup-delay-us = <500000>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&touch_vdd_default>;
+		status = "disabled";
+	};
+};
+
+&spi10 {
+	status = "disabled";
+
+	touchscreen: hid@0 {
+		compatible = "microsoft,g6-touch-digitizer", "hid-over-spi";
+		reg = <0>;
+		spi-max-frequency = <40000000>;
+		spi-rx-bus-width = <4>;
+		spi-tx-bus-width = <4>;
+		interrupts-extended = <&tlmm 51 IRQ_TYPE_EDGE_FALLING>;
+		reset-gpios = <&tlmm 48 GPIO_ACTIVE_LOW>;
+		vdd-supply = <&touch_vdd>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&touch_irq_default>, <&touch_reset_default>;
+		input-report-header-address = <0x1000>;
+		input-report-body-address = <0x1004>;
+		output-report-address = <0x2000>;
+		read-opcode = /bits/ 8 <0xeb>;
+		write-opcode = /bits/ 8 <0xe2>;
+		status = "disabled";
+	};
+};
+
+&tlmm {
+	touch_irq_default: touch-irq-default-state {
+		pins = "gpio51";
+		function = "gpio";
+		bias-disable;
+	};
+
+	touch_reset_default: touch-reset-default-state {
+		pins = "gpio48";
+		function = "gpio";
+		bias-disable;
+	};
+
+	touch_vdd_default: touch-vdd-default-state {
+		pins = "gpio64";
+		function = "gpio";
+		bias-disable;
+	};
+};
