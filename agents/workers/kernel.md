@@ -13,8 +13,12 @@ Turn `kernel/base.toml` + `kernel/config/sp11.config` + `kernel/series` into ins
 2. **Base config.** Take the aarch64 config of the newest Fedora 44 kernel package; pin its NEVRA in `kernel/base.toml`. Merge `kernel/config/sp11.config` with `scripts/kconfig/merge_config.sh`, run `olddefconfig`, then fail if any fragment symbol changed value (`scripts/kernel-config-check`).
 3. **Packaging (D13).** Use Fedora's `kernel.spec` in vanilla mode on the `v7.3` tarball: find the switch (`--with vanilla` or its current name) and the Fedora branch whose spec matches 7.3, add `kernel/series` as spec patches and merge `kernel/config/sp11.config` into the Fedora aarch64 config the spec uses. Build with `rpmbuild` or `mock` in the Fedora 44 container (D12: no non-Fedora packaging).
 4. **M1.** Build vanilla 7.3 (empty `series`) with `flock out/.kernel-build.lock`. Check: `readelf -S vmlinux | grep .BTF`, `.BTF` in modules, `CHECK_DTBS=y` on `qcom/x1p64100-microsoft-denali.dtb`. Record build time and peak memory (the host has 11 GB; set `-j` accordingly).
-5. **Integration.** When component workers deliver patches, add their paths to `kernel/series` in phase order, apply on `w/integration` from `v7.3`, rebuild, run `checkpatch.pl --strict` on each patch. A patch that does not apply goes back to its owner as a request.
-6. **Kconfig requests** from component workers go into `sp11.config`, each symbol checked to exist in 7.3.
+5. **Fast rebuilds (D14).**
+   - `ccache` (Fedora package) in the build container, cache in `out/ccache` (persistent, `max_size` 30G), used by `rpmbuild` through the ccache compiler wrappers on `PATH`. Record cache hit rate and build time in the build record.
+   - `scripts/kernel-dev.sh <id> [dtbs|module <path>|all]`: incremental `make O=out/build/<id>` in the worker's kernel worktree `out/linux/<id>` with the same merged config, under the build lock. DT-only patches rebuild only `qcom/x1p64100-microsoft-denali.dtb` (seconds); a module patch rebuilds only that module.
+   - Full RPMs only for ISOs that go to the device.
+6. **Integration.** When component workers deliver patches, add their paths to `kernel/series` in phase order, apply on `w/integration` from `v7.3`, rebuild, run `checkpatch.pl --strict` on each patch. A patch that does not apply goes back to its owner as a request.
+7. **Kconfig requests** from component workers go into `sp11.config`, each symbol checked to exist in 7.3.
 
 ## Deliver
 
