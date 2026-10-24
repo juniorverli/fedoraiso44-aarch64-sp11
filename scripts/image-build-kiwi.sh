@@ -90,18 +90,26 @@ tar -C "$dtbtmp" -cf "$desc/config-cdroot.tar" boot
 # ---- 5. pins for the build record
 dnf -q repoinfo fedora updates --setopt=reposdir=/etc/yum.repos.d 2>/dev/null |
 	grep -E '^(Repo-id|Repo-revision|Repo-updated)' >"$work/repos.txt" || true
-echo "pin=$pin head=$head kver=$kver" >"$work/build-vars.env"
+printf "pin=%s\nhead=%s\nkver=%s\n" "$pin" "$head" "$kver" >"$work/build-vars.env"
 # ---- 6. kiwi, through Fedora's own wrapper
+# The image root must not be built below /out: /out is a bind mount of a host path, kernel-install
+# computes the BLS entry paths from the mount's source (/proc/self/mountinfo) and wrote the host path
+# (with the user name) into /boot/loader/entries/*.conf of the first kiwi ISO (L0 check 7.2). The
+# container's own file system has root "/", so the paths stay clean. Results are copied to $work.
+kiwiout=/var/tmp/sp11-kiwi
+rm -rf "$kiwiout"; mkdir -p "$kiwiout"
 log "kiwi-ng via kiwi-build, log: $work/kiwi.log (several tens of minutes)"
 start=$(date +%s)
 set +e
 ./kiwi-build --debug --image-type=iso --image-profile=Workstation-Live --kiwi-file=Fedora.kiwi \
-	--kiwi-description-dir="$desc" --output-dir="$work/out" >"$work/kiwi.log" 2>&1
+	--kiwi-description-dir="$desc" --output-dir="$kiwiout/out" >"$work/kiwi.log" 2>&1
 rc=$?
 set -e
 tail -n 25 "$work/kiwi.log" | cut -c1-300
 [ "$rc" = 0 ] || { log "kiwi failed (rc=$rc), see $work/kiwi.log"; exit 1; }
 elapsed=$(($(date +%s) - start))
+mkdir -p "$work/out-build"
+cp "$kiwiout"/out-build/Fedora.aarch64-44.* "$kiwiout"/out-build/kiwi.result* "$work/out-build/"
 iso=$(ls "$work"/out-build/*.iso 2>/dev/null | head -n1)
 [ -f "$iso" ] || { log "no ISO in $work/out-build"; ls -la "$work/out-build" >&2; exit 1; }
 log "ISO $iso after ${elapsed}s"

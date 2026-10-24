@@ -183,7 +183,22 @@ fi
 mkdir -p "$ROOT"
 cleanup
 layout=squashfs
-if ! mount -t squashfs -o loop,ro "$W/squashfs.img" "$ROOT" 2>"$W/mount.txt"; then
+if [ "$builder" = kiwi ]; then
+	# kiwi: Fedora's description makes the live root an erofs image (lzma). The WSL2 kernel mounts
+	# erofs only without lzma ("Failed to mount erofs: Operation not supported"), so L0 unpacks it
+	# in user space with fsck.erofs --extract into the work directory (a few minutes, ~7 GiB).
+	layout=erofs
+	if [ ! -f "$W/.erofs-extracted" ]; then
+		say "...unpacking the erofs root with fsck.erofs (several minutes)"
+		rm -rf "$ROOT"; mkdir -p "$ROOT"
+		if ! fsck.erofs --extract="$ROOT" --overwrite "$W/squashfs.img" >"$W/erofs-extract.txt" 2>&1; then
+			fail 0.2 "cannot unpack LiveOS/squashfs.img: $(tail -n2 "$W/erofs-extract.txt")"
+			say "SUMMARY: $npass passed, $nfail failed, $nskip skipped"
+			exit 1
+		fi
+		touch "$W/.erofs-extracted"
+	fi
+elif ! mount -t squashfs -o loop,ro "$W/squashfs.img" "$ROOT" 2>"$W/mount.txt"; then
 	fail 0.2 "cannot mount LiveOS/squashfs.img: $(cat "$W/mount.txt")"
 	say "SUMMARY: $npass passed, $nfail failed, $nskip skipped"
 	exit 1
@@ -193,7 +208,7 @@ if [ -f "$ROOT/LiveOS/rootfs.img" ]; then
 	mkdir -p "$W/root2"
 	mount -o loop,ro "$ROOT/LiveOS/rootfs.img" "$W/root2" && ROOT=$W/root2
 fi
-pass 0.2 "LiveOS/squashfs.img mounted read-only (layout: $layout)"
+pass 0.2 "LiveOS/squashfs.img readable (layout: $layout)"
 kver=$(ls "$ROOT/lib/modules" 2>/dev/null | head -n1)
 [ -n "$kver" ] && [ "$(ls "$ROOT/lib/modules" | wc -l)" = 1 ] && pass 0.3 "exactly one kernel in the image: $kver" || fail 0.3 "kernel directories: $(ls "$ROOT/lib/modules" 2>/dev/null | tr '\n' ' ')"
 rpm --root "$ROOT" -qla 2>/dev/null | sort >"$W/rpm-files.txt"
@@ -276,7 +291,8 @@ ko=$(find "$ROOT/lib/modules/$kver" -name 'msm.ko*' | head -n1)
 [ -z "$ko" ] && ko=$(find "$ROOT/lib/modules/$kver" -name '*.ko*' | head -n1)
 if [ -n "$ko" ]; then
 	case $ko in *.xz) dec="xz -dc" ;; *.zst) dec="zstd -dc" ;; *.gz) dec="gzip -dc" ;; *) dec=cat ;; esac
-	if $dec "$ko" 2>/dev/null | grep -a -q '\.BTF'; then pass 4.8 "$(basename "$ko") has a .BTF section"; else fail 4.8 "$(basename "$ko") has no .BTF section"; fi
+	# grep -c, not grep -q: with pipefail, -q closes the pipe early and the decompressor's SIGPIPE fails the test
+	if [ "$($dec "$ko" 2>/dev/null | grep -a -c '\.BTF')" -gt 0 ]; then pass 4.8 "$(basename "$ko") has a .BTF section"; else fail 4.8 "$(basename "$ko") has no .BTF section"; fi
 else
 	skip 4.8 "no msm module to look for .BTF in"
 fi
