@@ -32,8 +32,10 @@ echo "kernel-check: $nevra, kver $kver"
 vml=$(find "$TOPDIR/BUILD" -maxdepth 5 -name vmlinux -path "*linux-$kver*" | head -1)
 D=$(dirname "$vml")
 btf_vmlinux=fail
-if [[ -n $vml ]] && readelf -S -W "$vml" | grep -q ' \.BTF '; then
-  readelf -S -W "$vml" | grep -E ' \.BTF' | tee "$CK/vmlinux-btf.txt"
+# (capture first: `cmd | grep -q` under pipefail fails on SIGPIPE when grep exits early)
+sections=$([[ -n $vml ]] && readelf -S -W "$vml" || true)
+if grep -q ' \.BTF ' <<<"$sections"; then
+  grep -E ' \.BTF' <<<"$sections" | tee "$CK/vmlinux-btf.txt"
   btf_vmlinux=ok
 fi
 
@@ -82,7 +84,7 @@ cfg_ok=fail
 dtb=$(sed -n -E 's/^dtb[[:space:]]*=[[:space:]]*"([^"]*)".*/\1/p' "$KERNEL_REPO/kernel/base.toml")
 dtb_rc=skip dtb_warn=0
 dtb_pkg=fail   # DTB shipped in kernel-core under /lib/modules/<kver>/dtb (Fedora convention, image worker request)
-if [[ -f $CK/root/lib/modules/$kver/dtb/$dtb ]] && rpm -qlp "$core" | grep -qx "/lib/modules/$kver/dtb/$dtb"; then dtb_pkg=ok; fi
+if [[ -f $CK/root/lib/modules/$kver/dtb/$dtb ]] && grep -qx "/lib/modules/$kver/dtb/$dtb" <<<"$(rpm -qlp "$core")"; then dtb_pkg=ok; fi
 echo "DTB in kernel-core: $dtb_pkg (/lib/modules/$kver/dtb/$dtb)"
 if [[ -d $D/arch/arm64/boot/dts/qcom ]]; then
   rm -f "$D/arch/arm64/boot/dts/${dtb}" "$D/arch/arm64/boot/dts/${dtb}.dts.tmp" "$D/arch/arm64/boot/dts/${dtb%.dtb}.dtb.dts.tmp"
