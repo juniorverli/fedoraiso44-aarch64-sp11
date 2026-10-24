@@ -4,3 +4,27 @@ tag = "v7.3"
 commit = "c03c1a14507dfaf8b856c2608f9ac216021fc222"
 dtb = "qcom/x1p64100-microsoft-denali.dtb"
 localversion = ".sp11"
+
+# Packaging base (D13). Facts verified 2026-10-24 against koji and src.fedoraproject.org.
+# Fedora 44 ships kernel 7.2.12 (f44 branch, kernel-7.2.12-200.fc44); no 7.3 exists for F44.
+# The only 7.3.0 final build is rawhide/F46: kernel-7.3.0-65.fc46 (koji buildID 3123812,
+# built 2026-10-19). Its spec is used on the F44 container (dist and buildid are overridden).
+[fedora_spec]
+nevra = "kernel-7.3.0-65.fc46.src"
+srpm_file = "kernel-7.3.0-65.fc46.src.rpm"
+srpm_url = "https://kojipkgs.fedoraproject.org/packages/kernel/7.3.0/65.fc46/src/kernel-7.3.0-65.fc46.src.rpm"
+srpm_sha256 = "38f6f2a9a59bf20faa65dbd1783aab7e50bddb83dbf1e09ca8deea40b6809c62"
+koji_build = "https://koji.fedoraproject.org/koji/buildinfo?buildID=3123812"
+dist_git = "https://src.fedoraproject.org/rpms/kernel/tree/dd506226d7aa65f6ed5251f17c6e93e7d4c4a126"
+dist_git_commit = "dd506226d7aa65f6ed5251f17c6e93e7d4c4a126"
+# Vanilla switch: `rpmbuild --with vanilla` -> %define with_vanilla (kernel.spec:324) -> nopatches=1 (:396),
+# which drops Patch1 (patch-7.3-redhat.patch). Config hook: Source3001 `kernel-local`, merged by merge.py
+# into every aarch64 config (kernel.spec:2158-2175). Base config: Source kernel-aarch64-fedora.config.
+vanilla_switch = "--with vanilla"
+config_hook = "kernel-local"
+base_config = "kernel-aarch64-fedora.config"
+# Our v7.3 tag as `git archive --prefix=linux-7.3/ v7.3 | xz -T4 -6` is byte-identical to the
+# linux-7.3.tar.xz inside the Fedora SRPM (cmp, 2026-10-24).
+tarball_sha256 = "c74322672a1fdd33acfc37480ece7554486d886d71bc5a49277dc5aba5fbcb4d"
+buildid = ".sp11"
+dist = ".fc44"

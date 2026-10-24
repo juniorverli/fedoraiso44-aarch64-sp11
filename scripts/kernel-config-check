@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# Fail if a symbol of the Kconfig fragment does not end with its value in a kernel config.
+#
+#   kernel-config-check [-f FRAGMENT] CONFIG
+#       Check an existing .config (for example the one the RPM build produced).
+#   kernel-config-check [-f FRAGMENT] --merge BASE_CONFIG [--tree LINUX_TREE]
+#       Merge FRAGMENT on BASE_CONFIG with scripts/kconfig/merge_config.sh, run
+#       `make ARCH=arm64 olddefconfig` in a scratch O= dir, then check the result.
+#       Needs make, gcc, flex, bison: re-executes itself in the build container.
+#
+# A fragment line is `CONFIG_X=value` or `# CONFIG_X is not set`. "Ends with its value"
+# means the final config has exactly that line. A symbol absent from the final config
+# counts as `is not set` only when the fragment says `is not set`.
+# Exit 0: all symbols hold. 1: at least one differs. 2: usage or tool error.
+# Owner: kernel worker.
+set -euo pipefail
+. "$(dirname "${BASH_SOURCE[0]}")/kernel-common.sh"
+
+fragment="$KERNEL_REPO/kernel/config/sp11.config"
+base="" tree="$KERNEL_TREE" cfg=""
+while (($#)); do
+  case $1 in
+    -f) fragment=$2; shift 2 ;;
+    --merge) base=$2; shift 2 ;;
+    --tree) tree=$2; shift 2 ;;
+    -h|--help) sed -n 2,16p "$0"; exit 0 ;;
+    -*) die "unknown option $1" ;;
+    *) cfg=$1; shift ;;
+  esac
+done
+fragment="$(readlink -f "$fragment")"; [[ -n $base ]] && base="$(readlink -f "$base")"
+[[ -f $fragment ]] || { echo "kernel-config-check: no fragment $fragment" >&2; exit 2; }
+
+if [[ -n $base ]]; then
+  if [[ -z ${SP11_IN_CONTAINER:-} ]]; then
+    exec "$KERNEL_REPO/scripts/kernel-container.sh" run "$KERNEL_REPO/scripts/kernel-config-check" \
+      -f "$fragment" --merge "$base" --tree "$tree"
+  fi
+  [[ -f $base ]] || { echo "kernel-config-check: no base config $base" >&2; exit 2; }
+  work="$(mktemp -d "${TMPDIR:-/tmp}/kcc.XXXXXX")"
+  trap 'rm -rf "$work"' EXIT
+  mkdir -p "$work/o"
+  (cd "$tree" && ARCH=arm64 scripts/kconfig/merge_config.sh -m -O "$work/o" "$base" "$fragment" >/dev/null)
+  make -s -C "$tree" O="$work/o" ARCH=arm64 olddefconfig >"$work/olddefconfig.log" 2>&1 \
+    || { cat "$work/olddefconfig.log" >&2; echo "kernel-config-check: olddefconfig failed" >&2; exit 2; }
+  cfg="$work/o/.config"
+fi
+
+[[ -n $cfg && -f $cfg ]] || { echo "kernel-config-check: need a CONFIG file or --merge BASE" >&2; exit 2; }
+
+fail=0 n=0
+while IFS= read -r line; do
+  line="${line%%[[:space:]]}"
+  case $line in
+    CONFIG_*=n) sym="${line%%=*}"; line="# $sym is not set" ;;
+    CONFIG_*=*) sym="${line%%=*}" ;;
+    "# CONFIG_"*" is not set") sym="${line#\# }"; sym="${sym%% *}" ;;
+    *) continue ;;
+  esac
+  n=$((n + 1))
+  if grep -qxF -- "$line" "$cfg"; then continue; fi
+  got="$(grep -E -- "^(${sym}=|# ${sym} is not set)" "$cfg" || true)"
+  echo "MISMATCH $sym: fragment '$line', final '${got:-<absent>}'"
+  fail=1
+done < "$fragment"
+
+if ((fail)); then
+  echo "kernel-config-check: FAIL ($n fragment symbols checked)" >&2
+  exit 1
+fi
+echo "kernel-config-check: OK ($n fragment symbols hold in $cfg)"
