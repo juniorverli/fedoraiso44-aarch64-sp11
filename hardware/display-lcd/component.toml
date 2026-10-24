@@ -1,9 +1,9 @@
 id = "display-lcd"
 name = "Internal 13\" LCD: LGD 0x077B (LP129WT342166) over eDP, backlight, 60/120 Hz"
 phase = 1
-status = "survey"
+status = "designed"
 depends_on = ["soc-boot"]
-updated = "2026-10-23"
+updated = "2026-10-24"
 
 [windows]
 hardware_ids = ["MONITOR\\LGD077B", "ACPI\\VEN_QCOM&DEV_0C36&SUBSYS_IDP08380&REV_008A", "ACPI\\VEN_MSHW&DEV_0380", "UEFI\\RES_{82e97d6d-62c8-4f05-ae21-459f1f17af15} (TCON 161.33.0.19)", "SWC\\VEN_QCOM&DEV_0C36&SWC_QCDPPS8380", "SWC\\VEN_QCOM&DEV_0C36&SWC_QDCM8380"]
@@ -13,7 +13,7 @@ packages = ["qcdx8380", "surface_dxext_8380", "surfaceoempanelcustomizationlcd",
 drivers = ["drm/msm (dpu1 catalog dpu_9_2_x1e80100.h)", "drm/msm/dp", "phy-qcom-edp", "panel-edp", "pwm_bl", "leds-qcom-lpg"]
 dt = ["x1-microsoft-denali.dtsi &mdss, &mdss_dp3, &mdss_dp3_phy, panel"]
 native = "partial"
-gaps = ["no panel-edp entry for LGD 0x077B", "eDP HPD pinctrl (edp0_hpd_default) not applied to &mdss_dp3", "no backlight node: DPCD/AUX or PMK8550 LPG PWM undecided", "panel DPCD (eDP rev, rates, PSR, AUX backlight caps) never read"]
+gaps = ["three draft patches prepared: LGD 0x077B, HPD mux and LCD PWM backlight; integration pending", "panel T3/T8/T9/T10/T12 requirements unverified; panel entry uses provisional LGD family delays", "Q1 strong inference: PMK8550 PWM index 0 GPIO5 at requested 200 Hz; PMC8380_3 GPIO4 enable and GPIO10 supply; actual Windows PWM resolution TBD", "independent other-runtime cross-check required before sw-ready", "panel DPCD and active link/bpp never observed; read-only collector prepared", "full integrated BTF kernel build and device acceptance pending"]
 
 [firmware]
 needs = []
