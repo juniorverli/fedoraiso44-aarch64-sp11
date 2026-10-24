@@ -24,6 +24,8 @@ Target: Microsoft Surface Pro 11, 13" LCD, Snapdragon X Plus X1P64100 (10 cores)
 | M3 | LCD with backlight at 60 and 120 Hz | display-lcd | Acceptance in `hardware/display-lcd/README.md` |
 | M4 | GPU accelerated | gpu | Acceptance in `hardware/gpu/README.md` |
 
+M2b (D16): after the M2 device boot, the image moves to kiwi with Fedora's f44 description; every later ISO (M3, M4) is a kiwi ISO that passed L0 and L1.
+
 M2 comes before any patch on purpose: one boot of plain 7.3 shows what the kernel really delivers on this machine, and that log is shared evidence for every component.
 
 ### Parallel work

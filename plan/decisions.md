@@ -87,3 +87,16 @@ Append-only. Each entry: number, date, decision, reason, consequence. A later en
   2. Every GRUB entry carries `sp11.entry=<id>` so the L1 test and the log collector know from `/proc/cmdline` which entry booted. The kernel ignores it.
   3. Only the `VM test (no devicetree)` entry carries `console=ttyAMA0,115200`, the QEMU serial port the L1 test reads. Device entries never carry it.
 - **Consequence:** the log collector should also capture SELinux AVC denials (`ausearch -m avc` or the journal) so label problems are visible before switching to `enforcing`.
+
+## D16 (2026-10-24): ISO builder is kiwi with Fedora's f44 description (supersedes the builder part of D11)
+
+- **Decision (operator):** from the first ISO after M2, the ISO is built with `kiwi-ng`, starting from Fedora's own Workstation live description: `pagure.io/fedora-kiwi-descriptions`, branch `f44`, pinned by commit. Our changes are limited to the following, each marked and documented:
+  - kernel RPMs from `out/rpms`, with Fedora's kernel excluded;
+  - DriverStore firmware from `out/firmware-root`;
+  - GRUB 2 entries of D9/D10, including `devicetree` and the VM test entry;
+  - verbose boot;
+  - the log collector and `SP11LOGS` fallback space of D7;
+  - D15 deviations;
+  - extra test packages.
+- **Reason:** D12. Fedora 44 live media are built with kiwi, and Fedora no longer publishes or maintains live kickstarts. The livemedia-creator kickstart is a flattened f43 file that drifts with every update. With the official f44 description, a difference from the official ISO is ours and is visible.
+- **Consequence:** the M2 ISO (livemedia-creator) still goes to the device as is; the device logs do not depend on the builder. The image worker ports the lorax template changes to kiwi. L0 and L1 must pass on the kiwi ISO with the same checks, adapted only where the live layout legitimately differs, and each adaptation is documented. The livemedia-creator path is kept until the kiwi ISO passes L0 and L1, then removed. D11's container constraints still apply: WSL2 has no KVM, so kiwi runs in the privileged Fedora 44 container.
