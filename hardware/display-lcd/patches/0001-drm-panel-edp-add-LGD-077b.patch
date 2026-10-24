@@ -1,0 +1,28 @@
+From: juniorverli <25966843+juniorverli@users.noreply.github.com>
+Date: Sat, 24 Oct 2026 12:00:00 +0100
+Subject: [PATCH] drm/panel: edp: Add LG Display LP129WT342166
+
+The LCD Surface Pro 11 reports LGD product 0x077b and places its
+2880x1920 timings in a DisplayID 2.0 extension. Add its identity to the
+EDID panel table.
+
+Use the existing conservative LGD delay profile, also used by the
+LP129WT232166 family member. These are provisional family defaults,
+not measured timings for LP129WT342166; the Windows panel timing
+requirements have not yet been established. Mode timings remain
+provided by EDID.
+
+Assisted-by: Codex gpt-6.1-sol
+---
+diff --git a/drivers/gpu/drm/panel/panel-edp.c b/drivers/gpu/drm/panel/panel-edp.c
+index 2b455369e..09c052f58 100644
+--- a/drivers/gpu/drm/panel/panel-edp.c
++++ b/drivers/gpu/drm/panel/panel-edp.c
+@@ -2187,6 +2187,7 @@ static const struct edp_panel_entry edp_panels[] = {
+ 	EDP_PANEL_ENTRY('L', 'G', 'D', 0x05f1, &delay_200_500_e200_d200, "Unknown"),
+ 	EDP_PANEL_ENTRY('L', 'G', 'D', 0x06b2, &delay_200_500_e200_d200, "LP129WT232166"),
+ 	EDP_PANEL_ENTRY('L', 'G', 'D', 0x0778, &delay_200_500_e200_d200, "134WT1"),
++	EDP_PANEL_ENTRY('L', 'G', 'D', 0x077b, &delay_200_500_e200_d200, "LP129WT342166"),
+ 	EDP_PANEL_ENTRY('L', 'G', 'D', 0x07fe, &delay_200_500_e200_d200, "LP116WHA-SPB1"),
+ 
+ 	EDP_PANEL_ENTRY('S', 'H', 'P', 0x1511, &delay_200_500_e50, "LQ140M1JW48"),

@@ -1,0 +1,105 @@
+From: juniorverli <25966843+juniorverli@users.noreply.github.com>
+Date: Sat, 24 Oct 2026 12:00:00 +0100
+Subject: [PATCH] arm64: dts: qcom: x1-denali: Add PWM backlight for LCD
+
+On the LCD model, PMC8380_3 GPIO4 enables the backlight rather than
+the panel. Supply enable is GPIO10 and brightness is PWM from
+PMK8550 GPIO5. Give the LCD a pwm-backlight and preserve the OLED
+panel enable in its own DTS.
+
+Adapt Dale Whinham's posted change without changing its DT values.
+The DENidp ACPI extension also configures the corresponding PMIC
+GPIO indices on display power transitions. The 5 ms PWM period
+comes from the posted, LCD-tested board patch.
+
+Hold this patch until the M2 log establishes the PMK8550 GPIO5 pad
+subtype and the panel's DPCD backlight capabilities. Linux accepts
+func3 only on LV/MV pads; this unit's subtype is unknown offline.
+The first integration uses patches 0001 and 0002 only.
+
+Link: https://lore.kernel.org/r/20261017-sp11-lcd-fixes-v1-2-0eb916c01a3d@gmail.com
+Assisted-by: Codex gpt-6.1-sol
+---
+diff --git a/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi b/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi
+--- a/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi
++++ b/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi
+@@ -901,12 +901,7 @@
+ 
+ 	aux-bus {
+ 		panel: panel {
+-			compatible = "edp-panel";
+-			enable-gpios = <&pmc8380_3_gpios 4 GPIO_ACTIVE_HIGH>;
+ 			power-supply = <&vreg_edp_3p3>;
+-
+-			pinctrl-0 = <&edp_bl_en>;
+-			pinctrl-names = "default";
+ 
+ 			port {
+ 				edp_panel_in: endpoint {
+diff --git a/arch/arm64/boot/dts/qcom/x1e80100-microsoft-denali-oled.dts b/arch/arm64/boot/dts/qcom/x1e80100-microsoft-denali-oled.dts
+--- a/arch/arm64/boot/dts/qcom/x1e80100-microsoft-denali-oled.dts
++++ b/arch/arm64/boot/dts/qcom/x1e80100-microsoft-denali-oled.dts
+@@ -16,4 +16,8 @@
+ 
+ &panel {
+ 	compatible = "samsung,atna30dw01", "samsung,atna33xc20";
++	enable-gpios = <&pmc8380_3_gpios 4 GPIO_ACTIVE_HIGH>;
++
++	pinctrl-0 = <&edp_bl_en>;
++	pinctrl-names = "default";
+ };
+diff --git a/arch/arm64/boot/dts/qcom/x1p64100-microsoft-denali.dts b/arch/arm64/boot/dts/qcom/x1p64100-microsoft-denali.dts
+--- a/arch/arm64/boot/dts/qcom/x1p64100-microsoft-denali.dts
++++ b/arch/arm64/boot/dts/qcom/x1p64100-microsoft-denali.dts
+@@ -12,4 +12,51 @@
+ 	model = "Microsoft Surface Pro 11th Edition (LCD)";
+ 	compatible = "microsoft,denali-lcd", "microsoft,denali",
+ 		     "qcom,x1p64100", "qcom,x1e80100";
++
++	backlight: backlight {
++		compatible = "pwm-backlight";
++		pwms = <&pmk8550_pwm 0 5000000>;
++		enable-gpios = <&pmc8380_3_gpios 4 GPIO_ACTIVE_HIGH>;
++		power-supply = <&vreg_edp_bl>;
++
++		pinctrl-0 = <&edp_bl_en>, <&edp_bl_pwm>;
++		pinctrl-names = "default";
++	};
++
++	vreg_edp_bl: regulator-edp-bl {
++		compatible = "regulator-fixed";
++
++		regulator-name = "VREG_EDP_BL";
++
++		gpio = <&pmc8380_3_gpios 10 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++
++		pinctrl-0 = <&edp_bl_reg_en>;
++		pinctrl-names = "default";
++
++		regulator-boot-on;
++	};
+ };
++
++&panel {
++	compatible = "edp-panel";
++	backlight = <&backlight>;
++};
++
++&pmc8380_3_gpios {
++	edp_bl_reg_en: edp-bl-reg-en-state {
++		pins = "gpio10";
++		function = "normal";
++	};
++};
++
++&pmk8550_gpios {
++	edp_bl_pwm: edp-bl-pwm-state {
++		pins = "gpio5";
++		function = "func3";
++	};
++};
++
++&pmk8550_pwm {
++	status = "okay";
++};

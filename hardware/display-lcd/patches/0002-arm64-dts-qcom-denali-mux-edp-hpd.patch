@@ -1,0 +1,27 @@
+From: juniorverli <25966843+juniorverli@users.noreply.github.com>
+Date: Sat, 24 Oct 2026 12:00:00 +0100
+Subject: [PATCH] arm64: dts: qcom: x1-denali: Add missing pinctrl for eDP HPD
+
+The Windows ACPI muxes gpio119 to edp0_hot for both panels. Describe
+it rather than relying on UEFI.
+
+Adapted from Dale Whinham's posted patch; the change is identical.
+
+Link: https://lore.kernel.org/r/20261017-sp11-lcd-fixes-v1-1-0eb916c01a3d@gmail.com
+
+Assisted-by: Codex gpt-6.1-sol
+---
+diff --git a/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi b/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi
+index e3a53b893..332189839 100644
+--- a/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi
++++ b/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi
+@@ -894,6 +894,9 @@ &mdss_dp3 {
+ 	compatible = "qcom,x1e80100-dp";
+ 	/delete-property/ #sound-dai-cells;
+ 
++	pinctrl-0 = <&edp0_hpd_default>;
++	pinctrl-names = "default";
++
+ 	status = "okay";
+ 
+ 	aux-bus {
