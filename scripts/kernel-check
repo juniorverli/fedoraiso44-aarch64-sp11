@@ -1,0 +1,138 @@
+#!/usr/bin/env bash
+# Post-build checks of the kernel RPMs, and the build record out/rpms/<nevra>.json.
+#
+#   scripts/kernel-check
+#
+# Checks (each result is written to the record, none is assumed):
+#   1. .BTF section in vmlinux (from the rpmbuild BUILD tree) and in every module of the
+#      kernel-modules* RPMs (decompressed, ELF section table read in Python).
+#   2. kernel-config-check on the config shipped inside kernel-core.
+#   3. make CHECK_DTBS=y qcom/x1p64100-microsoft-denali.dtb in the BUILD tree.
+#   4. DTB present in kernel-core at /lib/modules/<kver>/dtb/<dtb>.
+#   5. RPM list with SHA-256.
+# Exit 0 only if vmlinux and all modules carry .BTF and the config check passes.
+# Owner: kernel worker.
+set -euo pipefail
+. "$(dirname "${BASH_SOURCE[0]}")/kernel-common.sh"
+
+if [[ -z ${SP11_IN_CONTAINER:-} ]]; then
+  exec "$KERNEL_REPO/scripts/kernel-container.sh" run "$KERNEL_REPO/scripts/kernel-check" "$@"
+fi
+
+TOPDIR="$KERNEL_BUILD_DIR/rpmbuild"
+CK="$KERNEL_BUILD_DIR/check"
+rm -rf "$CK"; mkdir -p "$CK/root"
+RPMDIR="$TOPDIR/RPMS/aarch64"
+core=$(ls "$RPMDIR"/kernel-core-*.rpm | head -1)
+nevra=$(rpm -qp --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}' "$RPMDIR"/kernel-[0-9]*.rpm)
+kver=$(rpm -qp --qf '%{VERSION}-%{RELEASE}.%{ARCH}' "$core")
+echo "kernel-check: $nevra, kver $kver"
+
+# 1a. vmlinux
+vml=$(find "$TOPDIR/BUILD" -maxdepth 5 -name vmlinux -path "*linux-$kver*" | head -1)
+D=$(dirname "$vml")
+btf_vmlinux=fail
+if [[ -n $vml ]] && readelf -S -W "$vml" | grep -q ' \.BTF '; then
+  readelf -S -W "$vml" | grep -E ' \.BTF' | tee "$CK/vmlinux-btf.txt"
+  btf_vmlinux=ok
+fi
+
+# 1b. modules and 2. shipped config
+for r in "$RPMDIR"/kernel-modules*.rpm "$core"; do
+  (cd "$CK/root" && rpm2cpio "$r" | cpio -idm --quiet)
+done
+cp "$CK/root/lib/modules/$kver/config" "$CK/shipped.config"
+python3 -I - "$CK/root/lib/modules/$kver" "$CK/modules.json" <<'PY'
+import sys, os, lzma, struct, json, subprocess
+root, out = sys.argv[1:3]
+def sections(b):
+    if b[:4] != b'\x7fELF': return None
+    shoff, = struct.unpack_from('<Q', b, 0x28)
+    shentsize, shnum, shstrndx = struct.unpack_from('<HHH', b, 0x3a)
+    hdrs = [struct.unpack_from('<IIQQQQ', b, shoff + i * shentsize) for i in range(shnum)]
+    stroff = hdrs[shstrndx][4]
+    res = {}
+    for name, _t, _f, _a, off, size in hdrs:
+        e = b.index(b'\0', stroff + name)
+        res[b[stroff + name:e].decode()] = (off, size)
+    return res
+tot = ok = 0; missing = []; badmagic = []
+for d, _, fs in os.walk(root):
+    for f in fs:
+        p = os.path.join(d, f)
+        if f.endswith('.ko.xz'): b = lzma.open(p).read()
+        elif f.endswith('.ko.zst'): b = subprocess.run(['zstd', '-dc', p], capture_output=True, check=True).stdout
+        elif f.endswith('.ko'): b = open(p, 'rb').read()
+        else: continue
+        tot += 1
+        s = sections(b)
+        if s and '.BTF' in s and s['.BTF'][1] > 0:
+            if struct.unpack_from('<H', b, s['.BTF'][0])[0] == 0xEB9F: ok += 1
+            else: badmagic.append(f)
+        else: missing.append(f)
+json.dump({'modules': tot, 'with_btf': ok, 'missing': missing[:50], 'missing_count': len(missing),
+           'bad_magic': badmagic[:50]}, open(out, 'w'))
+print(f'modules: {tot}, with .BTF: {ok}, without: {len(missing)}, bad magic: {len(badmagic)}')
+PY
+
+cfg_ok=fail
+"$KERNEL_REPO/scripts/kernel-config-check" "$CK/shipped.config" && cfg_ok=ok
+
+# 3. DTB schema check
+dtb=$(sed -n -E 's/^dtb[[:space:]]*=[[:space:]]*"([^"]*)".*/\1/p' "$KERNEL_REPO/kernel/base.toml")
+dtb_rc=skip dtb_warn=0
+dtb_pkg=fail   # DTB shipped in kernel-core under /lib/modules/<kver>/dtb (Fedora convention, image worker request)
+if [[ -f $CK/root/lib/modules/$kver/dtb/$dtb ]] && rpm -qlp "$core" | grep -qx "/lib/modules/$kver/dtb/$dtb"; then dtb_pkg=ok; fi
+echo "DTB in kernel-core: $dtb_pkg (/lib/modules/$kver/dtb/$dtb)"
+if [[ -d $D/arch/arm64/boot/dts/qcom ]]; then
+  rm -f "$D/arch/arm64/boot/dts/${dtb}" "$D/arch/arm64/boot/dts/${dtb}.dts.tmp" "$D/arch/arm64/boot/dts/${dtb%.dtb}.dtb.dts.tmp"
+  dtb_rc=0
+  (cd "$D" && make -j4 ARCH=arm64 CHECK_DTBS=y "$dtb") > "$CK/dtbs-check.log" 2>&1 || dtb_rc=$?
+  dtb_warn=$(grep -c "x1p64100-microsoft-denali.dtb:" "$CK/dtbs-check.log" || true)
+  echo "CHECK_DTBS=y $dtb: rc=$dtb_rc, $dtb_warn warning lines"
+fi
+
+# 4. record
+source "$KERNEL_BUILD_DIR/build-stats.env"
+series_hash=$(
+  if [[ -f $KERNEL_REPO/kernel/series ]]; then
+    while IFS= read -r p; do
+      p="${p%%#*}"; p="${p//[[:space:]]/}"
+      if [[ -n $p ]]; then echo "$p $(sha256sum < "$KERNEL_REPO/$p" | cut -d' ' -f1)"; fi
+    done < "$KERNEL_REPO/kernel/series"
+  fi | sha256sum | cut -d' ' -f1)
+python3 -I - "$KERNEL_RPMS_DIR/$nevra.json" <<PY
+import json, hashlib, os, subprocess, sys, datetime, glob
+def sha(p): return hashlib.sha256(open(p, 'rb').read()).hexdigest()
+def toml(k):
+    for l in open("$KERNEL_REPO/kernel/base.toml"):
+        if l.startswith(k + ' ') or l.startswith(k + '='):
+            return l.split('=', 1)[1].strip().strip('"')
+rpms = {os.path.basename(p): sha(p) for p in sorted(glob.glob("$RPMDIR/*.rpm"))}
+mods = json.load(open("$CK/modules.json"))
+rec = {
+  'nevra': "$nevra", 'kver': "$kver",
+  'built_utc': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+  'base': {'tag': toml('tag'), 'commit': toml('commit'), 'tarball_sha256': toml('tarball_sha256')},
+  'spec_source': {'srpm': toml('srpm_file'), 'srpm_sha256': toml('srpm_sha256'), 'url': toml('srpm_url'),
+                  'dist_git_commit': toml('dist_git_commit'), 'switches': "$(printf '%s ' "${KERNEL_RPM_SWITCHES[@]}")".split(),
+                  'buildid': "$KERNEL_BUILDID", 'dist': "$KERNEL_DIST"},
+  'series_hash_sha256': "$series_hash",
+  'config': {'fragment_sha256': sha("$KERNEL_REPO/kernel/config/sp11.config"),
+             'shipped_config_sha256': sha("$CK/shipped.config"), 'fragment_check': "$cfg_ok"},
+  'btf': {'vmlinux': "$btf_vmlinux", 'modules_total': mods['modules'], 'modules_with_btf': mods['with_btf'],
+          'modules_without_btf': mods['missing_count']},
+  'dtb_in_kernel_core': "$dtb_pkg",
+  'dtb_check': {'target': "$dtb", 'rc': "$dtb_rc", 'warning_lines': int("$dtb_warn")},
+  'build': {'seconds': int("$seconds"), 'jobs': int("$jobs"), 'rpmbuild_rc': int("$rpmbuild_rc"),
+            'peak_memory_cgroup_bytes': int("$mem_cgroup_peak_bytes"),
+            'peak_memory_anon_bytes_sampled_3s': int("$mem_anon_peak_bytes")},
+  'rpms': rpms,
+}
+json.dump(rec, open(sys.argv[1], 'w'), indent=2); print('record', sys.argv[1])
+PY
+cp "$CK/dtbs-check.log" "$KERNEL_RPMS_DIR/$nevra.dtbs-check.log" 2>/dev/null || true
+[[ $btf_vmlinux == ok && $cfg_ok == ok && $dtb_pkg == ok ]] || die "check failed: vmlinux BTF $btf_vmlinux, config $cfg_ok, dtb in kernel-core $dtb_pkg"
+python3 -I -c "import json,sys; m=json.load(open('$CK/modules.json')); sys.exit(0 if m['missing_count']==0 and not m['bad_magic'] and m['modules']>0 else 1)" \
+  || die "modules without .BTF, see $CK/modules.json"
+echo "kernel-check: PASS"

@@ -47,6 +47,7 @@ docker_run() {
   docker run --rm "${tty[@]}" \
     --user "$(id -u):$(id -g)" -e HOME=/tmp/home -e SP11_IN_CONTAINER=1 \
     --tmpfs /tmp/home:exec,mode=1777 \
+    -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro \
     -v "$SP11_MAIN:$SP11_MAIN" -v "$KERNEL_REPO:$KERNEL_REPO" \
     -w "$KERNEL_REPO" "$@"
 }
