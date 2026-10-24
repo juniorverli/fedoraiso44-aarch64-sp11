@@ -1,0 +1,23 @@
+# Module names (Kbuild object names, "-" and "_" are the same) for check 5 of
+# scripts/image-test-static.sh. Verified against the Makefile obj- lines of sources/linux
+# (v7.3) for each symbol of kernel/config/sp11.config.
+# "early" = must also be in the initramfs (display console). "late" = squashfs only.
+# "never-early" = must NOT be in the initramfs (decision F1, image/README.md).
+early msm
+early panel-edp
+early phy-qcom-edp
+early drm_dp_aux_bus
+early pwm_bl
+early dispcc-x1e80100
+late gpucc-x1e80100
+late leds-qcom-lpg
+late scmi-cpufreq
+late qcom_q6v5_pas
+late qcom_pd_mapper
+late pmic_glink
+late pmic_glink_altmode
+late qcom_battmgr
+late ps883x
+late surface_aggregator
+late qrtr
+never-early qcom_q6v5_pas

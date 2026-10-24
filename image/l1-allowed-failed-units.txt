@@ -1,0 +1,4 @@
+# Units that may be in "failed" state in the L1 virtual machine (scripts/image-test-qemu.sh).
+# Only units that need hardware the VM does not have. One unit name per line.
+# Empty until the first L1 run shows which units fail for hardware reasons; each entry
+# needs a reason in a comment and the log evidence.

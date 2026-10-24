@@ -1,0 +1,325 @@
+#!/usr/bin/env bash
+# L0 static checks of an SP11 ISO (decision D10, image/README.md "L0 static checks").
+#
+#   scripts/image-test-static.sh [ISO | NAME]      default: newest out/iso/*.iso
+#
+# Runs in the container of scripts/image-container.sh (re-executes itself there). Reads the
+# ISO and its build record out/iso/<name>.json; changes nothing but its work directory
+# out/image-work/l0-<name>/. Exit status 0 only when every check passed; a check that
+# cannot apply to a smoke build is reported as SKIP, never as PASS.
+# Report: stdout and out/iso/<name>.l0.txt.
+set -uo pipefail
+
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+if [ "${SP11_OUT:-}" = "" ] || [ ! -d /sp11 ]; then
+	exec "$here/scripts/image-container.sh" run /sp11/scripts/image-test-static.sh "$@"
+fi
+OUT=$SP11_OUT
+REPO=/sp11
+
+arg=${1:-}
+if [ -z "$arg" ]; then
+	iso=$(ls -t "$OUT"/iso/*.iso 2>/dev/null | head -n1)
+elif [ -f "$arg" ]; then
+	iso=$arg
+elif [ -f "$OUT/iso/$arg" ]; then
+	iso=$OUT/iso/$arg
+else
+	iso=$OUT/iso/$arg.iso
+fi
+[ -f "$iso" ] || { echo "image-test-static: no ISO ($arg)" >&2; exit 2; }
+iso=$(readlink -f "$iso")
+name=$(basename "$iso" .iso)
+rec=${iso%.iso}.json
+[ -f "$rec" ] || { echo "image-test-static: build record $rec missing" >&2; exit 2; }
+W=$OUT/image-work/l0-$name
+report=${iso%.iso}.l0.txt
+mkdir -p "$W"
+: >"$report"
+
+npass=0 nfail=0 nskip=0
+say() { echo "$*" | tee -a "$report"; }
+pass() { npass=$((npass + 1)); say "PASS $1: $2"; }
+fail() { nfail=$((nfail + 1)); say "FAIL $1: $2"; }
+skip() { nskip=$((nskip + 1)); say "SKIP $1: $2"; }
+jq_() { jq -r "$1" "$rec"; }
+
+smoke=$(jq_ '.smoke')
+dtb=$(jq_ '.dtb')
+want_nevra=$(jq_ '.kernel_nevra')
+say "L0 static checks: $name (sha256 in record: $(jq_ '.iso_sha256' | cut -c1-16)..., smoke=$smoke)"
+actual=$(sha256sum "$iso" | cut -d' ' -f1)
+[ "$actual" = "$(jq_ '.iso_sha256')" ] && pass 0.1 "ISO SHA-256 equals the build record" || fail 0.1 "ISO SHA-256 differs from the build record"
+
+ROOT=$W/root
+cleanup() { findmnt -n "$ROOT" >/dev/null 2>&1 && umount "$ROOT" 2>/dev/null; }
+trap cleanup EXIT
+
+# --------------------------------------------------------------- extract ----
+x() { xorriso -osirrox on -indev "$iso" -extract "$1" "$2" >/dev/null 2>&1; }
+rm -rf "$W/iso-tree"
+mkdir -p "$W/iso-tree"
+x /EFI "$W/iso-tree/EFI"
+x /images "$W/iso-tree/images-small" # includes pxeboot and efiboot.img (squashfs is under /LiveOS)
+for f in .treeinfo .discinfo; do x "/$f" "$W/iso-tree/$f"; done
+chmod -R u+rw "$W/iso-tree" 2>/dev/null
+pxe=$W/iso-tree/images-small/pxeboot
+esp_img=$W/iso-tree/images-small/efiboot.img
+
+# ---------------------------------------------------------------- check 1 ----
+xorriso -indev "$iso" -report_el_torito plain >"$W/eltorito.txt" 2>&1
+if grep -q -i -E 'efi|0xef' "$W/eltorito.txt"; then pass 1.1 "El Torito EFI boot image present"; else fail 1.1 "no El Torito EFI entry ($W/eltorito.txt)"; fi
+sgdisk -p "$iso" >"$W/gpt.txt" 2>&1
+if ! grep -q -i -E 'invalid|corrupt|not found' "$W/gpt.txt" && grep -E '^ +2 ' "$W/gpt.txt" | grep -q -E 'EF00'; then
+	pass 1.2 "hybrid: valid GPT, partition 2 is the EFI system partition (EF00)"
+else
+	fail 1.2 "no GPT with an EFI partition 2 ($W/gpt.txt)"
+fi
+sgdisk -i 2 "$iso" >"$W/gpt2.txt" 2>&1
+start=$(awk -F'[: ]+' '/First sector/{print $3}' "$W/gpt2.txt")
+if [ -n "$start" ] && [ -f "$esp_img" ] && dd if="$iso" bs=512 skip="$start" count=$(($(stat -c %s "$esp_img") / 512)) status=none 2>/dev/null | cmp -s - "$esp_img"; then
+	pass 1.3 "GPT partition 2 is identical to images/efiboot.img"
+else
+	fail 1.3 "GPT partition 2 differs from images/efiboot.img (start sector '${start:-?}')"
+fi
+if checkisomd5 "$iso" >"$W/checkisomd5.txt" 2>&1; then pass 1.4 "checkisomd5 passes"; else fail 1.4 "checkisomd5 failed ($(tail -n1 "$W/checkisomd5.txt"))"; fi
+
+# ---------------------------------------------------------------- check 2 ----
+cfg_iso=$W/iso-tree/EFI/BOOT/grub.cfg
+cfg_esp=$W/esp-grub.cfg
+mcopy -n -i "$esp_img" ::EFI/BOOT/grub.cfg "$cfg_esp" 2>/dev/null
+for pair in "iso:$cfg_iso" "esp:$cfg_esp"; do
+	tag=${pair%%:*} cfg=${pair#*:}
+	[ -s "$cfg" ] || { fail 2.1 "$tag grub.cfg missing"; continue; }
+	if grep -v '^[[:space:]]*#' "$cfg" | grep -w -E 'quiet|rhgb|splash' >/dev/null; then fail 2.1 "$tag grub.cfg has quiet/rhgb/splash"; else pass 2.1 "$tag grub.cfg has no quiet/rhgb/splash"; fi
+	if grep -q '^set timeout_style=menu' "$cfg" && grep -E '^set timeout=[1-9]' "$cfg" >/dev/null; then pass 2.2 "$tag grub.cfg shows the menu (timeout_style=menu, timeout>0)"; else fail 2.2 "$tag grub.cfg may hide the menu"; fi
+done
+cmp -s "$cfg_iso" "$cfg_esp" && pass 2.3 "ISO and ESP grub.cfg are identical" || fail 2.3 "ISO and ESP grub.cfg differ"
+# any other grub.cfg anywhere in the ISO
+other=$(xorriso -indev "$iso" -find / -name 'grub*.cfg' 2>/dev/null | grep -v -E "^'/EFI/BOOT/grub.cfg'$" || true)
+[ -z "$other" ] && pass 2.4 "no other grub.cfg in the ISO" || fail 2.4 "other grub config: $other"
+titles=$(grep -o "^menuentry '[^']*'" "$cfg_esp" | sed "s/menuentry '//;s/'\$//")
+expect=$'SP11 debug\nSP11 debug + DRM trace\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)'
+[ "$titles" = "$expect" ] && pass 2.5 "exactly the five entries, in order" || fail 2.5 "entries differ: $(echo "$titles" | tr '\n' '|')"
+[ "$(grep -c '^set default=0' "$cfg_esp")" = 1 ] && pass 2.6 "default entry is the first (SP11 debug)" || fail 2.6 "default is not entry 0"
+bad=0
+awk '/^menuentry /{t=$0} /^\tdevicetree /{print $2 "\t" t}' "$cfg_esp" >"$W/dt-lines.txt"
+while IFS=$'\t' read -r path entry; do
+	p=${path#/}
+	if xorriso -indev "$iso" -find "/$p" -type f 2>/dev/null | grep -q .; then :; else bad=1; fail 2.7 "devicetree target /$p missing ($entry)"; fi
+done <"$W/dt-lines.txt"
+sp11_entries=$(grep -c "^menuentry 'SP11" "$cfg_esp")
+[ "$(wc -l <"$W/dt-lines.txt")" -eq "$sp11_entries" ] && [ "$sp11_entries" -gt 0 ] || { bad=1; fail 2.7 "not every SP11 entry has a devicetree line"; }
+[ "$bad" = 0 ] && pass 2.7 "every SP11 entry has a devicetree line to a file that exists"
+vm=$(awk '/^menuentry .VM test/{f=1} f&&/^[[:space:]]+devicetree /{print "x"}' "$cfg_esp")
+[ -z "$vm" ] && pass 2.8 "VM test entry has no devicetree" || fail 2.8 "VM test entry has a devicetree line"
+[ "$(grep -c "^menuentry '" "$cfg_esp")" = 5 ] && [ "$(grep '^set default' "$cfg_esp")" = "set default=0" ] && pass 2.9 "VM test entry is not the default"
+free=$(mdir -i "$esp_img" ::/ 2>/dev/null | awk '/bytes free/{gsub(/[^0-9]/,""); print}')
+if [ -n "${free:-}" ] && [ "$free" -ge 8388608 ]; then pass 2.10 "embedded ESP has $((free / 1048576)) MiB free for /EFI/sp11-logs"; else fail 2.10 "embedded ESP free space too small (${free:-?} bytes)"; fi
+for f in BOOTAA64.EFI grubaa64.efi mmaa64.efi grub.cfg; do
+	mdir -i "$esp_img" "::EFI/BOOT/$f" >/dev/null 2>&1 || fail 2.11 "ESP lacks EFI/BOOT/$f"
+done
+
+# --------------------------------------------------- squashfs and rootfs ----
+if [ ! -f "$W/sq/LiveOS/rootfs.img" ]; then
+	say "...extracting the root file system (several minutes)"
+	rm -rf "$W/sq"
+	x /LiveOS/squashfs.img "$W/squashfs.img"
+	unsquashfs -no-progress -d "$W/sq" "$W/squashfs.img" LiveOS/rootfs.img >/dev/null 2>&1
+	rm -f "$W/squashfs.img"
+fi
+mkdir -p "$ROOT"
+cleanup
+if ! mount -o loop,ro "$W/sq/LiveOS/rootfs.img" "$ROOT" 2>"$W/mount.txt"; then
+	fail 0.2 "cannot mount rootfs.img: $(cat "$W/mount.txt")"
+	say "SUMMARY: $npass passed, $nfail failed, $nskip skipped"
+	exit 1
+fi
+pass 0.2 "LiveOS/squashfs.img holds LiveOS/rootfs.img (ext4), mounted read-only"
+kver=$(ls "$ROOT/lib/modules" 2>/dev/null | head -n1)
+[ -n "$kver" ] && [ "$(ls "$ROOT/lib/modules" | wc -l)" = 1 ] && pass 0.3 "exactly one kernel in the image: $kver" || fail 0.3 "kernel directories: $(ls "$ROOT/lib/modules" 2>/dev/null | tr '\n' ' ')"
+rpm --root "$ROOT" -qla 2>/dev/null | sort >"$W/rpm-files.txt"
+
+# ---------------------------------------------------------------- check 3 ----
+dtbf=$W/denali.dtb
+x "/images/pxeboot/dtb/$dtb" "$dtbf"
+if [ -s "$dtbf" ]; then
+	pass 3.1 "DTB $dtb present on the ISO"
+	if dtc -I dtb -O dts -o "$W/denali.dts" "$dtbf" 2>"$W/dtc.txt"; then pass 3.2 "DTB decompiles with dtc"; else fail 3.2 "dtc failed: $(head -n3 "$W/dtc.txt")"; fi
+	rootcompat=$(fdtget "$dtbf" / compatible 2>/dev/null)
+	if [ "$smoke" = true ]; then
+		skip 3.3 "smoke build with $dtb: Denali root compatible and node list not applicable (root: $rootcompat)"
+	else
+		case " $rootcompat " in *" microsoft,denali-lcd "*) pass 3.3 "root compatible has microsoft,denali-lcd ($rootcompat)" ;; *) fail 3.3 "root compatible is '$rootcompat'" ;; esac
+		miss=0
+		norm() { tr -s ' \t\n' ' ' | sed 's/ $//'; }
+		dts_norm=$(norm <"$W/denali.dts")
+		while IFS= read -r line; do
+			case $line in '' | '#'*) continue ;; esac
+			l=$(echo "$line" | norm)
+			case "$dts_norm" in *"$l"*) ;; *) miss=1; fail 3.4 "DTB lacks: $line" ;; esac
+		done <"$REPO/image/expected-dtb.txt"
+		[ "$miss" = 0 ] && pass 3.4 "every line of image/expected-dtb.txt is in the DTB"
+	fi
+	cmp -s "$dtbf" "$ROOT/lib/modules/$kver/dtb/$dtb" && pass 3.5 "ISO DTB equals the kernel package DTB" || fail 3.5 "ISO DTB differs from lib/modules/$kver/dtb/$dtb"
+else
+	fail 3.1 "DTB /images/pxeboot/dtb/$dtb missing"
+fi
+
+# ---------------------------------------------------------------- check 4 ----
+got_nevra=$(rpm --root "$ROOT" -q kernel-core --qf '%{name}-%{version}-%{release}.%{arch}' 2>/dev/null)
+[ -n "$want_nevra" ] && [ "$got_nevra" = "$want_nevra" ] && pass 4.1 "kernel-core in the image is $got_nevra = build record" || fail 4.1 "kernel-core '$got_nevra' != record '$want_nevra'"
+if [ "$smoke" = false ]; then
+	ls "$OUT"/rpms/kernel-core-*.rpm >/dev/null 2>&1 && { rpm -qp --qf '%{name}-%{version}-%{release}.%{arch}\n' "$OUT"/rpms/kernel-core-*.rpm | grep -qx "$got_nevra" && pass 4.2 "kernel-core is the RPM of out/rpms" || fail 4.2 "kernel-core is not in out/rpms"; }
+fi
+cmp -s "$pxe/vmlinuz" "$ROOT/lib/modules/$kver/vmlinuz" && pass 4.3 "ISO kernel image equals lib/modules/$kver/vmlinuz" || fail 4.3 "ISO kernel image differs from the package"
+kimg_ver=$(python3 -I - "$pxe/vmlinuz" <<'PY'
+import gzip, lzma, re, struct, sys
+d = open(sys.argv[1], 'rb').read()
+if d[4:8] == b'zimg':                       # EFI zboot: payload offset/size at 8/12, type at 24
+    off, size = struct.unpack_from('<II', d, 8)
+    typ = d[24:32].split(b'\0')[0]
+    p = d[off:off + size]
+    try:
+        if typ == b'gzip':
+            d = gzip.decompress(p)
+        elif typ == b'xz':
+            d = lzma.decompress(p)
+        elif typ == b'zstd':
+            import subprocess
+            d = subprocess.run(['zstd', '-dc'], input=p, capture_output=True).stdout
+    except Exception:
+        pass
+m = re.search(rb'Linux version (\S+)', d)
+print(m.group(1).decode() if m else '')
+PY
+)
+if [ "$kimg_ver" = "$kver" ]; then pass 4.4 "kernel image says 'Linux version $kimg_ver'"; elif [ -z "$kimg_ver" ]; then skip 4.4 "version string not found in the kernel image"; else fail 4.4 "kernel image says '$kimg_ver', package says $kver"; fi
+cfgk=$ROOT/lib/modules/$kver/config
+[ -f "$cfgk" ] || cfgk=$(ls "$ROOT"/boot/config-* 2>/dev/null | head -n1)
+if [ -f "$cfgk" ]; then
+	for s in CONFIG_DEBUG_INFO_BTF CONFIG_DEBUG_INFO_BTF_MODULES; do grep -qx "$s=y" "$cfgk" && pass 4.5 "$s=y" || fail 4.5 "$s is not y"; done
+	grep -qx 'CONFIG_SQUASHFS_ZSTD=y' "$cfgk" && pass 4.6 "CONFIG_SQUASHFS_ZSTD=y (the image uses zstd squashfs)" || fail 4.6 "CONFIG_SQUASHFS_ZSTD not y but the squashfs is zstd"
+	if [ "$smoke" = false ]; then
+		bad=0
+		while IFS= read -r l; do
+			case $l in '' | '#'*) continue ;; esac
+			sym=${l%%=*}
+			if ! grep -qx -- "$l" "$cfgk"; then bad=1; fail 4.7 "shipped config lacks '$l' (has: $(grep -E "^(# )?$sym[= ]" "$cfgk" | head -n1))"; fi
+		done <"$REPO/kernel/config/sp11.config"
+		[ "$bad" = 0 ] && pass 4.7 "every symbol of kernel/config/sp11.config has its value in the shipped config"
+	else
+		skip 4.7 "smoke build: Fedora kernel, kernel/config/sp11.config not applicable"
+	fi
+else
+	fail 4.5 "no kernel config in the image"
+fi
+ko=$(find "$ROOT/lib/modules/$kver" -name 'msm.ko*' | head -n1)
+[ -z "$ko" ] && ko=$(find "$ROOT/lib/modules/$kver" -name '*.ko*' | head -n1)
+if [ -n "$ko" ]; then
+	case $ko in *.xz) dec="xz -dc" ;; *.zst) dec="zstd -dc" ;; *.gz) dec="gzip -dc" ;; *) dec=cat ;; esac
+	if $dec "$ko" 2>/dev/null | grep -a -q '\.BTF'; then pass 4.8 "$(basename "$ko") has a .BTF section"; else fail 4.8 "$(basename "$ko") has no .BTF section"; fi
+else
+	skip 4.8 "no msm module to look for .BTF in"
+fi
+
+# ---------------------------------------------------------------- check 5 ----
+lsinitrd "$pxe/initrd.img" >"$W/initrd-list.txt" 2>&1
+builtin=$ROOT/lib/modules/$kver/modules.builtin
+find "$ROOT/lib/modules/$kver" -type f \( -name '*.ko' -o -name '*.ko.*' \) 2>/dev/null | sed 's|.*/||;s|\.ko.*||;s|-|_|g' | sort -u >"$W/ko-names.txt"
+sed 's|.*/||;s|\.ko$||;s|-|_|g' "$builtin" 2>/dev/null | sort -u >"$W/builtin-names.txt"
+sed 's|.*/||;s|\.ko.*||;s|-|_|g' <(grep -E '\.ko' "$W/initrd-list.txt" | awk '{print $NF}') | sort -u >"$W/initrd-ko.txt"
+if [ "$smoke" = true ]; then
+	skip 5.1 "smoke build: SP11 module list not applicable to a Fedora kernel"
+else
+	while read -r kind mod; do
+		case $kind in '' | '#'*) continue ;; esac
+		n=${mod//-/_}
+		case $kind in
+		early | late)
+			if grep -qx "$n" "$W/ko-names.txt" "$W/builtin-names.txt"; then pass 5.1 "$mod in the kernel package"; else fail 5.1 "$mod not in the kernel package"; fi
+			[ "$kind" = early ] && { if grep -qx "$n" "$W/initrd-ko.txt" || grep -qx "$n" "$W/builtin-names.txt"; then pass 5.2 "$mod early (initramfs or built in)"; else fail 5.2 "$mod not in the initramfs"; fi; } ;;
+		never-early) if grep -qx "$n" "$W/initrd-ko.txt"; then fail 5.3 "$mod is in the initramfs (decision F1)"; else pass 5.3 "$mod is not in the initramfs (decision F1)"; fi ;;
+		esac
+	done <"$REPO/image/expected-modules.txt"
+fi
+grep -E '^[-dlcbps][-rwxsStT]{9} .*plymouth' "$W/initrd-list.txt" >/dev/null && fail 5.4 "plymouth files in the initramfs" || pass 5.4 "no plymouth in the initramfs"
+
+# ---------------------------------------------------------------- check 6 ----
+python3 - "$REPO/firmware/manifest.toml" "$ROOT" "$W/rpm-files.txt" "$smoke" <<'EOF' >"$W/firmware-check.txt"
+import hashlib, os, sys, tomllib
+manifest, root, rpmlist, smoke = sys.argv[1:5]
+m = tomllib.load(open(manifest, 'rb'))
+owned = set(l.strip() for l in open(rpmlist))
+fwdir = os.path.join(root, 'usr/lib/firmware')
+def sha(p):
+    h = hashlib.sha256()
+    with open(p, 'rb') as f:
+        for b in iter(lambda: f.read(1 << 20), b''):
+            h.update(b)
+    return h.hexdigest()
+expected = set()
+for b in m.get('blob', []):
+    if b.get('phase', 1) > 1:
+        continue
+    lp = b['linux_path']
+    if b.get('origin') == 'driverstore':
+        expected.add(os.path.normpath('/usr/lib/firmware/' + lp))
+        p = os.path.join(fwdir, lp)
+        if smoke == 'true':
+            print(f"SKIP 6.1 {lp}: smoke build has no staged firmware")
+        elif not os.path.isfile(p):
+            print(f"FAIL 6.1 {lp}: missing")
+        elif sha(p) != b['sha256']:
+            print(f"FAIL 6.1 {lp}: SHA-256 differs from the manifest")
+        else:
+            print(f"PASS 6.1 {lp}: present, SHA-256 matches the manifest")
+    else:
+        found = [p for p in (lp, lp + '.xz', lp + '.zst') if os.path.isfile(os.path.join(fwdir, p))]
+        print(("PASS" if found else "FAIL") + f" 6.2 {lp}: " + (f"Fedora package file {found[0]}" if found else "linux-firmware file missing"))
+extra = []
+for d, _, fs in os.walk(fwdir):
+    for f in fs:
+        p = os.path.join(d, f)
+        rel = '/' + os.path.relpath(p, root)
+        if rel in owned or rel in expected:
+            continue
+        extra.append(rel)
+print("PASS 6.3 every file under /usr/lib/firmware is owned by an RPM or in the manifest" if not extra else "FAIL 6.3 unexpected files in /usr/lib/firmware: " + ' '.join(extra[:10]))
+EOF
+while IFS= read -r line; do
+	case $line in PASS*) npass=$((npass + 1)) ;; FAIL*) nfail=$((nfail + 1)) ;; SKIP*) nskip=$((nskip + 1)) ;; esac
+	say "$line"
+done <"$W/firmware-check.txt"
+
+# ---------------------------------------------------------------- check 7 ----
+# Files not owned by any RPM are ours (overlay, firmware, fstab, ...): scan them for MAC addresses.
+( cd "$ROOT" && find . -xdev -type f -size -4M ! -path './usr/lib/firmware/*' ! -path './proc/*' ! -path './sys/*' | sed 's|^\.||' | sort ) >"$W/all-files.txt"
+comm -23 "$W/all-files.txt" "$W/rpm-files.txt" >"$W/unowned.txt"
+macs=$(cd "$ROOT" && sed 's|^/||' "$W/unowned.txt" | xargs -r -d '\n' grep -I -H -o -E '\b([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b' 2>/dev/null | grep -v -i -E ':(00:00:00:00:00:00|ff:ff:ff:ff:ff:ff)$' | head -n 5)
+[ -z "$macs" ] && pass 7.1 "no MAC address in the $(wc -l <"$W/unowned.txt") files not owned by an RPM" || fail 7.1 "MAC-like strings in unowned files: $macs"
+hits=$(cd "$ROOT" && grep -rIlF --exclude-dir=proc --exclude-dir=sys --exclude-dir=firmware -e 'sp11-windows-dumps' -e 'sources/windows' -e 'DriverStore' -e 'juniormverli' . 2>/dev/null | head -n 5)
+[ -z "$hits" ] && pass 7.2 "no sources/windows path, DriverStore or host user name in any text file of the root" || fail 7.2 "private strings in: $hits"
+priv_iso=$(grep -rIlF -e 'sp11-windows-dumps' -e 'sources/windows' -e 'juniormverli' "$W/iso-tree" 2>/dev/null | head -n3)
+[ -z "$priv_iso" ] && pass 7.3 "no private string in the ISO boot files" || fail 7.3 "private strings in ISO boot files: $priv_iso"
+
+# ---------------------------------------------------------------- check 8 ----
+svc=$ROOT/usr/lib/systemd/system/sp11-log-collector.service
+[ -f "$svc" ] && pass 8.1 "sp11-log-collector.service present" || fail 8.1 "service file missing"
+[ "$(readlink "$ROOT/etc/systemd/system/multi-user.target.wants/sp11-log-collector.service")" = /usr/lib/systemd/system/sp11-log-collector.service ] && pass 8.2 "enabled for multi-user.target" || fail 8.2 "not enabled for multi-user.target"
+grep -q '^WantedBy=multi-user.target' "$svc" && ! grep -q -E '^(After|Requires|Wants)=.*(gdm|display-manager|graphical)' "$svc" && pass 8.3 "unit does not depend on GDM or graphical.target" || fail 8.3 "unit depends on the display manager"
+[ -x "$ROOT/usr/libexec/sp11-log-collector" ] && bash -n "$ROOT/usr/libexec/sp11-log-collector" && pass 8.4 "collector script executable, syntax ok" || fail 8.4 "collector script missing, not executable or broken"
+for t in dmesg journalctl lspci lsusb dtc timeout blkid mount; do
+	[ -x "$ROOT/usr/bin/$t" ] || [ -x "$ROOT/usr/sbin/$t" ] || fail 8.5 "collector needs $t, not in the image"
+done
+for t in debug loglevel=8 ignore_loglevel; do grep -q "$t" "$ROOT/etc/default/grub" || fail 8.6 "/etc/default/grub lacks $t"; done
+
+# ------------------------------------------------------------ extra (D9) ----
+v=$(grep -s -w -E 'quiet|rhgb|splash' "$ROOT"/etc/default/grub "$ROOT"/etc/kernel/cmdline "$ROOT"/usr/lib/kernel/cmdline "$ROOT"/boot/loader/entries/*.conf 2>/dev/null | grep -v '^[^:]*:[[:space:]]*#' | head -n3)
+[ -z "$v" ] && pass 9.1 "no quiet/rhgb/splash in the installed-system boot configuration" || fail 9.1 "quiet/rhgb in: $v"
+rpm --root "$ROOT" -q plymouth >/dev/null 2>&1 && fail 9.2 "plymouth is installed" || pass 9.2 "plymouth is not installed"
+rpm --root "$ROOT" -q qcom-firmware >/dev/null 2>&1 && pass 9.3 "qcom-firmware is installed" || fail 9.3 "qcom-firmware is not installed"
+for p in pd-mapper; do rpm --root "$ROOT" -q "$p" >/dev/null 2>&1 && fail 9.4 "$p is installed (obsolete in Fedora 44)"; done
+
+say "SUMMARY: $npass passed, $nfail failed, $nskip skipped  ($name)"
+[ "$nfail" = 0 ]
