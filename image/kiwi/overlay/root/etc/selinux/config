@@ -1,0 +1,4 @@
+# SP11 change 5 (decision D15): SELinux permissive. Denials are logged and captured by the
+# log collector (selinux-avc.txt) so label problems are visible before switching to enforcing.
+SELINUX=permissive
+SELINUXTYPE=targeted
