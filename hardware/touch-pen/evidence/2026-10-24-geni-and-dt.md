@@ -4,6 +4,17 @@ All Linux source citations refer to immutable `sources/linux/`, tag `v7.3`,
 commit `c03c1a14507dfaf8b856c2608f9ac216021fc222`. This is static analysis;
 the engine's actual state on the Surface remains **TBD**.
 
+Added-source citations use `out/linux/touch-pen/drivers/hid/spi-hid/<file>`
+in the dedicated worker kernel tree, with these final SHA-256 values. File/line
+references below include this path/hash association; none refers to a new file
+in the read-only base tree. All three also match the posted final blob IDs.
+
+| Added source | SHA-256 |
+|:--|:--|
+| `spi-hid-core.c` | `c2ab61029e52b78a06f5a5619368dd1ccee60c3663b9b12541de6f7ec80be695` |
+| `spi-hid-of.c` | `14d3fb2dc80e5e6c900d0654b2c37e84cff6228e9b4f85fb90aa226dc4db4557` |
+| `spi-hid-acpi.c` | `083b6a9563ec4e9bdd22318d31b874b7821d8382a541e400dfbd8903babf32f7` |
+
 ## Protocol dispatch
 
 **Verified:** `GENI_SE_NONE=0`, `GENI_SE_SPI=1`, and
@@ -129,6 +140,21 @@ standalone reset pulse or the `_PS3` 10 ms reset-before-power-off delay.
 Add a separate, cross-checked device timing/sequencing change before enabling.
 Preserve the upstream series unchanged as the baseline for that future patch.
 
+For that sequencing follow-up, the posted source gives a concrete comparison
+(**Verified source**, worker files identified by the blob IDs in the v6 evidence;
+mapping the ACPI behavior to a Linux change is **Inference**):
+
+| Path | Current v6 behavior | Required design work from the captured SSDT |
+|:--|:--|:--|
+| Cold init/resume | Core asserts reset, waits the generic minimum, calls OF power_up, then releases reset (`spi-hid-core.c:359–374`, :1530–1543) | Retain the conditional 500 ms power-to-reset-release wait; the fixed-regulator draft supplies that wait plus OF's 10 ms, with the generic reset hold occurring before power-up |
+| Warm recovery reset | Assert, wait 100 ms, release (`spi-hid-core.c:448–464`, `spi-hid-of.c:53–55`) | Device match data for the 300 ms `_RST` pulse; a regulator delay does not run on this path |
+| Suspend, fatal-error and remove power-off | Core assert_reset immediately followed by power_down (`spi-hid-core.c:309–311`, :432–433, :1722–1723); OF directly disables its regulator (`spi-hid-of.c:114–129`) | Enforce at least the `_PS3` 10 ms reset-before-power-off interval on each path; consider a device-specific OF power_down callback delay rather than relying on callers to sleep |
+
+The `_INI` 10 ms delay is a distinct ACPI initialization path, not a replacement
+for the 500 ms cold `_PS0` wait. Do not put unrecognized timing properties in
+the DT to imply that these gaps are implemented. These proposed sequencing
+changes have not been coded or independently cross-checked.
+
 Stock pinctrl for spi10 covers GPIO43 CS and GPIO40/41/42 MISO/MOSI/CLK
 (`sources/linux/arch/arm64/boot/dts/qcom/hamoa.dtsi:6458`); the board's quad
 data pins are **TBD**. No extra pins are invented. A panel follower may be
@@ -178,3 +204,36 @@ candidate, not proof of this unit's wiring; these pins were not added to the
 draft. Protocol 9 on this unit, the code's provenance/sign-off chain and its
 compatibility with v6/v7.3 remain **TBD**. The next software step should assess
 these glue changes and GPI support before proposing a generic protocol-0 load fix.
+
+## Request to kernel / soc-boot: protocol-0 decision
+
+This is the proposed disposition of the GENI task, **a request with evidence**,
+not an applied protocol-loading patch:
+
+1. Identify the required QUP_1_SE_2 personality and GPI/controller support first.
+   SP11's ACPI description says QSPI, flags require quad mode, and the external
+   working report uses additional controller code with protocol 9. Its source
+   is only a research lead until sources pins it and kernel reviews it.
+2. Obtain the existing engine protocol from an approved boot's normal probe
+   logs after checking wrapper/SE clocks and resources. Grade the actual value
+   **TBD** until then. A source-code path for zero is not a device observation.
+3. If this is confirmed to be an empty **ordinary SPI** engine and the matching
+   firmware path/protocol is established, assess extending only the host load
+   gate in `spi_geni_init()` from INVALID to NONE-or-INVALID. Leave programmed
+   non-SPI protocols and SPI-target behavior rejected/unchanged, propagate
+   loader errors, and verify the programmed protocol before continuing. This
+   conditional change is an **Inference proposal**, not a proven SP11 fix.
+4. If the engine needs the QSPI personality instead, resolve that controller,
+   GPI and loader design together. The current loader rejects protocol 9;
+   requesting ordinary SPI firmware would not implement quad operation.
+5. Keep `qupv3fw.elf` out of the list of proven touch dependencies. The current
+   wrapper has no `firmware-name`, and the touch draft adds none. Fedora shipping
+   a file with that name does not mean this DT requests it or that it supports
+   the required personality. This agrees with the orchestrator's new
+   `main:journal/2026-10-24.md` request to soc-boot.
+
+Acceptance for an eventual host change: lock-protected BTF build; source-path
+checks for host protocols 0/1/255/other and target 5/other; missing-property,
+missing-file and mismatched-segment errors; no regression for already programmed
+engines. Real board acceptance also requires quad transfers and pinmux. No
+firmware was requested or loaded on a device in either session.

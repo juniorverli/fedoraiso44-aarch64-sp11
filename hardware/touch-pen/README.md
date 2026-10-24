@@ -7,6 +7,11 @@ collections reported by Windows. Status: **designed**; the newest found
 spi-hid series (v6, 2026-10-19) builds unchanged on v7.3, but the board needs
 quad SPI and sequencing that the unchanged stack cannot provide.
 
+The resumed session completed warning and schema checks: all new C files
+compile with `W=1`, the binding passes `dt_binding_check` with YAML lint, and
+the disabled board draft validates against HID, fixed-regulator and TLMM
+schemas. This does not clear the component's functional or cross-check gaps.
+
 All work is software-only. The [DT draft](touch-pen-draft.dtsi) and its RFC
 patch keep controller, supply and HID child disabled. No device access,
 firmware writing, git-index changes or commits were performed.
@@ -43,7 +48,7 @@ addresses; revision 1 function 1 returns integer 1 with legacy meaning TBD.
 |:--|:--|
 | `hidspi_km (inbox)` | HID-over-SPI transport, Inference from compatible ID/specification; inbox binary not examined |
 | `qcspi8380` | Verified SPI host driver `qcspi`, binds QCOM0C0E, depends on SpbCx, references distinct SPI/QSPI data blobs; both INF versions examined |
-| `surfacedigitizerwotextnpackage` | Inventory names this extension on MSHW0484; INF role/details TBD, not opened |
+| `surfacedigitizerwotextnpackage` | Verified extension matches MSHW0484 and includes input.inf / WakeScreenOnTouch.HW; Windows wake-screen policy request, not a decoded Linux wake route |
 | `surfacetouchg6fwupdateextnpackage0c80` | TBD; not opened; firmware updating excluded from this task |
 | `surfacetouchg6fwupdateextnpackage0c83` | TBD; not opened |
 | `surfacetouchpenprocessor0c80update` | TBD; not opened |
@@ -77,6 +82,9 @@ layout and capabilities remain TBD.
   fuzz/offsets and build vmlinux plus core/OF/ACPI modules with BTF. See
   [upstream/build evidence](evidence/2026-10-24-spi-hid-v6.md).
   This is a small ARM64 compatibility config, not a Fedora RPM build.
+- **Verified software checks:** new driver objects compile without warnings
+  under `W=1`; binding/example and disabled board DT validate. The unchanged
+  upstream series still has strict checkpatch findings, recorded in that evidence.
 
 ## 5. Gaps
 
@@ -84,10 +92,10 @@ layout and capabilities remain TBD.
 |:--|:--|
 | No base generic transport | Preserve newest posted v6 unchanged as baseline; clear upstream checkpatch/sign-off issues before integration |
 | Required quad transfers; v6 single-lane only | Split-width opcode/address/data handling, verified GENI/QSPI support and board pinmux |
-| Protocol 0 bypasses firmware load | Kernel/soc-boot assesses a narrow NONE-or-INVALID gate after identifying engine state; a firmware file alone is insufficient |
+| Protocol 0 bypasses firmware load | Evidence-backed kernel/soc-boot request: identify QSPI personality before assessing a narrow ordinary-SPI NONE-or-INVALID gate; a firmware file alone is insufficient |
 | DT / sequencing | Disabled draft models 500 ms cold-power wait; add 300 ms reset and 10 ms shutdown sequencing separately |
 | Additional interrupt and panel/wake | Resolve `0x0440` and select policy before adding wakeup-source/panel |
-| Cross-check and input pins | Other-runtime cross-check; sources owner pins upstream series and public spec |
+| Cross-check, central input pins and patch hygiene | Other-runtime cross-check; sources owner pins upstream series and public spec; resolve existing strict checkpatch findings without fabricated sign-offs |
 
 See [GENI and DT analysis](evidence/2026-10-24-geni-and-dt.md). These gaps
 prevent `sw-ready` even though the transport baseline builds.
@@ -129,6 +137,9 @@ No device acceptance criterion has been exercised.
   REGULATOR_FIXED_VOLTAGE, HID_MULTITOUCH and both BTF symbols. Full Fedora
   config/RPM build remains required; do not integrate 0012 as an enabled device.
   The ACPI module is optional for DT boot.
+  The concrete protocol-0 decision and path/error checks are in
+  [GENI evidence](evidence/2026-10-24-geni-and-dt.md#request-to-kernel--soc-boot-protocol-0-decision).
+  Do not classify `qupv3fw.elf` as an established touch dependency.
 - **Firmware:** determine a compatible GENI/QSPI image and provenance if needed;
   do not assume generic SPI firmware implements quad mode.
 - **Display / image:** keep touch disabled in current phase-1 images. Later
@@ -141,3 +152,8 @@ No device acceptance criterion has been exercised.
   them on v7.3; extracted SP11 DSDT and GTCH SSDT data, decoded required quad
   mode, documented protocol-0 rejection, drafted disabled DT and future test plan.
   Status designed; cross-check, quad support and sequencing open.
+- 2026-10-24 (resumed): preserved the completed application/BTF builds, confirmed
+  all 14 final upstream blobs, passed new-file W=1 and binding/disabled-board
+  validation, identified the WoT extension's policy request, and finalized the
+  sequencing/GENI requests and test plan. Status remains designed; changes left
+  uncommitted for orchestrator review as instructed.

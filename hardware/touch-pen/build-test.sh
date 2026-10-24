@@ -37,6 +37,8 @@ for setting in DEBUG_INFO_BTF=y DEBUG_INFO_BTF_MODULES=y SPI_HID_OF=m \
     fi
 done
 make O=/build/kbuild ARCH=arm64 -j4 vmlinux modules
+# Recompile the new transport/frontends with extra warnings and real tracepoints.
+make O=/build/kbuild ARCH=arm64 -j4 W=1 drivers/hid/spi-hid/
 readelf -SW /build/kbuild/vmlinux | grep '\.BTF'
 for module in spi-hid spi-hid-of spi-hid-acpi; do
     readelf -SW "/build/kbuild/drivers/hid/spi-hid/$module.ko" | grep '\.BTF'

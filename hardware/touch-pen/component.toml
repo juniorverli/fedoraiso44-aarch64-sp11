@@ -13,7 +13,7 @@ packages = ["hidspi_km (inbox)", "qcspi8380", "surfacedigitizerwotextnpackage", 
 drivers = ["spi-geni-qcom", "spi-hid", "spi-hid-of", "spi-hid-acpi"]
 dt = ["arch/arm64/boot/dts/qcom/x1p64100-microsoft-denali.dts (disabled draft only)"]
 native = "none"
-gaps = ["unchanged posted spi-hid v6 builds on v7.3, but lacks required quad-SPI transfers", "v7.3 spi-geni-qcom lacks quad mode and board quad pinmux is unknown", "GENI protocol 0 is rejected without requesting firmware; actual device state unknown", "disabled DT draft needs 300 ms reset and 10 ms shutdown sequencing support", "second ACPI GpioInt 0x0440 and panel/wake policy unresolved", "independent cross-check, central source pins and strict checkpatch clearance pending"]
+gaps = ["unchanged spi-hid v6 builds with BTF and new-file W=1 on v7.3, but lacks required quad-SPI transfers", "v7.3 spi-geni-qcom lacks quad mode and board quad pinmux is unknown", "GENI protocol 0 is rejected without requesting firmware; personality/state decision requested, actual device state unknown", "schema-valid disabled DT draft needs 300 ms reset and 10 ms shutdown sequencing support", "second ACPI GpioInt 0x0440 and panel/wake policy unresolved despite Windows WoT policy extension", "independent cross-check, central source pins and strict checkpatch clearance pending"]
 
 [firmware]
-needs = ["compatible GENI/QSPI firmware TBD; qcom/x1e80100/qupv3fw.elf is only a candidate, not a proven requirement"]
+needs = ["compatible GENI/QSPI firmware TBD; no firmware-name is requested by the disabled DT, and qupv3fw.elf is not a proven requirement"]
