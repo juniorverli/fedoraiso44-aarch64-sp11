@@ -39,7 +39,8 @@ clearpart --all
 part / --size 8576 --fstype ext4
 services --enabled=NetworkManager,ModemManager --disabled=sshd
 network --bootproto=dhcp --device=link --activate
-rootpw --lock --iscrypted locked
+# no password hash: shadow-utils 4.19 chpasswd -e rejects the placeholder "!locked" ("invalid password hash")
+rootpw --lock
 shutdown
 
 # Repositories. SP11: Fedora 44 hard-coded (no $releasever), Fedora's kernels are excluded
