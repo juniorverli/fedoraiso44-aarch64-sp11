@@ -54,7 +54,8 @@ else
 fi
 case "$runtime" in
 claude) cmd="claude --model claude-sonnet-5-5 --effort high \"$task\"" ;;
-codex) cmd="codex -m gpt-6.1-sol -c model_reasoning_effort=\"xhigh\" \"$task\"" ;;
+codex) task="$task Codex sandbox: do not run git commands that write; leave changes uncommitted for the orchestrator. Ignore global skills such as bmad-build."
+	cmd="codex exec -m gpt-6.1-sol -c model_reasoning_effort=\"xhigh\" -s workspace-write -c sandbox_workspace_write.network_access=true --add-dir $root/out -C $wt \"$task\"" ;;
 *) echo "unknown runtime $runtime" >&2; exit 1 ;;
 esac
 echo "project worktree: $wt"

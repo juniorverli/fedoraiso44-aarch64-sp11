@@ -2,7 +2,7 @@
 /sources/windows
 /sources/linux
 # generated
-/out/
+/out
 __pycache__/
 # never commit device firmware or Windows binaries
 *.mbn
