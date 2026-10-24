@@ -52,7 +52,7 @@ actual=$(sha256sum "$iso" | cut -d' ' -f1)
 [ "$actual" = "$(jq_ '.iso_sha256')" ] && pass 0.1 "ISO SHA-256 equals the build record" || fail 0.1 "ISO SHA-256 differs from the build record"
 
 ROOT=$W/root
-cleanup() { findmnt -n "$ROOT" >/dev/null 2>&1 && umount "$ROOT" 2>/dev/null; }
+cleanup() { for m in "$W/root2" "$W/root"; do findmnt -n "$m" >/dev/null 2>&1 && umount "$m" 2>/dev/null; done; return 0; }
 trap cleanup EXIT
 
 # --------------------------------------------------------------- extract ----
@@ -121,21 +121,26 @@ for f in BOOTAA64.EFI grubaa64.efi mmaa64.efi grub.cfg; do
 done
 
 # --------------------------------------------------- squashfs and rootfs ----
-if [ ! -f "$W/sq/LiveOS/rootfs.img" ]; then
-	say "...extracting the root file system (several minutes)"
-	rm -rf "$W/sq"
+# livemedia-creator --no-virt puts the root tree directly into LiveOS/squashfs.img (no inner
+# rootfs.img); dracut's dmsquash-live accepts both. Mount the squashfs; fall back to rootfs.img.
+if [ ! -f "$W/squashfs.img" ]; then
+	say "...extracting LiveOS/squashfs.img (a few minutes)"
 	x /LiveOS/squashfs.img "$W/squashfs.img"
-	unsquashfs -no-progress -d "$W/sq" "$W/squashfs.img" LiveOS/rootfs.img >/dev/null 2>&1
-	rm -f "$W/squashfs.img"
 fi
 mkdir -p "$ROOT"
 cleanup
-if ! mount -o loop,ro "$W/sq/LiveOS/rootfs.img" "$ROOT" 2>"$W/mount.txt"; then
-	fail 0.2 "cannot mount rootfs.img: $(cat "$W/mount.txt")"
+layout=squashfs
+if ! mount -t squashfs -o loop,ro "$W/squashfs.img" "$ROOT" 2>"$W/mount.txt"; then
+	fail 0.2 "cannot mount LiveOS/squashfs.img: $(cat "$W/mount.txt")"
 	say "SUMMARY: $npass passed, $nfail failed, $nskip skipped"
 	exit 1
 fi
-pass 0.2 "LiveOS/squashfs.img holds LiveOS/rootfs.img (ext4), mounted read-only"
+if [ -f "$ROOT/LiveOS/rootfs.img" ]; then
+	layout=rootfs.img
+	mkdir -p "$W/root2"
+	mount -o loop,ro "$ROOT/LiveOS/rootfs.img" "$W/root2" && ROOT=$W/root2
+fi
+pass 0.2 "LiveOS/squashfs.img mounted read-only (layout: $layout)"
 kver=$(ls "$ROOT/lib/modules" 2>/dev/null | head -n1)
 [ -n "$kver" ] && [ "$(ls "$ROOT/lib/modules" | wc -l)" = 1 ] && pass 0.3 "exactly one kernel in the image: $kver" || fail 0.3 "kernel directories: $(ls "$ROOT/lib/modules" 2>/dev/null | tr '\n' ' ')"
 rpm --root "$ROOT" -qla 2>/dev/null | sort >"$W/rpm-files.txt"
@@ -250,7 +255,13 @@ python3 - "$REPO/firmware/manifest.toml" "$ROOT" "$W/rpm-files.txt" "$smoke" <<'
 import hashlib, os, sys, tomllib
 manifest, root, rpmlist, smoke = sys.argv[1:5]
 m = tomllib.load(open(manifest, 'rb'))
-owned = set(l.strip() for l in open(rpmlist))
+# merged /usr: some packages (b43-openfwwf) record /lib/firmware/..., the tree walk sees /usr/lib/...
+owned = set()
+for l in open(rpmlist):
+    l = l.strip()
+    owned.add(l)
+    if l.startswith('/lib/'):
+        owned.add('/usr' + l)
 fwdir = os.path.join(root, 'usr/lib/firmware')
 def sha(p):
     h = hashlib.sha256()
@@ -298,8 +309,9 @@ done <"$W/firmware-check.txt"
 comm -23 "$W/all-files.txt" "$W/rpm-files.txt" >"$W/unowned.txt"
 macs=$(cd "$ROOT" && sed 's|^/||' "$W/unowned.txt" | xargs -r -d '\n' grep -I -H -o -E '\b([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b' 2>/dev/null | grep -v -i -E ':(00:00:00:00:00:00|ff:ff:ff:ff:ff:ff)$' | head -n 5)
 [ -z "$macs" ] && pass 7.1 "no MAC address in the $(wc -l <"$W/unowned.txt") files not owned by an RPM" || fail 7.1 "MAC-like strings in unowned files: $macs"
-hits=$(cd "$ROOT" && grep -rIlF --exclude-dir=proc --exclude-dir=sys --exclude-dir=firmware -e 'sp11-windows-dumps' -e 'sources/windows' -e 'DriverStore' -e 'juniormverli' . 2>/dev/null | head -n 5)
-[ -z "$hits" ] && pass 7.2 "no sources/windows path, DriverStore or host user name in any text file of the root" || fail 7.2 "private strings in: $hits"
+# only files not owned by an RPM: packaged text (the magic database mentions DriverStore) is not ours
+hits=$(cd "$ROOT" && sed 's|^/||' "$W/unowned.txt" | xargs -r -d '\n' grep -IlF -e 'sp11-windows-dumps' -e 'sources/windows' -e 'DriverStore' -e 'juniormverli' 2>/dev/null | head -n 5)
+[ -z "$hits" ] && pass 7.2 "no sources/windows path, DriverStore or host user name in any file not owned by an RPM" || fail 7.2 "private strings in: $hits"
 priv_iso=$(grep -rIlF -e 'sp11-windows-dumps' -e 'sources/windows' -e 'juniormverli' "$W/iso-tree" 2>/dev/null | head -n3)
 [ -z "$priv_iso" ] && pass 7.3 "no private string in the ISO boot files" || fail 7.3 "private strings in ISO boot files: $priv_iso"
 
