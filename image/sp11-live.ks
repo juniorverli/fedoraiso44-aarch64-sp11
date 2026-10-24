@@ -193,7 +193,7 @@ rm -f /var/lib/systemd/random-seed
 echo 'File created by kickstart. See systemd-update-done.service(8).' \
     | tee /etc/.updated >/var/.updated
 rm -f /boot/*-rescue*
-systemctl disable network
+systemctl disable network || true   # F44 has no network.service (legacy initscripts); set -e would abort
 rm -f /etc/machine-id
 touch /etc/machine-id
 
