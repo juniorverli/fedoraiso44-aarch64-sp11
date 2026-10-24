@@ -22,7 +22,6 @@ name=${name_arg:-sp11-fedora44-aarch64-kiwi-$id}
 work=$OUT/image-work/$id
 isodir=$OUT/iso
 mkdir -p "$work/tmp" "$isodir" "$OUT/kiwi"
-export TMPDIR=$work/tmp
 cd "$work"   # /sp11 is a worktree whose .git file points outside the container
 log() { echo "image-build[kiwi]: $*" >&2; }
 
