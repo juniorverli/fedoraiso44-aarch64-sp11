@@ -44,7 +44,7 @@ DOCKER
 docker_run() {
   local tty=()
   [[ -t 0 && -t 1 ]] && tty=(-it)
-  docker run --rm "${tty[@]}" \
+  docker run --rm "${tty[@]}" ${KERNEL_CONTAINER_NAME:+--name "$KERNEL_CONTAINER_NAME"} \
     --user "$(id -u):$(id -g)" -e HOME=/tmp/home -e SP11_IN_CONTAINER=1 \
     --tmpfs /tmp/home:exec,mode=1777 \
     -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro \

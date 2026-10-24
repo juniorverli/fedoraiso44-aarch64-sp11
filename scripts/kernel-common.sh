@@ -31,10 +31,93 @@ die() { echo "kernel: $*" >&2; exit 1; }
 KERNEL_CCACHE_DIR="$SP11_OUT/ccache"
 kernel_ccache_env() {   # call inside the container
   mkdir -p "$KERNEL_CCACHE_DIR"
-  export CCACHE_DIR="$KERNEL_CCACHE_DIR" CCACHE_MAXSIZE=30G
+  export CCACHE_DIR="$KERNEL_CCACHE_DIR" CCACHE_MAXSIZE=15G
   # The tarball is unpacked anew for every rpmbuild: header mtimes/ctimes are new, contents are not.
   export CCACHE_SLOPPINESS=include_file_mtime,include_file_ctime,time_macros
   # Hash the compiler and the redhat-hardened/annobin spec files by content, not by mtime.
   export CCACHE_COMPILERCHECK=content
   export PATH="/usr/lib64/ccache:$PATH"
+}
+
+# ---------------------------------------------------------------------------------------
+# Disk guard. On WSL2 the ext4 root lives in a VHDX that grows on the Windows drive. Linux `df /`
+# can show plenty free while the VHDX cannot grow, and then writes stall and the VM dies.
+# Real headroom = free bytes on the Windows drive + (VHDX file size - bytes used on /).
+# Not on WSL (no VHDX found): headroom = `df /` available bytes.
+# Overrides: SP11_VHDX=<path>, SP11_MIN_HEADROOM_GIB=<n> (start threshold), SP11_STOP_HEADROOM_GIB=<n>.
+KERNEL_GIB=$((1024 * 1024 * 1024))
+KERNEL_STOP_GIB="${SP11_STOP_HEADROOM_GIB:-15}"
+
+kernel_find_vhdx() {   # prints the path of the VHDX holding / , or nothing
+  local used f best="" bsize=0 sz
+  if [[ -n ${SP11_VHDX:-} ]]; then [[ -f $SP11_VHDX ]] && echo "$SP11_VHDX"; return 0; fi
+  used=$(df -B1 --output=used / | tail -1 | tr -d ' ')
+  for f in /mnt/c/Users/*/AppData/Local/Packages/*/LocalState/ext4.vhdx \
+           /mnt/c/Users/*/AppData/Local/wsl/*/ext4.vhdx; do
+    [[ -f $f ]] || continue
+    sz=$(stat -c %s "$f")
+    # plausible: at least as large as the bytes used on /; among those the smallest
+    ((sz >= used)) || continue
+    if [[ -z $best ]] || ((sz < bsize)); then best=$f; bsize=$sz; fi
+  done
+  if [[ -n $best ]]; then echo "$best"; fi
+  return 0
+}
+
+# Prints "headroom_bytes source".
+kernel_headroom() {
+  local vhdx cfree vsize used room
+  vhdx=$(kernel_find_vhdx)
+  if [[ -n $vhdx && -d /mnt/c ]]; then
+    cfree=$(df -B1 --output=avail /mnt/c | tail -1 | tr -d ' ')
+    vsize=$(stat -c %s "$vhdx")
+    used=$(df -B1 --output=used / | tail -1 | tr -d ' ')
+    room=$((vsize - used)); ((room < 0)) && room=0
+    echo "$((cfree + room)) wsl(C:free=$((cfree / KERNEL_GIB))G vhdx=$((vsize / KERNEL_GIB))G used=$((used / KERNEL_GIB))G)"
+  else
+    echo "$(df -B1 --output=avail / | tail -1 | tr -d ' ') df-root"
+  fi
+}
+
+# kernel_guard_start <release|dev>: refuse below the profile threshold.
+kernel_guard_start() {
+  local profile=$1 min h src
+  case $profile in release) min=60 ;; dev) min=20 ;; *) die "guard: unknown profile $profile" ;; esac
+  if [[ -n ${SP11_MIN_HEADROOM_GIB:-} ]]; then
+    echo "kernel: WARNING: start threshold overridden to ${SP11_MIN_HEADROOM_GIB} GiB (default $min). The disk may fill and kill WSL." >&2
+    min=$SP11_MIN_HEADROOM_GIB
+  fi
+  read -r h src < <(kernel_headroom)
+  echo "kernel: disk headroom $((h / KERNEL_GIB)) GiB [$src], need >= $min GiB for $profile"
+  ((h >= min * KERNEL_GIB)) || die "REFUSED: headroom $((h / KERNEL_GIB)) GiB < $min GiB [$src]. Free space on the Windows drive or inside the VHDX, or set SP11_MIN_HEADROOM_GIB at your own risk."
+}
+
+# kernel_watchdog_start <container-name> <logfile>: samples every 15 s; below the stop threshold
+# it logs the reason, writes the flag file and kills the container. Sets KERNEL_WATCHDOG_PID.
+KERNEL_WATCHDOG_FLAG="$SP11_OUT/build/.watchdog-stopped"
+kernel_watchdog_start() {
+  local name=$1 log=$2
+  mkdir -p "$SP11_OUT/build"
+  rm -f "$KERNEL_WATCHDOG_FLAG" "$KERNEL_WATCHDOG_FLAG.min"
+  (
+    local h src msg min_h=-1
+    while sleep "${SP11_WATCHDOG_INTERVAL:-15}"; do
+      read -r h src < <(kernel_headroom)
+      if ((min_h < 0 || h < min_h)); then min_h=$h; echo "$min_h" > "$KERNEL_WATCHDOG_FLAG.min"; fi
+      if ((h < KERNEL_STOP_GIB * KERNEL_GIB)); then
+        msg="kernel: WATCHDOG STOP $(date -u +%FT%TZ): headroom $((h / KERNEL_GIB)) GiB < ${KERNEL_STOP_GIB} GiB [$src]; killing container $name"
+        echo "$msg" | tee -a "$log" >&2
+        echo "$msg" > "$KERNEL_WATCHDOG_FLAG"
+        docker kill "$name" >/dev/null 2>&1 || true
+        exit 0
+      fi
+    done
+  ) &
+  KERNEL_WATCHDOG_PID=$!
+}
+# Returns 1 (and prints the reason) if the watchdog stopped the build.
+kernel_watchdog_stop() {
+  if [[ -n ${KERNEL_WATCHDOG_PID:-} ]]; then kill "$KERNEL_WATCHDOG_PID" 2>/dev/null || true; fi
+  if [[ -s $KERNEL_WATCHDOG_FLAG ]]; then cat "$KERNEL_WATCHDOG_FLAG" >&2; return 1; fi
+  return 0
 }

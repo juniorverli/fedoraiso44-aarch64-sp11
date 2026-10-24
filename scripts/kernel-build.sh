@@ -10,7 +10,8 @@
 #   --check-only    skip rpmbuild, run scripts/kernel-check on the last build
 #
 # Inputs: kernel/base.toml, kernel/config/sp11.config, kernel/series. Nothing else.
-# The lock is held only while rpmbuild runs.
+# The lock is held only while rpmbuild runs. A disk guard refuses to start below 60 GiB real headroom
+# (WSL: Windows drive free + VHDX slack) and a watchdog stops the build below 15 GiB (kernel-common.sh).
 # Output: out/rpms/*.rpm, out/rpms/<nevra>.json, out/build/kernel/rpmbuild.log.
 # Owner: kernel worker.
 set -euo pipefail
@@ -126,12 +127,18 @@ exec 9>"$KERNEL_LOCK"
 echo "kernel-build: waiting for $KERNEL_LOCK"
 flock -w 14400 9 || die "no lock after 4 h"
 avail_gb=$(free -g | awk '/^Mem:/{print $7}')
+kernel_guard_start release
 echo "kernel-build: free -g available = ${avail_gb} GB, jobs = $jobs"
 ((avail_gb >= 4)) || die "only ${avail_gb} GB available, need >= 4; stop other jobs or lower -j"
 echo "kernel-build: rpmbuild starts $(date -u +%FT%TZ)"
 rm -f "$KERNEL_BUILD_DIR/build-stats.env" "$KERNEL_BUILD_DIR/mem-anon-peak.bytes"
+export KERNEL_CONTAINER_NAME="sp11-kernel-release-$$"
+kernel_watchdog_start "$KERNEL_CONTAINER_NAME" "$KERNEL_BUILD_DIR/rpmbuild.log"
+trap 'docker kill "$KERNEL_CONTAINER_NAME" >/dev/null 2>&1 || true; kernel_watchdog_stop || true' INT TERM
 cr "$KERNEL_REPO/scripts/kernel-build.sh" -j "$jobs" --inner 2>&1 | tee "$KERNEL_BUILD_DIR/rpmbuild.log"
 rc=${PIPESTATUS[0]}
+kernel_watchdog_stop || die "build stopped by the disk watchdog, see $KERNEL_BUILD_DIR/rpmbuild.log"
+[[ -f $KERNEL_WATCHDOG_FLAG.min ]] && echo "kernel-build: min headroom seen $(( $(cat "$KERNEL_WATCHDOG_FLAG.min") / KERNEL_GIB )) GiB" | tee -a "$KERNEL_BUILD_DIR/rpmbuild.log"
 ((rc == 0)) || die "rpmbuild failed (rc=$rc), see $KERNEL_BUILD_DIR/rpmbuild.log"
 
 # 6. collect RPMs, check, record
