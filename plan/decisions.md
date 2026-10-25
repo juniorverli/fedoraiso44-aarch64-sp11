@@ -100,3 +100,9 @@ Append-only. Each entry: number, date, decision, reason, consequence. A later en
   - extra test packages.
 - **Reason:** D12. Fedora 44 live media are built with kiwi, and Fedora no longer publishes or maintains live kickstarts. The livemedia-creator kickstart is a flattened f43 file that drifts with every update. With the official f44 description, a difference from the official ISO is ours and is visible.
 - **Consequence:** the M2 ISO (livemedia-creator) still goes to the device as is; the device logs do not depend on the builder. The image worker ports the lorax template changes to kiwi. L0 and L1 must pass on the kiwi ISO with the same checks, adapted only where the live layout legitimately differs, and each adaptation is documented. The livemedia-creator path is kept until the kiwi ISO passes L0 and L1, then removed. D11's container constraints still apply: WSL2 has no KVM, so kiwi runs in the privileged Fedora 44 container.
+
+## D17 (2026-10-25): the stick's EFI partition is FAT32
+
+- **Decision:** the EFI system partition of every ISO is FAT32, verified by cluster count ≥ 65525, not only by the "FAT32" label. Size is at least 64 MiB, created with `mkfs.fat -F 32 -s 1 -S 512`. L0 fails when the ESP is FAT12 or FAT16.
+- **Reason:** the operator reports, and the previous project hit the same problem on 2026-10-18, that the Surface UEFI does not boot a USB EFI partition unless it is FAT32. It returns to the boot menu or Windows before GRUB. kiwi's ISO (30 MiB, 15321 clusters) and the lorax M2 ISO (27 MiB, 14011 clusters) were both FAT16, and both reached GRUB in QEMU, so L1 cannot catch this.
+- **Evidence:** `out/iso/sp11-fedora44-aarch64-kiwi-20261025T001028Z-fat32esp.iso`. It repacks the kiwi ISO with a 64 MiB FAT32 ESP (129022 clusters) and changes nothing else; the El Torito UEFI entry points to the new partition. It reaches the GRUB menu in QEMU. Device result pending.
