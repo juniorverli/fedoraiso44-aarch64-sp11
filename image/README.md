@@ -329,9 +329,9 @@ Fedora files changed: three patches (`Fedora.kiwi` gets one `<include>`, `compon
 | Item | Value |
 |:--|:--|
 | ISO | `out/iso/sp11-fedora44-aarch64-kiwi-20261025T001028Z.iso` (record `.json`, checksum `.iso.sha256`) |
-| Size | 2,748,102,656 bytes (2.56 GiB) |
+| Size | 2,748,110,848 bytes (2.56 GiB) |
 | SHA-256 | `e675159a4c7a7da2e07c06e575e26d7a3671edd3dd968594bbeb72ebae1055a3` |
-| Build time | 1280 s in `kiwi-ng` (about 21 min; plus about 11 min of dnf5 bootstrap and erofs inside the same run), 1969 packages, kiwi `11.1.1-2.fc44`, container memory 9 GiB (6 GiB: `mkfs.erofs` was OOM-killed at 3 GB resident) |
+| Build time | 1384 s for the whole `kiwi-ng` run (about 23 min: bootstrap, package install, initrd, erofs, ISO), 1969 packages, kiwi `11.1.1-2.fc44`, container memory 9 GiB (6 GiB: `mkfs.erofs` was OOM-killed at 3 GB resident) |
 | Kernel | `kernel-core-7.3.0-65.sp11.fc44.aarch64`, the only kernel (L0 0.3). `kernel-tools` and `kernel-tools-libs` are Fedora's `7.2.11-200.fc44` (user space, not a kernel) |
 | Description | `fedora-kiwi-descriptions` `f44` at `dfc49a5a10f69941179fdadd96aa6a5984f7c677`, profile `Workstation-Live`, three patches and the layer above |
 | L0 | 80 passed, 0 failed (`out/iso/<name>.l0.txt`) |
