@@ -410,6 +410,39 @@ else
 		esac
 	done <"$REPO/image/expected-modules.txt"
 fi
+# 5.5 (M4): the display chain and everything modules.dep says it needs must be in the real initramfs
+# (a module that is built in needs nothing). Names are normalised (- = _). A missing one fails L0.
+if [ "$smoke" != true ]; then
+	python3 -I - "$ROOT/lib/modules/$kver/modules.dep" "$W/initrd-ko.txt" "$W/builtin-names.txt" "$REPO/image/expected-modules.txt" <<'PY' >"$W/initrd-deps.txt"
+import re, sys
+dep, ko, builtin, exp = sys.argv[1:5]
+norm = lambda n: re.sub(r'\.ko(\..*)?$', '', n.rsplit('/', 1)[-1]).replace('-', '_')
+deps = {}
+for l in open(dep):
+    p, _, d = l.partition(':')
+    deps[norm(p)] = [norm(x) for x in d.split()]
+inird = {l.strip() for l in open(ko)}
+built = {l.strip() for l in open(builtin)}
+chain = [norm(l.split()[1]) for l in open(exp) if l.split() and l.split()[0] == 'early']
+missing, total = [], 0
+for m in chain:
+    if m in built:
+        continue
+    if m not in deps:
+        missing.append(f"{m} (not in modules.dep)"); continue
+    seen, todo = set(), [m]
+    while todo:
+        x = todo.pop()
+        if x in seen: continue
+        seen.add(x); todo += deps.get(x, [])
+    for x in sorted(seen):
+        total += 1
+        if x not in inird and x not in built:
+            missing.append(f"{x} (needed by {m})")
+print(("FAIL " + "; ".join(sorted(set(missing)))) if missing else f"PASS {len(chain)} display-chain modules and their {total} module-dependency entries are in the initramfs or built in")
+PY
+	line=$(cat "$W/initrd-deps.txt"); case $line in PASS*) pass 5.5 "${line#PASS }" ;; *) fail 5.5 "display chain not complete in the initramfs: ${line#FAIL }" ;; esac
+fi
 grep -E '^[-dlcbps][-rwxsStT]{9} .*plymouth' "$W/initrd-list.txt" >/dev/null && fail 5.4 "plymouth files in the initramfs" || pass 5.4 "no plymouth in the initramfs"
 
 # ---------------------------------------------------------------- check 6 ----

@@ -9,8 +9,8 @@ early phy-qcom-edp
 early drm_dp_aux_bus
 early pwm_bl
 early dispcc-x1e80100
+early leds-qcom-lpg
 late gpucc-x1e80100
-late leds-qcom-lpg
 late scmi-cpufreq
 late qcom_q6v5_pas
 late qcom_pd_mapper
