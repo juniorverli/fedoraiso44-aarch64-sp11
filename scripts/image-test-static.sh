@@ -153,7 +153,7 @@ if [ "$builder" = kiwi ]; then
 	grep -q '^set timeout_style=menu' "$cfg_main" && grep -E '^set timeout=[1-9]' "$cfg_main" >/dev/null && pass 2.2 "main grub.cfg shows the menu (timeout_style=menu, timeout>0)" || fail 2.2 "main grub.cfg may hide the menu"
 	stub_ok=1
 	for c in "$cfg_iso" "$W/iso-tree/EFI/fedora-grub.cfg" "$cfg_esp"; do
-		grep -v '^[[:space:]]*$' "$c" | grep -q -v -E '^(search --file --set=root /boot/|set prefix=\(\$root\)/boot/grub2$|configfile \(\$root\)/boot/grub2/grub.cfg$)' && stub_ok=0
+		grep -v '^[[:space:]]*$' "$c" | grep -q -v -E '^(echo \"SP11: GRUB started \(direct EFI boot, no shim\)\"$|search --file --set=root /boot/|set prefix=\(\$root\)/boot/grub2$|configfile \(\$root\)/boot/grub2/grub.cfg$)' && stub_ok=0
 	done
 	[ "$stub_ok" = 1 ] && pass 2.3 "the three EFI grub.cfg are stubs that chain to /boot/grub2/grub.cfg" || fail 2.3 "an EFI grub.cfg is more than a chain stub"
 	other=$(xorriso -indev "$iso" -find / -name '*.cfg' 2>/dev/null | grep -i grub | grep -v -E "^'/(EFI/BOOT/grub.cfg|EFI/fedora/grub.cfg|boot/grub2/grub.cfg|boot/grub2/loopback.cfg)'$" || true)
@@ -206,6 +206,16 @@ if [ -n "${free:-}" ] && [ "$free" -ge 8388608 ]; then pass 2.10 "embedded ESP h
 for f in BOOTAA64.EFI grubaa64.efi mmaa64.efi grub.cfg; do
 	mdir -i "$esp_img" "::EFI/BOOT/$f" >/dev/null 2>&1 || fail 2.11 "ESP lacks EFI/BOOT/$f"
 done
+if [ "$builder" = kiwi ]; then
+	# D18: the stick boots GRUB directly; the Surface firmware returned to its menu with shim as BOOTAA64.EFI
+	d=$W/esp-d18; rm -rf "$d"; mkdir -p "$d"
+	for f in BOOTAA64.EFI grubaa64.efi shimaa64.efi grub.cfg; do mcopy -n -i "$esp_img" "::EFI/BOOT/$f" "$d/$f" 2>/dev/null; done
+	if [ -s "$d/BOOTAA64.EFI" ] && cmp -s "$d/BOOTAA64.EFI" "$d/grubaa64.efi"; then pass 2.13 "EFI/BOOT/BOOTAA64.EFI is byte-identical to grubaa64.efi"; else fail 2.13 "BOOTAA64.EFI is not byte-identical to grubaa64.efi"; fi
+	[ -s "$d/shimaa64.efi" ] && ! cmp -s "$d/BOOTAA64.EFI" "$d/shimaa64.efi" && pass 2.14 "shim is kept as shimaa64.efi and is not the fallback loader" || fail 2.14 "shimaa64.efi missing or equal to BOOTAA64.EFI"
+	[ "$(head -n1 "$d/grub.cfg")" = 'echo "SP11: GRUB started (direct EFI boot, no shim)"' ] && pass 2.15 "ESP grub.cfg starts with the SP11 marker line" || fail 2.15 "ESP grub.cfg lacks the marker line as first line"
+	other=$(mdir -b -i "$esp_img" ::EFI/BOOT 2>/dev/null | tr 'A-Z' 'a-z' | sort | tr '\n' ' ')
+	case "$other" in *bootx64.efi*) fail 2.16 "bootx64.efi (an aa64 shim under an x86 name) is on the ESP" ;; *) pass 2.16 "no bootx64.efi on the ESP (files: $other)" ;; esac
+fi
 
 # --------------------------------------------------- squashfs and rootfs ----
 # livemedia-creator --no-virt puts the root tree directly into LiveOS/squashfs.img (no inner
