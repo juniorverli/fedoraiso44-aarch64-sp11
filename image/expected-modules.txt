@@ -10,14 +10,18 @@ early drm_dp_aux_bus
 early pwm_bl
 early dispcc-x1e80100
 early leds-qcom-lpg
+# D20 (M4): the DSP remoteproc driver and its partners are in the initramfs (F1 superseded for the kiwi image)
+early qcom_q6v5_pas
+early qcom_pd_mapper
+early pdr_interface
+early qrtr
+early qrtr-smd
+early qcom_glink_smem
+early qcom_smem
 late gpucc-x1e80100
 late scmi-cpufreq
-late qcom_q6v5_pas
-late qcom_pd_mapper
 late pmic_glink
 late pmic_glink_altmode
 late qcom_battmgr
 late ps883x
 late surface_aggregator
-late qrtr
-never-early qcom_q6v5_pas

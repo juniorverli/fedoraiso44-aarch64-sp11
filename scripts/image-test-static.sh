@@ -174,9 +174,9 @@ else
 fi
 titles=$(grep -o "^menuentry '[^']*'" "$cfg_esp" | sed "s/menuentry '//;s/'\$//")
 if [ "$builder" = kiwi ]; then
-	# D19/M4: the nine entries of the menu, in this order
-	expect=$'SP11 debug\nSP11 debug, old-project parity\nSP11 debug, keep firmware clocks\nSP11 debug, eDP only (USB-C DP off)\nSP11 debug, DTB without PWM backlight\nSP11 debug + DRM trace\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)'
-	nentries=9
+	# M4 (D20): the seven entries of the menu, in this order
+	expect=$'SP11 debug\nSP11 debug, M3 command line\nSP11 debug, no early DSP\nSP11 debug + DRM trace\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)'
+	nentries=7
 else
 	expect=$'SP11 debug\nSP11 debug + DRM trace\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)'
 	nentries=5
@@ -198,7 +198,7 @@ ids_ok=1
 awk '/^menuentry /{t=$0} /^[[:space:]]+linux /{print t "\t" $0}' "$cfg_esp" >"$W/linux-lines.txt"
 while IFS=$'\t' read -r t l; do
 	id=$(echo "$t" | sed -n "s/.*--id sp11-\([a-z-]*\).*/\1/p")
-	case $id in drm-trace | debug | parity | keepclk | edponly | nobl | nomodeset | initramfs | vmtest) ;; *) ids_ok=0; fail 2.12 "unknown entry id '$id' ($t)" ;; esac
+	case $id in drm-trace | debug | m3cmdline | nodsp | nomodeset | initramfs | vmtest) ;; *) ids_ok=0; fail 2.12 "unknown entry id '$id' ($t)" ;; esac
 	want=$id
 	case $l in *" sp11.entry=$want"*) ;; *) ids_ok=0; fail 2.12 "entry '$t' lacks sp11.entry=$want" ;; esac
 	case $l in *console=ttyAMA0*) [ "$id" = vmtest ] || { ids_ok=0; fail 2.12 "serial console on a device entry: $t"; } ;; *) [ "$id" != vmtest ] || { ids_ok=0; fail 2.12 "VM entry lacks the serial console"; } ;; esac
@@ -209,25 +209,28 @@ vm=$(awk '/^menuentry .VM test/{f=1} f&&/^[[:space:]]+devicetree /{print "x"}' "
 [ -z "$vm" ] && pass 2.8 "VM test entry has no devicetree" || fail 2.8 "VM test entry has a devicetree line"
 [ "$(grep -c "^menuentry '" "$cfg_esp")" = "$nentries" ] && [ "$(grep '^set default' "$cfg_esp")" = "set default=0" ] && pass 2.9 "VM test entry is not the default"
 if [ "$builder" = kiwi ]; then
-	# D19: which entry does what. clk_ignore_unused/pd_ignore_unused only on keepclk; each DTB variant on its own entry.
+	# D20: which entry does what. Entries 1, 3-6 are the parity boot (clk_ignore_unused pd_ignore_unused rootdelay=10, parity DTB);
+	# m3cmdline is the M3 command line with the packaged DTB; nodsp adds the PAS blacklist; the others add one argument.
 	d19=1
 	while IFS=$'\t' read -r t l; do
 		id=$(echo "$t" | sed -n "s/.*--id sp11-\([a-z-]*\).*/\1/p")
-		# clk_ignore_unused pd_ignore_unused: exactly on keepclk and parity; rootdelay=10: only on parity
-		case $id in keepclk | parity) need=1 ;; *) need=0 ;; esac
-		case $l in *" clk_ignore_unused pd_ignore_unused"*) have=1 ;; *) have=0 ;; esac
-		[ "$need" = "$have" ] || { d19=0; fail 2.17 "entry $id: clk_ignore_unused pd_ignore_unused expected=$need found=$have"; }
-		case $l in *" rootdelay=10 "*) [ "$id" = parity ] || { d19=0; fail 2.17 "rootdelay=10 on entry $id"; } ;; *) [ "$id" != parity ] || { d19=0; fail 2.17 "parity lacks rootdelay=10"; } ;; esac
-		want=x1p64100-microsoft-denali.dtb
-		[ "$id" = parity ] && want=x1p64100-microsoft-denali-parity.dtb
-		[ "$id" = edponly ] && want=x1p64100-microsoft-denali-edponly.dtb
-		[ "$id" = nobl ] && want=x1p64100-microsoft-denali-nobl.dtb
-		if [ "$id" != vmtest ]; then
+		case $id in
+		m3cmdline) base=0; extra=; want=x1p64100-microsoft-denali.dtb ;;
+		vmtest) base=0; extra=; want= ;;
+		*) base=1; want=x1p64100-microsoft-denali-parity.dtb
+			case $id in nodsp) extra=rd.driver.blacklist=qcom_q6v5_pas ;; drm-trace) extra=drm.debug=0x1ff ;; nomodeset) extra=nomodeset ;; initramfs) extra=rd.break=pre-mount ;; *) extra= ;; esac ;;
+		esac
+		case $l in *" clk_ignore_unused pd_ignore_unused rootdelay=10"*) have=1 ;; *) have=0 ;; esac
+		[ "$base" = "$have" ] || { d19=0; fail 2.17 "entry $id: clk_ignore_unused pd_ignore_unused rootdelay=10 expected=$base found=$have"; }
+		for x in rd.driver.blacklist=qcom_q6v5_pas drm.debug=0x1ff nomodeset rd.break=pre-mount; do
+			case $l in *" $x "*) [ "$x" = "$extra" ] || { d19=0; fail 2.17 "entry $id carries $x"; } ;; *) [ "$x" != "$extra" ] || { d19=0; fail 2.17 "entry $id lacks $x"; } ;; esac
+		done
+		if [ -n "$want" ]; then
 			got=$(awk -v t="$t" '$0==t{f=1;next} /^menuentry /{f=0} f&&/^\tdevicetree /{print $2}' "$cfg_esp")
 			[ "$got" = "(\$root)/boot/dtb/qcom/$want" ] || { d19=0; fail 2.17 "entry $id loads '$got', expected qcom/$want"; }
 		fi
 	done <"$W/linux-lines.txt"
-	[ "$d19" = 1 ] && pass 2.17 "clk_ignore_unused pd_ignore_unused only on keepclk and parity, rootdelay=10 only on parity; parity, edponly and nobl load their own DTB, all others the packaged one"
+	[ "$d19" = 1 ] && pass 2.17 "M4 menu: default and entries 3-6 are the parity boot (parity DTB, clk_ignore_unused pd_ignore_unused rootdelay=10) plus exactly their one extra argument; M3 command line entry has the packaged DTB and no extra"
 fi
 free=$(mdir -i "$esp_img" ::/ 2>/dev/null | awk '/bytes free/{gsub(/[^0-9]/,""); print}')
 if [ -n "${free:-}" ] && [ "$free" -ge 8388608 ]; then pass 2.10 "embedded ESP has $((free / 1048576)) MiB free for /EFI/sp11-logs"; else fail 2.10 "embedded ESP free space too small (${free:-?} bytes)"; fi
@@ -318,7 +321,10 @@ if [ "$builder" = kiwi ]; then
 		vf=x1p64100-microsoft-denali-$v.dtb
 		vd=$W/$vf
 		x "/boot/dtb/qcom/$vf" "$vd"
-		if [ ! -s "$vd" ]; then fail 3.6 "variant DTB /boot/dtb/qcom/$vf missing on the ISO"; continue; fi
+		if [ ! -s "$vd" ]; then
+			if [ "$v" = parity ]; then fail 3.6 "variant DTB /boot/dtb/qcom/$vf missing on the ISO"; else skip 3.6 "variant $v is not on the ISO (unreferenced in M4, optional)"; fi
+			continue
+		fi
 		dtc -I dtb -O dts -o "$vd.dts" "$vd" 2>"$vd.err" && pass 3.6 "variant $v decompiles with dtc" || fail 3.6 "variant $v: dtc failed: $(head -n2 "$vd.err")"
 		rc=$(fdtget "$vd" / compatible 2>/dev/null)
 		case " $rc " in *" microsoft,denali-lcd "*) pass 3.7 "variant $v root compatible has microsoft,denali-lcd" ;; *) fail 3.7 "variant $v root compatible is '$rc'" ;; esac
@@ -455,6 +461,19 @@ if [ "$builder" = kiwi ]; then
 	grep -q -E 'hooks/initqueue/timeout/.*sp11|hooks/initqueue/timeout/.*98-hook-timeout' "$W/initrd-list.txt" || miss="$miss hooks/initqueue/timeout"
 	grep -q -E '/vfat\.ko' "$W/initrd-list.txt" || miss="$miss vfat.ko"
 	[ -z "$miss" ] && pass 5.6 "initramfs has the sp11-initrd-log hooks (emergency, initqueue timeout), its tools and vfat" || fail 5.6 "initramfs lacks:$miss"
+fi
+if [ "$builder" = kiwi ]; then
+	# D20: the four DSP images are in the initramfs with the hashes of firmware/manifest.toml; the GPU zap shader and
+	# gen70500 are not (msm_open loads them at the first open)
+	for lp in qcom/x1e80100/microsoft/Denali/qcadsp8380.mbn qcom/x1e80100/microsoft/Denali/adsp_dtb.mbn qcom/x1e80100/microsoft/Denali/qccdsp8380.mbn qcom/x1e80100/microsoft/Denali/cdsp_dtb.mbn; do
+		want=$(python3 -I -c "
+import sys, tomllib
+m = tomllib.load(open(sys.argv[1], 'rb'))
+print(next((b['sha256'] for b in m['blob'] if b.get('linux_path') == sys.argv[2]), ''))" "$REPO/firmware/manifest.toml" "$lp")
+		got=$(lsinitrd "$initrd_img" -f "usr/lib/firmware/$lp" 2>/dev/null | sha256sum | cut -d' ' -f1)
+		if [ -n "$want" ] && [ "$got" = "$want" ]; then pass 5.7 "initramfs has $lp, SHA-256 equals firmware/manifest.toml"; else fail 5.7 "initramfs $lp: SHA-256 ${got:0:16}... (manifest ${want:0:16}...)"; fi
+	done
+	if grep -q -E 'gen70500|qcdxkmsuc8380' "$W/initrd-list.txt"; then fail 5.8 "GPU zap shader or gen70500 is in the initramfs"; else pass 5.8 "GPU zap shader and gen70500 are not in the initramfs"; fi
 fi
 grep -E '^[-dlcbps][-rwxsStT]{9} .*plymouth' "$W/initrd-list.txt" >/dev/null && fail 5.4 "plymouth files in the initramfs" || pass 5.4 "no plymouth in the initramfs"
 
