@@ -133,6 +133,25 @@ log "replacing the FAT16 ESP by a 64 MiB FAT32 ESP (D17)"
 esp=$work/esp; rm -rf "$esp"; mkdir -p "$esp/files"
 xorriso -osirrox on -indev "$iso" -extract_boot_images "$esp/old/" >/dev/null 2>&1
 mcopy -n -s -i "$esp/old/eltorito_img1_uefi.img" ::EFI "$esp/files/"
+# ---- D18: the stick boots Fedora's GRUB directly. On the Surface the firmware returned to its boot
+# menu before GRUB with shim 16.1-7 as BOOTAA64.EFI (Secure Boot off; reason unknown, Hypothesis), and
+# reached the Linux console with GRUB there (previous project, 2026-10-18). Secure Boot is off anyway
+# (D9), so shim does nothing for us. EFI/BOOT after this step:
+#   BOOTAA64.EFI = grubaa64.efi (byte-identical), shimaa64.efi = kiwi's shim (kept, unused),
+#   mmaa64.efi (shim's MokManager, unused, kept), grubaa64.efi, grub.cfg (marker line first).
+# bootx64.efi is removed: kiwi writes the aa64 shim under an x86 name (same size and content as
+# bootaa64.efi, from its x86 fallback-name list); no arm64 firmware looks for it, and it would be a
+# shim at a fallback path.
+efib=$esp/files/EFI/BOOT
+fnd() { find "$efib" -maxdepth 1 -iname "$1" | head -n1; }
+if [ -z "$(fnd shimaa64.efi)" ]; then mv "$(fnd bootaa64.efi)" "$efib/shimaa64.efi"; fi   # re-runs: already renamed
+rm -f "$(fnd bootx64.efi)"
+rm -f "$(fnd bootaa64.efi)"
+[ -n "$(fnd grubaa64.efi)" ] || { log "no grubaa64.efi in the ESP"; exit 1; }
+cp "$(fnd grubaa64.efi)" "$efib/BOOTAA64.EFI"
+marker='echo "SP11: GRUB started (direct EFI boot, no shim)"'
+cfg=$(fnd grub.cfg)
+grep -qxF "$marker" "$cfg" || { { echo "$marker"; cat "$cfg"; } >"$cfg.new" && mv "$cfg.new" "$cfg"; }
 mkfs.fat -C -F 32 -s 1 -S 512 -n BOOT "$esp/esp32.img" 65536 >/dev/null
 mcopy -s -i "$esp/esp32.img" "$esp/files/EFI" ::
 xorriso -indev "$iso" -outdev "$iso.fat32" -boot_image any replay -append_partition 2 0xef "$esp/esp32.img" -commit >"$esp/xorriso.txt" 2>&1 \
