@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # Build the SP11 Fedora 44 live ISO with livemedia-creator --no-virt (decision D11).
 #
-#   scripts/image-build.sh [--smoke] [--name NAME] [--mem GiB]
+#   scripts/image-build.sh [--builder kiwi|lmc] [--smoke] [--name NAME] [--mem GiB]
+#
+# --builder kiwi (default, decision D16): kiwi-ng with Fedora's f44 Workstation-Live description,
+# scripts/image-build-kiwi.sh. --builder lmc: the livemedia-creator path of M2 (D11), kept until
+# the kiwi ISO passes L0 and L1; --smoke exists only there.
 #
 # Default (M2 build): needs the kernel RPMs in out/rpms/ and the staged firmware in
 # out/firmware-root/ (scripts/firmware-stage.sh). --smoke uses Fedora's own kernel and no
@@ -15,17 +19,23 @@ set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
-smoke=0 name= mem=6 inside=0
+smoke=0 name= mem= inside=0 builder=kiwi
 while [ $# -gt 0 ]; do
 	case $1 in
+	--builder) builder=${2:?}; shift ;;
 	--smoke) smoke=1 ;;
 	--name) name=${2:?}; shift ;;
 	--mem) mem=${2:?}; shift ;;
 	--inside) inside=1 ;;
-	*) echo "usage: $0 [--smoke] [--name NAME] [--mem GiB]" >&2; exit 2 ;;
+	*) echo "usage: $0 [--builder kiwi|lmc] [--smoke] [--name NAME] [--mem GiB]" >&2; exit 2 ;;
 	esac
 	shift
 done
+
+case $builder in kiwi | lmc) ;; *) echo "image-build: --builder must be kiwi or lmc" >&2; exit 2 ;; esac
+if [ "$builder" = kiwi ] && [ "$smoke" = 1 ]; then echo "image-build: --smoke exists only with --builder lmc" >&2; exit 2; fi
+# mkfs.erofs of the kiwi live root needs about 3 GiB of its own on top of the build (OOM at 6 GiB)
+[ -n "$mem" ] || { [ "$builder" = kiwi ] && mem=9 || mem=6; }
 
 # ------------------------------------------------------------------ host ----
 if [ "$inside" = 0 ]; then
@@ -47,6 +57,11 @@ if [ "$inside" = 0 ]; then
 	if [ "$smoke" = 0 ]; then
 		ls "$out"/rpms/kernel-core-*.rpm >/dev/null 2>&1 || { echo "image-build: no kernel-core RPM in $out/rpms/" >&2; exit 1; }
 		[ -d "$out/firmware-root/lib/firmware" ] || { echo "image-build: $out/firmware-root missing; run scripts/firmware-stage.sh" >&2; exit 1; }
+	fi
+	if [ "$builder" = kiwi ]; then
+		ls "$out"/rpms/kernel-core-*.rpm >/dev/null 2>&1 || { echo "image-build: no kernel-core RPM in $out/rpms/" >&2; exit 1; }
+		[ -d "$out/firmware-root/lib/firmware" ] || { echo "image-build: $out/firmware-root missing; run scripts/firmware-stage.sh" >&2; exit 1; }
+		SP11_DOCKER_MEMORY="${mem}g" exec "$here/scripts/image-container.sh" run /sp11/scripts/image-build-kiwi.sh ${name:+"$name"}
 	fi
 	# the container gets a memory cap so a running kernel build keeps its RAM
 	args=("--inside")

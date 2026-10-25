@@ -1,0 +1,15 @@
+--- a/components/liveinstall.xml
++++ b/components/liveinstall.xml
+@@ -19,9 +19,11 @@
+ 		<type image="iso"
+ 			publisher="Fedora Project" volid="Fedora_Linux" application_id="Fedora_Linux"
+ 			primary="true" flags="dmsquash" filesystem="erofs" erofscompression="lzma,level=6" mediacheck="true"
+-			firmware="uefi" efiparttable="gpt" efifatimagesize="30" kernelcmdline="quiet rhgb"
++			firmware="uefi" efiparttable="gpt" efifatimagesize="30"
+ 			fscreateoptions="-Efragments -C 1048576"
++			kernelcmdline="debug loglevel=8 ignore_loglevel printk.devkmsg=on log_buf_len=16M rd.plymouth=0 plymouth.enable=0 systemd.show_status=1 rd.udev.log_level=info console=tty0"
+ 			>
++			<!-- SP11 (D9): was kernelcmdline="quiet rhgb"; verbose boot, no splash. Reasons per argument: image/README.md -->
+ 			<bootloader name="grub2" grub_template="grub-arm.cfg.iso-template" console="console" timeout="10"/>
+ 		</type>
+ 	</preferences>

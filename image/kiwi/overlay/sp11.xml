@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SP11 layer on top of Fedora's kiwi description (decision D16). Included from Fedora.kiwi by
+  image/kiwi/patches/0001-include-sp11-layer.patch. Everything SP11-specific that fits an XML
+  fragment is here; the rest is listed in image/README.md, "kiwi layer".
+  Profile: Workstation-Live (the profile Fedora builds for its official Workstation live ISO).
+-->
+<image>
+	<!-- SP11 change 1: our kernel RPMs, built by the kernel worker, served by a local repository
+	     (out/repo, created by scripts/image-build.sh). Priority 10 beats the Fedora repositories
+	     (default 99): for every package name the local repository provides, dnf5 takes the local
+	     one even if Fedora's version is newer. Fedora's kernel is thereby excluded. -->
+	<repository type="rpm-md" alias="sp11-local" priority="10" imageinclude="false"
+	            package_gpgcheck="false" repository_gpgcheck="false" profiles="Workstation-Live">
+		<source path="dir:///out/repo"/>
+	</repository>
+
+	<packages type="image" patternType="plusRecommended" profiles="Workstation-Live">
+		<!-- SP11 change 2: firmware. The DriverStore blobs come from out/firmware-root through
+		     the root overlay; qcom-firmware and linux-firmware carry the rest (qcom/gen70500_*). -->
+		<package name="qcom-firmware"/>
+		<package name="linux-firmware"/>
+
+		<!-- SP11 change 5: test and debugging packages of the M2 kickstart -->
+		<package name="mesa-dri-drivers"/>
+		<package name="mesa-vulkan-drivers"/>
+		<package name="vulkan-tools"/>
+		<package name="glx-utils"/>
+		<package name="glmark2"/>
+		<package name="drm-utils"/>
+		<package name="v4l-utils"/>
+		<package name="qrtr"/>
+		<package name="dtc"/>
+		<package name="pciutils"/>
+		<package name="usbutils"/>
+		<package name="bpftool"/>
+		<package name="mtools"/>
+		<package name="dosfstools"/>
+		<!-- SP11 change 4/5: ausearch for the SELinux AVC capture of the log collector (D15) -->
+		<package name="audit"/>
+
+		<!-- SP11 change 3: no splash screen (D9). Plymouth stays installed: Fedora's GNOME/Workstation
+		     package groups require it, and excluding it makes dnf5 fail ("Argument 'plymouth' matches
+		     only excluded packages"). It is switched off instead: omitted from the initramfs
+		     (root/etc/dracut.conf.d/90-sp11.conf), rd.plymouth=0 plymouth.enable=0 on every entry,
+		     and its units masked (scripts/image-build-kiwi.sh). -->
+	</packages>
+</image>

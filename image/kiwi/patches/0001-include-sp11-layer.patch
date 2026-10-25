@@ -1,0 +1,11 @@
+--- a/Fedora.kiwi
++++ b/Fedora.kiwi
+@@ -33,6 +33,8 @@
+ 	<include from="this://./components/desktops/miraclewm.xml"/>
+ 	<include from="this://./components/desktops/cosmic.xml"/>
+ 	<include from="this://./components/liveinstall.xml"/>
++	<!-- SP11 (D16): our layer, see image/kiwi/overlay/sp11.xml -->
++	<include from="this://./sp11.xml"/>
+ 	<include from="this://./components/users.xml"/>
+ 	<include from="this://./teams/base.xml"/>
+ 	<include from="this://./teams/cloud/cloud.xml"/>

@@ -1,0 +1,12 @@
+--- a/components/boot.xml
++++ b/components/boot.xml
+@@ -113,7 +113,8 @@
+ 		<ignore name="kernel-*debug*"/>
+ 		<!-- Use kernel-uki-dtbloader for aarch64 -->
+ 		<package name="kernel-core" arch="x86_64,riscv64,ppc64le,s390x"/>
+-		<package name="kernel-uki-dtbloader" arch="aarch64"/>
++		<!-- SP11 (D16): kernel-uki-dtbloader is not requested here. We boot a plain kernel from GRUB 2 with
++		     `devicetree` (D9); kernel-core for aarch64 arrives through the `kernel` package of liveinstall.xml. -->
+ 	</packages>
+ 	<packages type="image" patternType="plusRecommended" profiles="BootCoreUKI">
+ 		<package name="shim-signed-aa64" arch="aarch64"/>
