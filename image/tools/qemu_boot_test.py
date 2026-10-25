@@ -45,13 +45,22 @@ def sh(*cmd, **kw):
     return subprocess.run(cmd, capture_output=True, text=True, **kw)
 
 
+# directory of the boot-id directories on the FAT image: "" for the SP11LOGS disk, "EFI/sp11-logs" for the
+# fallback on the embedded ESP (--esp-fallback; img is then "file@@offset" in mtools notation)
+LOGROOT = ""
+
+
+def _p(path):
+    return "/".join(x for x in (LOGROOT, path.strip("/")) if x)
+
+
 def mtools_listing(img, path=""):
-    r = sh("mdir", "-i", img, "-b", f"::{path}")
+    r = sh("mdir", "-i", img, "-b", f"::{_p(path)}")
     return [l.strip() for l in r.stdout.splitlines() if l.strip()] if r.returncode == 0 else []
 
 
 def mtools_cat(img, path):
-    r = subprocess.run(["mtype", "-i", img, f"::{path}"], capture_output=True)
+    r = subprocess.run(["mtype", "-i", img, f"::{_p(path)}"], capture_output=True)
     return r.stdout if r.returncode == 0 else None
 
 
@@ -60,7 +69,7 @@ def read_log(img, bootdir, name):
     import gzip
     data = mtools_cat(img, f"{bootdir}/{name}")
     if data is None:
-        gz = subprocess.run(["mtype", "-i", img, f"::{bootdir}/{name}.gz"], capture_output=True)
+        gz = subprocess.run(["mtype", "-i", img, f"::{_p(bootdir + '/' + name + '.gz')}"], capture_output=True)
         if gz.returncode == 0:
             try:
                 return gzip.decompress(gz.stdout).decode(errors="replace")
@@ -82,7 +91,13 @@ def find_bootdir(img):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--iso", required=True)
-    ap.add_argument("--logs", required=True, help="raw FAT image labelled SP11LOGS")
+    ap.add_argument("--logs", default="", help="raw FAT image labelled SP11LOGS (not with --esp-fallback)")
+    ap.add_argument("--esp-fallback", action="store_true",
+                    help="no SP11LOGS disk: the ISO is attached writable (a copy) and the collector must fall back to "
+                         "/EFI/sp11-logs on the embedded ESP (label BOOT); implies --early")
+    ap.add_argument("--early", action="store_true",
+                    help="stop as soon as the collector has a complete <boot-id>/ with BTF present; no GDM, no unit checks")
+    ap.add_argument("--no-display-files", action="store_true", help="do not require the D19 display files (ISOs older than M3)")
     ap.add_argument("--work", required=True)
     ap.add_argument("--report", required=True)
     ap.add_argument("--cpu", default="neoverse-n1")
@@ -95,7 +110,25 @@ def main():
     ap.add_argument("--entry", default="VM test (no devicetree)")
     a = ap.parse_args()
 
+    global LOGROOT
     os.makedirs(a.work, exist_ok=True)
+    early = a.early or a.esp_fallback
+    iso_path, iso_ro = a.iso, "on"
+    if a.esp_fallback:
+        # a copy of the ISO the guest may write to; its GPT partition 2 is the embedded ESP
+        iso_path = os.path.join(a.work, "iso-rw.img")
+        shutil.copyfile(a.iso, iso_path)
+        iso_ro = "off"
+        r = sh("sgdisk", "-i", "2", iso_path)
+        m = re.search(r"First sector: (\d+)", r.stdout)
+        if not m:
+            print("cannot read GPT partition 2 of the ISO copy:", r.stdout, r.stderr, flush=True)
+            return 2
+        a.logs = f"{iso_path}@@{int(m.group(1)) * 512}"
+        LOGROOT = "EFI/sp11-logs"
+    elif not a.logs:
+        print("--logs is required without --esp-fallback", flush=True)
+        return 2
     serial_log = os.path.join(a.work, "serial.log")
     vars_img = os.path.join(a.work, "vars.raw")
     shutil.copy("/usr/share/edk2/aarch64/vars-template-pflash.raw", vars_img)
@@ -117,10 +150,12 @@ def main():
         "-drive", "if=pflash,format=raw,unit=0,readonly=on,file=/usr/share/edk2/aarch64/QEMU_EFI-silent-pflash.raw",
         "-drive", f"if=pflash,format=raw,unit=1,file={vars_img}",
         "-device", "qemu-xhci,id=xhci",
-        "-drive", f"if=none,id=iso,format=raw,readonly=on,file={a.iso}",
+        "-drive", f"if=none,id=iso,format=raw,readonly={iso_ro},file={iso_path}",
         "-device", "usb-storage,bus=xhci.0,drive=iso,bootindex=1",
+    ] + ([] if a.esp_fallback else [
         "-drive", f"if=none,id=logs,format=raw,file={a.logs}",
         "-device", "usb-storage,bus=xhci.0,drive=logs",
+    ]) + [
         "-device", "virtio-gpu-pci",
         "-device", "usb-kbd,bus=xhci.0",
         "-netdev", "user,id=n0", "-device", "virtio-net-pci,netdev=n0",
@@ -190,12 +225,16 @@ def main():
                 print(f"no serial output for {a.stall_min} min, giving up", flush=True)
                 break
             # poll the logs disk (read-only mtools) once the system is far enough
-            if state["selected"] and now - poll_t > a.poll_sec:
+            if state["selected"] and now - poll_t > (60 if early else a.poll_sec):
                 poll_t = now
                 bd = find_bootdir(a.logs)
                 if bd:
                     btf = read_log(a.logs, bd, "btf.txt") or ""
                     gdm = read_log(a.logs, bd, "gdm-status.txt") or ""
+                    if early and "btf: present" in btf:
+                        bootdir = bd
+                        print(f"[{int(now - start)}s] collector logs complete, BTF present (early stop)", flush=True)
+                        break
                     if "btf: present" in btf and "Active: active (running)" in gdm:
                         bootdir = bd
                         print(f"[{int(now - start)}s] collector logs show BTF present and GDM running", flush=True)
@@ -217,7 +256,7 @@ def main():
             s.send(b"system_powerdown\n")
             print("system_powerdown sent", flush=True)
             t0 = time.time()
-            while child.isalive() and time.time() - t0 < 600:
+            while child.isalive() and time.time() - t0 < (120 if early else 600):
                 try:
                     child.read_nonblocking(65536, timeout=5)
                 except pexpect.TIMEOUT:
@@ -243,30 +282,44 @@ def main():
         res["log_files"] = files
         btf = read_log(a.logs, bd, "btf.txt") or ""
         check("/sys/kernel/btf/vmlinux exists (btf.txt)", "btf: present" in btf, btf.strip().splitlines()[0] if btf else "btf.txt missing")
+        status = read_log(a.logs, bd, "STATUS") or ""
+        want_target = "esp" if a.esp_fallback else "logs"
+        check(f"collector wrote to the {'embedded ESP (/EFI/sp11-logs, label BOOT)' if a.esp_fallback else 'SP11LOGS disk'}",
+              f"target: {want_target}" in status, status.strip().replace("\n", " | "))
+        if not a.no_display_files:
+            lf = {x.lstrip('/').split('/')[-1].removesuffix('.gz') for x in files}
+            need = ["entry.txt", "devices_deferred.txt", "device_component.txt", "drm-class-ls.txt", "lsmod.txt", "fb-state.txt",
+                    "clk-display.txt", "display-dmesg.txt", "drm-state.txt", "backlight.txt", "pinctrl-pmic.txt", "dpcd-tool.txt",
+                    "regulator_summary.txt", "cmdline.txt"]
+            miss = [n for n in need if n not in lf]
+            check("D19 display files are in the log directory", not miss, ("missing: " + ", ".join(miss)) if miss else f"{len(need)} files")
+            ent = read_log(a.logs, bd, "entry.txt") or ""
+            check("entry.txt names the booted entry (sp11.entry=vmtest)", "sp11.entry=vmtest" in ent, ent.strip().splitlines()[0] if ent.strip() else "empty")
         gdm = read_log(a.logs, bd, "gdm-status.txt") or ""
         gdm_ok = state["gdm"] or "Active: active (running)" in gdm
-        check("GDM started (serial 'Started ... GNOME Display Manager' or gdm.service active in the logs)", gdm_ok,
-              "serial" if state["gdm"] else ("logs" if gdm_ok else (gdm.strip().splitlines()[2] if len(gdm.strip().splitlines()) > 2 else "no gdm status")))
+        if not early:
+            check("GDM started (serial 'Started ... GNOME Display Manager' or gdm.service active in the logs)", gdm_ok,
+                  "serial" if state["gdm"] else ("logs" if gdm_ok else (gdm.strip().splitlines()[2] if len(gdm.strip().splitlines()) > 2 else "no gdm status")))
         for need in ("dmesg.txt", "journal.txt", "cmdline.txt", "lscpu.txt", "STATUS"):
             check(f"collector file {need}", any(f.lstrip('/').split('/')[-1] in (need, need + ".gz") for f in files))
-        failed = read_log(a.logs, bd, "units-failed.txt") or ""
+        failed = read_log(a.logs, bd, "units-failed.txt") or "" if not early else ""
         units = re.findall(r"^[\s●*x]*(\S+\.(?:service|socket|mount|timer|target|path|automount))\s", failed, re.M)
         allow = set()
         if a.allow and os.path.exists(a.allow):
             allow = {l.strip() for l in open(a.allow) if l.strip() and not l.startswith("#")}
         bad = [u for u in units if u not in allow]
         res["failed_units"] = units
-        check("no failed unit outside the allow-list", not bad, ", ".join(bad) if bad else f"{len(units)} failed, all allowed" if units else "none failed")
+        if not early: check("no failed unit outside the allow-list", not bad, ", ".join(bad) if bad else f"{len(units)} failed, all allowed" if units else "none failed")
         # copy the logs next to the report for the operator
         dst = os.path.join(a.work, "collected")
         shutil.rmtree(dst, ignore_errors=True)
         os.makedirs(dst)
-        subprocess.run(["mcopy", "-i", a.logs, "-s", "-n", f"::{bd}", dst], capture_output=True)
+        subprocess.run(["mcopy", "-i", a.logs, "-s", "-n", f"::{_p(bd)}", dst], capture_output=True)
         cmdline = read_log(a.logs, bd, "cmdline.txt") or ""
         check("kernel command line in the logs has no quiet/rhgb and has debug", not re.search(r"\b(quiet|rhgb)\b", cmdline) and "debug" in cmdline, cmdline.strip())
     else:
         check("/sys/kernel/btf/vmlinux exists (btf.txt)", False, "no logs")
-        check("GDM started", state["gdm"], "serial only" if state["gdm"] else "no evidence")
+        if not early: check("GDM started", state["gdm"], "serial only" if state["gdm"] else "no evidence")
     if state["fatal"]:
         check("no fatal boot message", False, state["fatal"])
     if state["stall"]:

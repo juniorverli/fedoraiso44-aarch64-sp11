@@ -20,4 +20,14 @@ test -e $T/boot-4/COMPLETE
 # the cap must have removed the oldest boots first and kept the newest
 test ! -e $T/boot-1
 test -e $T/boot-4
+echo "--- early display snapshot (D19): written first, no COMPLETE marker, display files present"
+export SP11_TEST_KIND=logs
+unset CAP_ESP_KIB
+rm -rf /run/sp11-logs
+SP11_TEST_BOOT_ID=boot-early "$C" early 2>&1 | tail -n1
+for f in cmdline.txt entry.txt devices_deferred.txt device_component.txt drm-class-ls.txt lsmod.txt fb-state.txt clk-display.txt display-dmesg.txt drm-state.txt backlight.txt pinctrl-pmic.txt dpcd-tool.txt STATUS dmesg.txt; do
+	test -e "$T/boot-early/$f" -o -e "$T/boot-early/$f.gz" || { echo "early snapshot lacks $f"; exit 1; }
+done
+test ! -e $T/boot-early/COMPLETE
+grep -q 'early display snapshot' $T/boot-early/STATUS
 echo "collector selftest OK"

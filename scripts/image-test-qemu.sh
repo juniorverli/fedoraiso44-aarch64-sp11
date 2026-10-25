@@ -2,6 +2,12 @@
 # L1 emulated boot of an SP11 ISO (decision D10, image/README.md "L1 emulated boot").
 #
 #   scripts/image-test-qemu.sh [ISO | NAME] [--timeout-min N] [--mem MiB] [--smp N] [--cpu MODEL]
+#                              [--early] [--esp-fallback] [--no-display-files]
+#
+# --early: stop as soon as the collector has a complete log directory (no GDM, no unit checks).
+# --esp-fallback (implies --early): no SP11LOGS disk; the ISO is attached as a writable copy and the
+#   collector must write to /EFI/sp11-logs on the embedded ESP (label BOOT, D17/D18 layout).
+# --no-display-files: do not require the D19 display files (ISOs older than M3).
 #
 # QEMU system emulation, machine virt, TCG (the WSL2 host has no /dev/kvm), edk2 firmware,
 # the ISO attached as a raw USB disk, a second small FAT disk labelled SP11LOGS, serial
@@ -41,13 +47,14 @@ if [ "${SP11_OUT:-}" = "" ] || [ ! -d /sp11 ]; then
 fi
 OUT=$SP11_OUT
 
-iso= timeout_min=150 mem=4096 smp=8 cpu=neoverse-n1
+iso= timeout_min=150 mem=4096 smp=8 cpu=neoverse-n1 extra=()
 while [ $# -gt 0 ]; do
 	case $1 in
 	--timeout-min) timeout_min=${2:?}; shift ;;
 	--mem) mem=${2:?}; shift ;;
 	--smp) smp=${2:?}; shift ;;
 	--cpu) cpu=${2:?}; shift ;;
+	--esp-fallback | --early | --no-display-files) extra+=("$1") ;;
 	*) iso=$1 ;;
 	esac
 	shift
@@ -67,14 +74,21 @@ name=$(basename "$iso" .iso)
 W=$OUT/image-work/l1-$name
 mkdir -p "$W"
 
-# the second disk: FAT labelled SP11LOGS, like the partition the operator creates on the stick
+# the second disk: FAT labelled SP11LOGS, like the partition the operator creates on the stick.
+# --esp-fallback has no such disk: the collector must use the embedded ESP (label BOOT) of the ISO.
 logs=$W/sp11logs.img
 rm -f "$logs"
-truncate -s 128M "$logs"
-mkfs.vfat -n SP11LOGS "$logs" >/dev/null
+logs_args=(--logs "$logs")
+case " ${extra[*]:-} " in
+*" --esp-fallback "*) logs_args=() ;;
+*)
+	truncate -s 128M "$logs"
+	mkfs.vfat -n SP11LOGS "$logs" >/dev/null
+	;;
+esac
 
 python3 -I /sp11/image/tools/qemu_boot_test.py \
-	--iso "$iso" --logs "$logs" --work "$W" --report "$OUT/iso/$name.l1.json" \
+	--iso "$iso" "${logs_args[@]}" "${extra[@]}" --work "$W" --report "$OUT/iso/$name.l1.json" \
 	--cpu "$cpu" --smp "$smp" --mem "$mem" --timeout-min "$timeout_min" \
 	--allow /sp11/image/l1-allowed-failed-units.txt 2>&1 | tee "$OUT/iso/$name.l1.txt"
 exit "${PIPESTATUS[0]}"
