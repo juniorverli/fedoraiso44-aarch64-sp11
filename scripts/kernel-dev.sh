@@ -9,6 +9,9 @@
 #   dtbs            (default) build only the DTB named in kernel/base.toml
 #   module <path>   build one module dir or .ko (builds vmlinux first if needed)
 #   all             Image, DTBs and modules (no RPM)
+#   variant <dts>   build a DTB from an extra top-level DTS (for example kernel/dtb-variants/*.dts) that
+#                   #includes a board DTS of the tree; the file is copied into arch/arm64/boot/dts/qcom/
+#                   for the build and removed after
 #   --check         add CHECK_DTBS=y (dt-schema validation) to dtbs
 #
 # Config: upstream arm64 `defconfig` + kernel/config/sp11.config (BTF on, D2) + kernel/config/dev.config
@@ -26,7 +29,7 @@ while (($#)); do
     -j) jobs=$2; shift 2 ;;
     --check) check=1; shift ;;
     --inner) inner=1; shift ;;
-    -h|--help) sed -n 2,19p "$0"; exit 0 ;;
+    -h|--help) sed -n 2,23p "$0"; exit 0 ;;
     *) break ;;
   esac
 done
@@ -68,6 +71,12 @@ if ((inner)); then
       [[ -f $O/Module.symvers ]] || "${m[@]}" modules_prepare
       t=${arg%/}; [[ $t == *.ko ]] || t="$t/"
       "${m[@]}" "$t" ;;
+    variant)
+      [[ -f $arg ]] || die "variant needs a DTS file"
+      v=$(basename "$arg" .dts); vd="$src/arch/arm64/boot/dts/qcom/$v.dts"
+      cp "$arg" "$vd"; trap 'rm -f "$vd"' EXIT
+      # -@ like the packaged base DTB (kbuild adds it because x1p64100-microsoft-denali.dtb feeds an el2 overlay)
+      "${m[@]}" "DTC_FLAGS_$v=-@" "qcom/$v.dtb"; rm -f "$vd" ;;
     *) die "unknown mode $mode" ;;
   esac
   end=$(date +%s)

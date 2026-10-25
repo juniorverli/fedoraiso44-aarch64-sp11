@@ -1,0 +1,20 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * Diagnostic variant (hypothesis H5): internal eDP only.
+ *
+ * msm binds the display only after every enabled DP controller has its next bridge
+ * (drivers/gpu/drm/msm/dp/dp_display.c, -EPROBE_DEFER). The external USB-C controllers
+ * mdss_dp0 and mdss_dp1 need the qmp-combo aux bridge, the ps883x retimer and the pmic_glink
+ * altmode HPD bridge. If one link of that chain never probes, the eDP never lights.
+ * This file is the full M3 board DTS (display-lcd 0001-0003) with those two controllers off.
+ * Built by scripts/kernel-dtb-variants.sh; not a patch, not part of the RPM.
+ */
+#include "x1p64100-microsoft-denali.dts"
+
+&mdss_dp0 {
+	status = "disabled";
+};
+
+&mdss_dp1 {
+	status = "disabled";
+};

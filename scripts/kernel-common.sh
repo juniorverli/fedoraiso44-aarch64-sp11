@@ -22,8 +22,33 @@ KERNEL_RPM_SWITCHES=(
   --without cross_headers --without kabidwchk --without kernel_abi_stablelists
   --without perf --without libperf --without tools --without ynl
 )
-KERNEL_BUILDID=".sp11"
+
+kernel_toml() {   # kernel_toml KEY: value of KEY in kernel/base.toml
+  sed -n -E "s/^$1[[:space:]]*=[[:space:]]*\"?([^\"#]*[^\"# ])\"?[[:space:]]*(#.*)?\$/\1/p" "$KERNEL_REPO/kernel/base.toml" | head -1
+}
+# Series hash: sha256 over "<path> <sha256 of patch>" lines of kernel/series, in order (comments and blanks skipped).
+kernel_series_hash() {
+  local p
+  if [[ -f $KERNEL_REPO/kernel/series ]]; then
+    while IFS= read -r p; do
+      p="${p%%#*}"; p="${p//[[:space:]]/}"
+      if [[ -n $p ]]; then echo "$p $(sha256sum < "$KERNEL_REPO/$p" | cut -d' ' -f1)"; fi
+    done < "$KERNEL_REPO/kernel/series"
+  fi | sha256sum | cut -d' ' -f1
+}
+# Fails if kernel/series (or a patch in it) changed without a new series_rev + series_sha256 in base.toml.
+kernel_series_check() {
+  local want have
+  want=$(kernel_toml series_sha256); have=$(kernel_series_hash)
+  [[ $have == "$want" ]] || die "kernel/series (or a patch in it) changed: sha256 $have, but kernel/base.toml series_sha256 is ${want:-unset}. Bump series_rev and set series_sha256 = \"$have\" in kernel/base.toml."
+}
+# Fedora `buildid` mechanism: release 65.sp11.<series_rev>.fc44. series_rev 0 = M1 (empty series), 3 = M3.
+KERNEL_SERIES_REV=$(kernel_toml series_rev)
+[[ $KERNEL_SERIES_REV =~ ^[0-9]+$ ]] || { echo "kernel: series_rev missing or not an integer in kernel/base.toml" >&2; exit 1; }
+KERNEL_BUILDID=".sp11.$KERNEL_SERIES_REV"
 KERNEL_DIST=".fc44"
+# Expected kernel version string of the RPMs: <tag>.0-<spec release><buildid><dist>.aarch64
+KERNEL_KVER="$(kernel_toml tag | sed 's/^v//').0-$(kernel_toml nevra | sed -E 's/^kernel-[0-9.]+-([0-9]+)\..*/\1/')$KERNEL_BUILDID$KERNEL_DIST.aarch64"
 
 die() { echo "kernel: $*" >&2; exit 1; }
 
@@ -36,6 +61,10 @@ kernel_ccache_env() {   # call inside the container
   export CCACHE_SLOPPINESS=include_file_mtime,include_file_ctime,time_macros
   # Hash the compiler and the redhat-hardened/annobin spec files by content, not by mtime.
   export CCACHE_COMPILERCHECK=content
+  # The rpmbuild tree is named after the kernel version (linux-<kver>), which changes with series_rev; the
+  # cwd must not enter the hash, or every series_rev bump rebuilds everything. DW_AT_comp_dir in cached
+  # objects may name an older directory; find-debuginfo rewrites it to /usr/src/debug.
+  export CCACHE_NOHASHDIR=1
   export PATH="/usr/lib64/ccache:$PATH"
 }
 
