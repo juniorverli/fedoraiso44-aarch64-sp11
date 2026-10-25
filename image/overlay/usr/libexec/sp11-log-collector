@@ -73,8 +73,16 @@ find_boot_disk() { # sets BOOT_DISK and BOOT_HOW; BOOT_DISK empty means unknown
 	return 1
 }
 disk_has_windows() { # DISK: 0 when it carries NTFS, BitLocker or a Microsoft reserved partition
-	lsblk -rno FSTYPE "/dev/$1" 2>/dev/null | tr 'A-Z' 'a-z' | grep -q -E '^(ntfs|bitlocker.*)$' && return 0
-	lsblk -rno PARTTYPE "/dev/$1" 2>/dev/null | tr 'A-Z' 'a-z' | grep -q -x "$SP11_MSR_GUID" && return 0
+	# low-level probes (blkid -p), not lsblk: no dependency on the udev database, which may not exist yet
+	local part t g
+	for part in /sys/class/block/"$1"/"$1"*; do
+		[ -e "$part/partition" ] || continue
+		t=$(blkid -p -o value -s TYPE "/dev/${part##*/}" 2>/dev/null | tr 'A-Z' 'a-z')
+		g=$(blkid -p -o value -s PART_ENTRY_TYPE "/dev/${part##*/}" 2>/dev/null | tr 'A-Z' 'a-z')
+		case $t in ntfs | bitlocker*) return 0 ;; esac
+		[ "$g" = "$SP11_MSR_GUID" ] && return 0
+	done
+	case $(blkid -p -o value -s TYPE "/dev/$1" 2>/dev/null | tr 'A-Z' 'a-z') in ntfs | bitlocker*) return 0 ;; esac
 	return 1
 }
 # on_boot_disk LABEL: first partition with that FAT label whose parent disk is the boot medium

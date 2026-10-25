@@ -10,7 +10,7 @@ RUN dnf -y --setopt=install_weak_deps=False install \
         dracut dracut-live \
         grub2-efi-aa64 grub2-efi-aa64-cdboot grub2-efi-aa64-modules grub2-tools grub2-tools-extra \
         shim-aa64 \
-        xorriso mtools dosfstools isomd5sum gdisk util-linux parted \
+        xorriso mtools dosfstools isomd5sum gdisk util-linux parted ntfsprogs \
         squashfs-tools erofs-utils createrepo_c cpio kmod rpm-build \
         dtc edid-decode v4l-utils \
         qemu-system-aarch64-core qemu-img edk2-aarch64 \

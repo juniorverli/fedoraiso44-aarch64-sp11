@@ -50,8 +50,15 @@ if [ -z "$BOOT_DISK" ]; then
 	exit 0
 fi
 say "boot medium: $BOOT_DISK ($BOOT_HOW)"
-if lsblk -rno FSTYPE "/dev/$BOOT_DISK" 2>/dev/null | tr 'A-Z' 'a-z' | grep -q -E '^(ntfs|bitlocker.*)$' ||
-	lsblk -rno PARTTYPE "/dev/$BOOT_DISK" 2>/dev/null | tr 'A-Z' 'a-z' | grep -q -x "$SP11_MSR_GUID"; then
+win=0
+for _part in /sys/class/block/"$BOOT_DISK"/"$BOOT_DISK"*; do
+	[ -e "$_part/partition" ] || continue
+	_t=$(blkid -p -o value -s TYPE "/dev/${_part##*/}" 2>/dev/null | tr 'A-Z' 'a-z')
+	_g=$(blkid -p -o value -s PART_ENTRY_TYPE "/dev/${_part##*/}" 2>/dev/null | tr 'A-Z' 'a-z')
+	case $_t in ntfs | bitlocker*) win=1 ;; esac
+	[ "$_g" = "$SP11_MSR_GUID" ] && win=1
+done
+if [ "$win" = 1 ]; then
 	say "S4: disk $BOOT_DISK carries NTFS, BitLocker or a Microsoft reserved partition: refusing to write to it"
 	exit 0
 fi
