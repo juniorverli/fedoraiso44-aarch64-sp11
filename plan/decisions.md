@@ -120,12 +120,13 @@ Append-only. Each entry: number, date, decision, reason, consequence. A later en
 - **Hypotheses**, each tested by its own GRUB entry on one stick:
   - **H1:** `clk_disable_unused` (late_initcall_sync, `sources/linux/drivers/clk/clk.c:1627`) gates the built-in GCC display clocks, such as `gcc_disp_hf_axi_clk` (`sources/linux/drivers/clk/qcom/gcc-x1e80100.c:2991`, not critical). That kills the firmware framebuffer before `msm` binds. If `msm` then never binds or fails on eDP, the screen stays black.
   - **H2:** `msm` binds, but eDP or the panel fails (HPD mux, panel power or backlight).
+  - **H5:** `msm` binds only after every enabled DP controller has its next bridge (`sources/linux/drivers/gpu/drm/msm/dp/dp_display.c:1081`). External DP0 and DP1 (USB-C, `x1-microsoft-denali.dtsi:877`, `:885`) need the qmp-combo, ps883x and pmic_glink altmode bridges. If one never probes, the eDP never lights.
   - **H3:** the LCD backlight is described wrong. In vanilla, `pmc8380_3` GPIO4, the LCD backlight enable, is the panel enable, and there is no PWM backlight.
 - **Decision:**
   1. `kernel/series` gets display-lcd 0001 (panel ID), 0002 (HPD pinctrl) and 0003 (PWM backlight).
      - 0003 is released despite the display-lcd hold. Dale Whinham's series carries `Tested-by: Haipeng Lin` on the Surface Pro 11 LCD (openwall linux-kernel 2026/10/17/1002).
      - The PMK8550 GPIO5 pad subtype belongs to the PMIC part, not to the unit, so the func3 risk is reduced to Inference (strong).
      - `CONFIG_DRM_DP_AUX_CHARDEV=y` (display-lcd request, DPCD collection).
-  2. The ISO also ships a DTB variant without 0003 (`…-nobl.dtb`, from the same tree), so a backlight regression can be told apart on the same stick.
-  3. GRUB device entries: default `SP11 debug`; `SP11 debug, keep firmware clocks` (`clk_ignore_unused pd_ignore_unused`, diagnostic for H1, never default); `SP11 debug, DTB without PWM backlight`; the existing DRM trace, nomodeset and initramfs entries; and the VM entry.
+  2. The ISO also ships two DTB variants from the same tree: `…-nobl.dtb` without 0003, which isolates a backlight regression, and `…-edponly.dtb` with DP0 and DP1 disabled, which tests H5. The collector records `devices_deferred`.
+  3. GRUB device entries: default `SP11 debug`; `SP11 debug, keep firmware clocks` (`clk_ignore_unused pd_ignore_unused`, diagnostic for H1, never default); `SP11 debug, eDP only (USB-C DP off)`; `SP11 debug, DTB without PWM backlight`; the existing DRM trace, nomodeset and initramfs entries; and the VM entry.
 - **Exit:** the device logs (`EFI/sp11-logs` on the stick) decide which hypothesis holds. `clk_ignore_unused` never becomes the default without a log that shows H1.
