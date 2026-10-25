@@ -76,7 +76,7 @@ if ((inner)); then
       v=$(basename "$arg" .dts); vd="$src/arch/arm64/boot/dts/qcom/$v.dts"
       cp "$arg" "$vd"; trap 'rm -f "$vd"' EXIT
       # -@ like the packaged base DTB (kbuild adds it because x1p64100-microsoft-denali.dtb feeds an el2 overlay)
-      "${m[@]}" "DTC_FLAGS_$v=-@" "qcom/$v.dtb"; rm -f "$vd" ;;
+      "${m[@]}" "DTC_FLAGS_$v=-@" $( ((check)) && echo CHECK_DTBS=y ) "qcom/$v.dtb"; rm -f "$vd" ;;
     *) die "unknown mode $mode" ;;
   esac
   end=$(date +%s)
