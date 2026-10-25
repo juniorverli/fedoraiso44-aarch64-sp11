@@ -1,0 +1,32 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * Diagnostic variant: DT parity with the previous project's final 7.3 DTB (the one that reached
+ * GNOME on this unit), on top of the full M3 board DTS (display-lcd 0001-0003).
+ *
+ * (a) 10 CPUs. The Windows MADT of this unit (sources/windows/live-inventory/acpi/apic.dat,
+ *     sha256 50b032d657ad12b06793d4de71f0425d93a143fbf45965645203b40009a038d0) lists 12 GICC entries
+ *     and marks UID 7 (MPIDR 0x10300) and UID 11 (MPIDR 0x20300) "Processor Enabled: 0".
+ *     hamoa.dtsi has 12 CPUs; drop those two with their cpu-map entries and PSCI CPU domains.
+ * (b) System idle. Keep the cluster states (CL4, CL5) but remove domain-idle-states from system_pd,
+ *     so the system-wide collapse state SS3 (GIC powered down, PDC-only wakeup) is not used.
+ *
+ * Built by scripts/kernel-dtb-variants.sh; not a patch, not part of the RPM.
+ */
+#include "x1p64100-microsoft-denali.dts"
+
+/delete-node/ &cpu7;
+/delete-node/ &cpu11;
+/delete-node/ &cpu_pd7;
+/delete-node/ &cpu_pd11;
+
+&{/cpus/cpu-map/cluster1} {
+	/delete-node/ core3;
+};
+
+&cpu_map_cluster2 {
+	/delete-node/ core3;
+};
+
+&system_pd {
+	/delete-property/ domain-idle-states;
+};

@@ -7,6 +7,8 @@
 # e.g. 7.3.0-65.sp11.3.fc44.aarch64. The variants are DT-only: rebuilt, never patched in the RPM.
 # Output: out/dtb-variants/<kver>/qcom/<name>.dtb and <name>.json (source commit, patches, sha256).
 #   x1p64100-microsoft-denali-nobl      display-lcd 0001+0002 (no backlight node)       tree out/linux/m3nobl
+#   x1p64100-microsoft-denali-parity    0001-0003 + 10 CPUs (MADT) + no system_pd idle state (SS3), from
+#                                       kernel/dtb-variants/<name>.dts, record cites the MADT  tree out/linux/m3
 #   x1p64100-microsoft-denali-edponly   0001-0003, mdss_dp0/dp1 disabled (H5), from
 #                                       kernel/dtb-variants/<name>.dts                  tree out/linux/m3
 # The trees are kernel worktrees (branches w/m3nobl = v7.3 + series[0:2], w/m3 = v7.3 + series).
@@ -17,10 +19,12 @@ kver="${1:-$KERNEL_KVER}"
 base_dtb=$(kernel_toml dtb); outdir="$SP11_OUT/dtb-variants/$kver/qcom"
 mkdir -p "$outdir"
 
-build() {   # name tree-id patches-description overlay-or-empty
-  local name=$1 id=$2 patches=$3 overlay=$4 src="$SP11_OUT/linux/$2" built dtbfile sum
+build() {   # name tree-id patches-description overlay-or-empty [evidence-json-file]
+  local dtv=skipped name=$1 id=$2 patches=$3 overlay=$4 evidence=${5:-} src="$SP11_OUT/linux/$2" built dtbfile sum
   if [[ -n $overlay ]]; then
-    "$KERNEL_REPO/scripts/kernel-dev.sh" "$id" variant "$overlay"
+    # --check = CHECK_DTBS=y (dt-validate against the 7.3 bindings); warnings name the DTB file
+    "$KERNEL_REPO/scripts/kernel-dev.sh" --check "$id" variant "$overlay" 2>&1 | tee "$SP11_OUT/build/dtb-variant-$name.log" | grep -E 'kernel-dev:|DTC|rror' || true
+    dtv=$(grep -c "$name.dtb:" "$SP11_OUT/build/dtb-variant-$name.log" || true)
     built="$SP11_OUT/build/dev-$id/arch/arm64/boot/dts/qcom/$name.dtb"
   else
     "$KERNEL_REPO/scripts/kernel-dev.sh" "$id" dtbs
@@ -28,7 +32,7 @@ build() {   # name tree-id patches-description overlay-or-empty
   fi
   cp -f "$built" "$outdir/$name.dtb"
   sum=$(sha256sum "$outdir/$name.dtb" | cut -d' ' -f1)
-  SERIES_REV=$KERNEL_SERIES_REV python3 -I - "$outdir/$name.json" "$name" "$kver" "$id" "$(git -C "$src" rev-parse HEAD)" "$patches" \
+  SERIES_REV=$KERNEL_SERIES_REV EVIDENCE=$evidence DT_VALIDATE=$dtv python3 -I - "$outdir/$name.json" "$name" "$kver" "$id" "$(git -C "$src" rev-parse HEAD)" "$patches" \
       "${overlay:+$(sha256sum "$overlay" | cut -d' ' -f1)}" "${overlay:+${overlay#$KERNEL_REPO/}}" "$sum" \
       "$(git -C "$src" log --reverse --format=%s v7.3..HEAD | paste -sd'|')" <<'PY'
 import json, os, sys
@@ -36,7 +40,7 @@ out, name, kver, tree, commit, patches, ovsha, ovpath, sha, subjects = sys.argv[
 json.dump({"name": name, "kver": kver, "base": "v7.3 c03c1a14507dfaf8b856c2608f9ac216021fc222",
            "series_rev": int(os.environ["SERIES_REV"]), "kernel_tree": f"out/linux/{tree}", "source_commit": commit,
            "patches_applied": patches.split(","), "patch_subjects": subjects.split("|"),
-           "overlay": ovpath or None, "overlay_sha256": ovsha or None,
+           "dt_validate_warning_lines": os.environ["DT_VALIDATE"], "overlay": ovpath or None, "evidence": json.load(open(os.environ["EVIDENCE"])) if os.environ.get("EVIDENCE") else None, "overlay_sha256": ovsha or None,
            "dtb": f"qcom/{name}.dtb", "sha256": sha}, open(out, "w"), indent=2)
 open(out, "a").write("\n")
 PY
@@ -48,3 +52,16 @@ P2=hardware/display-lcd/patches/0002-arm64-dts-qcom-denali-mux-edp-hpd.patch
 P3=hardware/display-lcd/patches/0003-arm64-dts-qcom-denali-lcd-backlight.patch
 build x1p64100-microsoft-denali-nobl    m3nobl "$P1,$P2"       ""
 build x1p64100-microsoft-denali-edponly m3     "$P1,$P2,$P3"   "$KERNEL_REPO/kernel/dtb-variants/x1p64100-microsoft-denali-edponly.dts"
+
+# Evidence for parity (a): MADT GICC entries of this unit, decoded with iasl from apic.dat.
+ev=$(mktemp); trap 'rm -f "$ev"' EXIT
+cat > "$ev" <<JSON
+{"source": "sources/windows/live-inventory/acpi/apic.dat", "apic_dat_sha256": "50b032d657ad12b06793d4de71f0425d93a143fbf45965645203b40009a038d0",
+ "decoded_with": "iasl -d (Fedora 44 acpica-tools); sources/windows/live-inventory/acpi/apic.dsl",
+ "gicc_entries": 12,
+ "disabled": [{"processor_uid": 7, "mpidr": "0x10300", "enabled": 0, "dt_node": "cpu@10300 (cpu7)"},
+              {"processor_uid": 11, "mpidr": "0x20300", "enabled": 0, "dt_node": "cpu@20300 (cpu11)"}],
+ "grade": "Verified (MADT); which cores are fused off was TBD in hardware/soc-boot/README.md Q1",
+ "also_checked_against": "previous project patch 0019 (same two MPIDRs); system_pd change = its 0018+0025 net result"}
+JSON
+build x1p64100-microsoft-denali-parity m3 "$P1,$P2,$P3" "$KERNEL_REPO/kernel/dtb-variants/x1p64100-microsoft-denali-parity.dts" "$ev"
