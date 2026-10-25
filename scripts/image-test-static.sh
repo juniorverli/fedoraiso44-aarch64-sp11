@@ -399,6 +399,8 @@ svc=$ROOT/usr/lib/systemd/system/sp11-log-collector.service
 [ "$(readlink "$ROOT/etc/systemd/system/multi-user.target.wants/sp11-log-collector.service")" = /usr/lib/systemd/system/sp11-log-collector.service ] && pass 8.2 "enabled for multi-user.target" || fail 8.2 "not enabled for multi-user.target"
 grep -q '^WantedBy=multi-user.target' "$svc" && ! grep -q -E '^(After|Requires|Wants)=.*(gdm|display-manager|graphical)' "$svc" && pass 8.3 "unit does not depend on GDM or graphical.target" || fail 8.3 "unit depends on the display manager"
 [ -x "$ROOT/usr/libexec/sp11-log-collector" ] && bash -n "$ROOT/usr/libexec/sp11-log-collector" && pass 8.4 "collector script executable, syntax ok" || fail 8.4 "collector script missing, not executable or broken"
+# first boot runs `preset-all` when /etc/machine-id is "uninitialized" (kiwi); the unit must be enabled by preset
+grep -q -x 'enable sp11-log-collector.service' "$ROOT"/usr/lib/systemd/system-preset/80-sp11.preset 2>/dev/null && pass 8.7 "preset enables the collector (survives preset-all at first boot)" || fail 8.7 "no preset enabling sp11-log-collector.service"
 for t in dmesg journalctl lspci lsusb dtc timeout blkid mount; do
 	[ -x "$ROOT/usr/bin/$t" ] || [ -x "$ROOT/usr/sbin/$t" ] || fail 8.5 "collector needs $t, not in the image"
 done
