@@ -43,10 +43,55 @@ CYCLE=0
 say() { echo "sp11-log-collector: $*" >&2; }
 
 # ---------------------------------------------------------------- target ----
-live_parent_disk() {
-	local src
-	src=$(findmnt -n -o SOURCE /run/initramfs/live 2>/dev/null) || return 1
-	lsblk -ndo PKNAME "$src" 2>/dev/null | head -n1
+# ---- boot medium (risk S4). The test device is also a Windows machine: logs are written only to a
+# partition of the disk the live system booted from, never to any other disk, whatever its labels.
+SP11_MSR_GUID=e6d6d379-f507-44c2-a23c-238f2a3df928
+pkname() { # pkname DEVICE: the parent disk name (the disk itself for a whole disk), from sysfs
+	local n=${1##*/}
+	if [ -e "/sys/class/block/$n/partition" ]; then basename "$(readlink -f "/sys/class/block/$n/..")"; else echo "$n"; fi
+}
+find_boot_disk() { # sets BOOT_DISK and BOOT_HOW; BOOT_DISK empty means unknown
+	local a label= dev src
+	BOOT_DISK= BOOT_HOW=
+	# 1. CDLABEL (or LABEL) of root=live: on the kernel command line, resolved with blkid
+	for a in $(cat /proc/cmdline 2>/dev/null); do
+		case $a in root=live:CDLABEL=*) label=${a#root=live:CDLABEL=} ;; root=live:LABEL=*) label=${a#root=live:LABEL=} ;; esac
+	done
+	if [ -n "$label" ]; then
+		dev=$(blkid -L "$label" 2>/dev/null | head -n1)
+		if [ -n "$dev" ]; then BOOT_DISK=$(pkname "$dev"); BOOT_HOW="cmdline label $label -> $dev"; return 0; fi
+	fi
+	# 2. the live mount of dmsquash-live / kiwi's live module
+	src=$(awk '$2=="/run/initramfs/live"{print $1}' /proc/mounts 2>/dev/null | head -n1)
+	if [ -n "$src" ] && [ -b "$src" ]; then BOOT_DISK=$(pkname "$src"); BOOT_HOW="live mount source $src"; return 0; fi
+	# 3. the label this ISO was built with (/etc/sp11-boot-medium), when the command line label does not resolve
+	if [ -r /etc/sp11-boot-medium ]; then
+		. /etc/sp11-boot-medium
+		dev=$(blkid -L "$SP11_MEDIUM_LABEL" 2>/dev/null | head -n1)
+		if [ -n "$dev" ]; then BOOT_DISK=$(pkname "$dev"); BOOT_HOW="built-in ISO label $SP11_MEDIUM_LABEL -> $dev"; return 0; fi
+	fi
+	return 1
+}
+disk_has_windows() { # DISK: 0 when it carries NTFS, BitLocker or a Microsoft reserved partition
+	# low-level probes (blkid -p), not lsblk: no dependency on the udev database, which may not exist yet
+	local part t g
+	for part in /sys/class/block/"$1"/"$1"*; do
+		[ -e "$part/partition" ] || continue
+		t=$(blkid -p -o value -s TYPE "/dev/${part##*/}" 2>/dev/null | tr 'A-Z' 'a-z')
+		g=$(blkid -p -o value -s PART_ENTRY_TYPE "/dev/${part##*/}" 2>/dev/null | tr 'A-Z' 'a-z')
+		case $t in ntfs | bitlocker*) return 0 ;; esac
+		[ "$g" = "$SP11_MSR_GUID" ] && return 0
+	done
+	case $(blkid -p -o value -s TYPE "/dev/$1" 2>/dev/null | tr 'A-Z' 'a-z') in ntfs | bitlocker*) return 0 ;; esac
+	return 1
+}
+# on_boot_disk LABEL: first partition with that FAT label whose parent disk is the boot medium
+on_boot_disk() {
+	local cand
+	for cand in $(blkid -t "LABEL=$1" -o device 2>/dev/null); do
+		[ "$(pkname "$cand")" = "$BOOT_DISK" ] && { echo "$cand"; return 0; }
+	done
+	return 1
 }
 
 mount_fat() { # dev
@@ -56,8 +101,16 @@ mount_fat() { # dev
 	mount -t vfat -o rw,noatime,nodev,nosuid,noexec,umask=0077,shortname=winnt "$1" "$MNT" 2>/dev/null
 }
 
+ensure_boot_disk() { # once per success; logs which method worked
+	[ -n "${BOOT_DISK:-}" ] && return 0
+	mkdir -p "$WORK"
+	find_boot_disk || true
+	if [ -n "$BOOT_DISK" ]; then say "boot medium: $BOOT_DISK ($BOOT_HOW)"; fi
+	echo "boot_disk: ${BOOT_DISK:-unknown}  method: ${BOOT_HOW:-none}" >"$WORK/boot-medium.txt"
+}
+
 find_target() {
-	local dev parent cand
+	local dev
 	# test hook (image/tools/collector_selftest.sh): a plain directory acts as SP11LOGS
 	if [ -n "${SP11_TEST_TARGET:-}" ]; then
 		TARGET_KIND=${SP11_TEST_KIND:-logs}
@@ -67,7 +120,16 @@ find_target() {
 	fi
 	[ "$TARGET_KIND" != none ] && findmnt -n "$MNT" >/dev/null 2>&1 && return 0
 	TARGET_KIND=none
-	dev=$(blkid -L "$LOGS_LABEL" 2>/dev/null | head -n1)
+	ensure_boot_disk
+	if [ -z "$BOOT_DISK" ]; then
+		[ -e "$WORK/.no-medium-said" ] || { say "S4: boot medium unknown (no root=live:CDLABEL on the command line resolves, no /run/initramfs/live mount): writing nothing outside /run"; : >"$WORK/.no-medium-said"; }
+		return 1
+	fi
+	if disk_has_windows "$BOOT_DISK"; then
+		[ -e "$WORK/.windows-said" ] || { say "S4: disk $BOOT_DISK carries NTFS, BitLocker or a Microsoft reserved partition: refusing to write to it"; echo "refused: $BOOT_DISK carries NTFS/BitLocker/MSR" >>"$WORK/boot-medium.txt"; : >"$WORK/.windows-said"; }
+		return 1
+	fi
+	dev=$(on_boot_disk "$LOGS_LABEL")
 	if [ -n "$dev" ] && mount_fat "$dev" && touch "$MNT/.sp11-w" 2>/dev/null; then
 		rm -f "$MNT/.sp11-w"
 		TARGET_KIND=logs
@@ -75,16 +137,8 @@ find_target() {
 		return 0
 	fi
 	[ -n "$dev" ] && umount "$MNT" 2>/dev/null
-	# fallback: embedded EFI partition, preferably on the disk the live image came from
-	parent=$(live_parent_disk)
-	dev=
-	for cand in $(blkid -t "LABEL=$ESP_LABEL" -o device 2>/dev/null); do
-		if [ -n "$parent" ] && [ "$(lsblk -ndo PKNAME "$cand" 2>/dev/null)" = "$parent" ]; then
-			dev=$cand
-			break
-		fi
-		[ -z "$dev" ] && dev=$cand
-	done
+	# fallback: the embedded EFI partition of the boot medium, and only that disk
+	dev=$(on_boot_disk "$ESP_LABEL")
 	if [ -n "$dev" ] && mount_fat "$dev" && mkdir -p "$MNT/EFI/sp11-logs" && touch "$MNT/EFI/sp11-logs/.w" 2>/dev/null; then
 		rm -f "$MNT/EFI/sp11-logs/.w"
 		TARGET_KIND=esp
@@ -210,6 +264,8 @@ early_snapshot() {
 		[ -s "$OUT/debugfs-mount.txt" ] || rm -f "$OUT/debugfs-mount.txt"
 	fi
 	snap uname.txt uname -a
+	ensure_boot_disk
+	shsnap boot-medium.txt "cat $WORK/boot-medium.txt 2>&1; echo; lsblk -o NAME,PKNAME,FSTYPE,LABEL,PARTTYPE,SIZE,RM 2>&1"
 	shsnap kernel-rpm.txt 'rpm -q kernel-core 2>&1'
 	shsnap dmesg.txt 'dmesg --time-format=iso 2>&1 || dmesg'
 	shsnap btf.txt 'if [ -e /sys/kernel/btf/vmlinux ]; then echo "btf: present"; else echo "btf: MISSING"; fi'

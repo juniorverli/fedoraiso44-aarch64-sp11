@@ -7,6 +7,10 @@
 # --early: stop as soon as the collector has a complete log directory (no GDM, no unit checks).
 # --esp-fallback (implies --early): no SP11LOGS disk; the ISO is attached as a writable copy and the
 #   collector must write to /EFI/sp11-logs on the embedded ESP (label BOOT, D17/D18 layout).
+# --decoy: attach a fake Windows disk (BOOT and SP11LOGS FAT partitions, NTFS, MSR) and check its md5sum is
+#   unchanged afterwards (risk S4).
+# --initrd-fail: test of the dracut failure capture (implies --esp-fallback): the VM entry is edited in GRUB so
+#   root=live:CDLABEL= is wrong; the hook must write /EFI/sp11-logs/initrd-<boot-id>/ on the ESP of the stick.
 # --no-display-files, --legacy-menu: for ISOs older than M3 (no D19 display files; five-entry menu).
 #
 # QEMU system emulation, machine virt, TCG (the WSL2 host has no /dev/kvm), edk2 firmware,
@@ -47,14 +51,15 @@ if [ "${SP11_OUT:-}" = "" ] || [ ! -d /sp11 ]; then
 fi
 OUT=$SP11_OUT
 
-iso= timeout_min=150 mem=4096 smp=8 cpu=neoverse-n1 extra=()
+iso= timeout_min=150 mem=4096 smp=8 cpu=neoverse-n1 extra=() decoy=0
 while [ $# -gt 0 ]; do
 	case $1 in
 	--timeout-min) timeout_min=${2:?}; shift ;;
 	--mem) mem=${2:?}; shift ;;
 	--smp) smp=${2:?}; shift ;;
 	--cpu) cpu=${2:?}; shift ;;
-	--esp-fallback | --early | --no-display-files | --legacy-menu) extra+=("$1") ;;
+	--esp-fallback | --early | --no-display-files | --legacy-menu | --initrd-fail) extra+=("$1") ;;
+	--decoy) decoy=1 ;;
 	*) iso=$1 ;;
 	esac
 	shift
@@ -80,13 +85,17 @@ logs=$W/sp11logs.img
 rm -f "$logs"
 logs_args=(--logs "$logs")
 case " ${extra[*]:-} " in
-*" --esp-fallback "*) logs_args=() ;;
+*" --esp-fallback "* | *" --initrd-fail "*) logs_args=() ;;
 *)
 	truncate -s 128M "$logs"
 	mkfs.vfat -n SP11LOGS "$logs" >/dev/null
 	;;
 esac
 
+if [ "$decoy" = 1 ]; then
+	/sp11/image/tools/make-decoy-disk.sh "$W/decoy.img"
+	extra+=(--decoy "$W/decoy.img")
+fi
 python3 -I /sp11/image/tools/qemu_boot_test.py \
 	--iso "$iso" "${logs_args[@]}" "${extra[@]}" --work "$W" --report "$OUT/iso/$name.l1.json" \
 	--cpu "$cpu" --smp "$smp" --mem "$mem" --timeout-min "$timeout_min" \

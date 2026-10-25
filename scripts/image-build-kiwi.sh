@@ -125,13 +125,15 @@ rpm2cpio "$kcore" | cpio -i --quiet --to-stdout "./lib/modules/$kver/dtb/qcom/x1
 # D19: the two variants of the kernel worker, next to the packaged DTB. The build fails without
 # them; with --smoke a copy of the packaged DTB stands in (recorded, never for the device).
 variants_smoke_copy=0
-for v in edponly nobl; do
+for v in parity edponly nobl; do
 	vf=x1p64100-microsoft-denali-$v.dtb
 	vsrc=$OUT/dtb-variants/$kver/qcom/$vf
 	if [ -s "$vsrc" ]; then
 		cp "$vsrc" "$dtbtmp/boot/dtb/qcom/$vf"
 		mkdir -p "$work/dtb-records"
 		for r in "${vsrc%.dtb}.json" "$vsrc.json"; do [ -f "$r" ] && cp "$r" "$work/dtb-records/$vf.json"; done
+	elif [ "$v" != parity ]; then
+		log "DTB variant $vsrc is missing; $v is unreferenced in M4 and optional, not shipped"
 	elif [ "$smoke" = 1 ]; then
 		log "SMOKE: $vsrc missing, using a copy of the packaged DTB for the $v entry"
 		cp "$dtbtmp/boot/dtb/qcom/x1p64100-microsoft-denali.dtb" "$dtbtmp/boot/dtb/qcom/$vf"
@@ -229,9 +231,9 @@ mcopy -i "$chk/bi/eltorito_img1_uefi.img" ::EFI/BOOT/grub.cfg "$chk/esp-grub.cfg
 for f in "$chk"/_* "$chk/esp-grub.cfg"; do
 	if grep -v '^[[:space:]]*#' "$f" | grep -w -E 'quiet|rhgb|splash' >/dev/null; then log "FAIL: quiet/rhgb/splash in $f"; exit 1; fi
 done
-n=$(grep -c "^menuentry '" "$chk/_boot_grub2_grub.cfg"); [ "$n" = 8 ] || { log "FAIL: $n menu entries, expected 8 (D19)"; exit 1; }
-for e in debug keepclk edponly nobl drm-trace nomodeset initramfs vmtest; do grep -q "sp11.entry=$e\$" "$chk/_boot_grub2_grub.cfg" || { log "FAIL: no entry with sp11.entry=$e"; exit 1; }; done
-for f in x1p64100-microsoft-denali x1p64100-microsoft-denali-edponly x1p64100-microsoft-denali-nobl; do
+n=$(grep -c "^menuentry '" "$chk/_boot_grub2_grub.cfg"); [ "$n" = 7 ] || { log "FAIL: $n menu entries, expected 7 (M4)"; exit 1; }
+for e in debug m3cmdline nodsp drm-trace nomodeset initramfs vmtest; do grep -q "sp11.entry=$e\$" "$chk/_boot_grub2_grub.cfg" || { log "FAIL: no entry with sp11.entry=$e"; exit 1; }; done
+for f in x1p64100-microsoft-denali x1p64100-microsoft-denali-parity; do
 	xorriso -indev "$iso" -find "/boot/dtb/qcom/$f.dtb" -type f 2>/dev/null | grep -q . || { log "FAIL: /boot/dtb/qcom/$f.dtb not on the ISO"; exit 1; }
 done
 

@@ -54,16 +54,17 @@ Entries:
 
 | Entry | Extra arguments | Use |
 |:--|:--|:--|
-| `SP11 debug` (default) | — | Normal test boot, packaged DTB |
-| `SP11 debug, keep firmware clocks` | `clk_ignore_unused pd_ignore_unused` | D19, hypothesis H1 (`clk_disable_unused` gates the display clocks of the firmware framebuffer). Diagnostic, never the default |
-| `SP11 debug, eDP only (USB-C DP off)` | DTB `…-denali-edponly.dtb` | D19, H5: the full M3 DT with the external USB-C DP0/DP1 disabled, so a DP bridge chain that never probes cannot keep `msm` from binding |
-| `SP11 debug, DTB without PWM backlight` | DTB `…-denali-nobl.dtb` | D19, H3: display-lcd 0001+0002 only, without the PWM backlight patch 0003 |
-| `SP11 debug + DRM trace` | `drm.debug=0x1ff` | Display problems (very verbose) |
-| `SP11 debug nomodeset` | `nomodeset` | Fallback when the panel goes dark; keeps the firmware framebuffer |
-| `SP11 debug, stop in initramfs` | `rd.break=pre-mount` | Rescue shell before the root is mounted |
+| `SP11 debug` (default) | `clk_ignore_unused pd_ignore_unused rootdelay=10`, DTB `…-denali-parity.dtb` | M4 (D20): every difference the comparison with the previous project's GNOME boot found. Supersedes the D19 gate for the default only |
+| `SP11 debug, M3 command line` | none, packaged DTB | M4: the M3 boot, for comparison |
+| `SP11 debug, no early DSP` | as the default, plus `rd.driver.blacklist=qcom_q6v5_pas` | M4: the DSP remoteproc driver stays out of the initramfs (loads in the real root, as in M3) |
+| `SP11 debug + DRM trace` | as the default, plus `drm.debug=0x1ff` | Display problems (very verbose) |
+| `SP11 debug nomodeset` | as the default, plus `nomodeset` | Fallback when the panel goes dark; keeps the firmware framebuffer |
+| `SP11 debug, stop in initramfs` | as the default, plus `rd.break=pre-mount` | Rescue shell before the root is mounted |
 | `VM test (no devicetree)` | `console=ttyAMA0,115200`, no `devicetree` | L1 only, never default |
 
-Every entry also has `sp11.entry=<id>` (`debug`, `keepclk`, `edponly`, `nobl`, `drm-trace`, `nomodeset`, `initramfs`, `vmtest`); the collector writes it to `entry.txt`, so a log says which entry booted. Any further argument needs a request from a component worker with a log that justifies it, and is listed with its reason in the build record. `clk_ignore_unused` never becomes a default without a log that shows H1 (D19).
+The `parity` DTB is the M3 DT with the 10-CPU topology (the two fused-off cores, MPIDR `0x10300` and `0x20300`, removed; the kernel worker checked the MADT) and no system SS3 idle (CL4/CL5 kept). The M3 DTBs `…-edponly.dtb` and `…-nobl.dtb` stay on the ISO unreferenced, for manual use at the GRUB prompt (`devicetree`). The D19 entries `keep firmware clocks`, `eDP only` and `DTB without PWM backlight` are not in the M4 menu.
+
+Every entry also has `sp11.entry=<id>` (`debug`, `m3cmdline`, `nodsp`, `drm-trace`, `nomodeset`, `initramfs`, `vmtest`); the collector writes it to `entry.txt`, so a log says which entry booted. Any further argument needs a request from a component worker with a log that justifies it, and is listed with its reason in the build record. `clk_ignore_unused` never becomes a default without a log that shows H1 (D19).
 
 ### Secure Boot
 
@@ -224,6 +225,14 @@ The first device boot with the kiwi `-d18` ISO printed the console on the firmwa
 - **Early snapshot.** `sp11-log-collector run` first writes a small display snapshot and publishes it (retrying up to 30 s while the target is not mounted yet), then the first full snapshot, then at 20, 60, 120, 300 s and every 300 s. The unit has `DefaultDependencies=no` (after `local-fs.target`, journald, udev only) so it starts before `basic.target`. The early snapshot has no `COMPLETE` marker; `STATUS` says `cycle: 0 (early display snapshot)`.
 - **Display files** (early and every full snapshot; `display_set` in the collector): `cmdline.txt`, `entry.txt` (the `sp11.entry`, clock and `nomodeset` arguments, DTB model and compatible), `devices_deferred.txt` (key for H5), `device_component.txt` (`/sys/kernel/debug/device_component/*`), `drm-class-ls.txt`, `lsmod.txt`, `fb-state.txt` (`/dev/fb*`, `/proc/fb`, simpledrm and simple-framebuffer drivers and modules, framebuffer dmesg lines), `clk-display.txt` (`clk_summary` filtered for disp, mdss, edp, dp), `clk_summary.txt`, `genpd_summary.txt`, `regulator_summary.txt`, `display-dmesg.txt` (msm, dpu, mdss, drm, dp, panel, edp, backlight, pwm, lpg, simpledrm, efifb, dispcc, pmic and clock/genpd lines), `drm-state.txt` (`dri/*/state`), `dp-link.txt` (`dp_debug`), `drm-connectors.txt` (status, enabled, dpms, modes, the `eDP-1` debugfs directory), `backlight.txt` (brightness, max_brightness, actual_brightness, bl_power), `pwm.txt`, `leds.txt`, `pinctrl-pmic.txt` (`/sys/kernel/debug/pinctrl/*pmic*`), `spmi-gpio-dmesg.txt`, `dpcd-tool.txt` and `dpcd-drm_dp_aux*-000.bin/-700.bin/.txt` (the display-lcd `collect-dpcd.py`, unchanged, run as root against every `/dev/drm_dp_aux*`: DPCD 0x000-0x0ff and 0x700-0x7ff, read only), and the shell reader `drm-dpcd.txt` as a second opinion. The publish step copies files, not directories, so the tool's output is flattened into `dpcd-*`.
 - **ESP fallback** (`/EFI/sp11-logs` on the partition labelled `BOOT`): the ESP is 64 MiB FAT32 (D17) with the D18 layout; the kiwi collector config raises the cap to 32 MiB (`CAP_ESP_KIB=32768`), files on the ESP are gzip-compressed, the oldest boot is removed first. `scripts/image-test-qemu.sh --esp-fallback` tests it: no `SP11LOGS` disk, the ISO is attached as a writable copy, and the test reads `/EFI/sp11-logs/<boot-id>/` out of GPT partition 2 afterwards.
+
+### M4: initramfs, parity and failure capture (decision D20), and the boot medium (risk S4)
+
+- **Initramfs of the kiwi image** (`image/kiwi/overlay/root/etc/dracut.conf.d/`): `leds-qcom-lpg` is added (the M3 initramfs lacked the PMK8550 PWM provider; with display-lcd 0003 the panel references the backlight, and `panel_edp_probe()` returns the `drm_panel_of_backlight()` error before panel detection, so the panel could not probe there; Verified by CPIO inspection in `out/agents/surface-compare/report.md` 2d). `qcom_q6v5_pas` (F1 is superseded for the kiwi image) with `qcom_pd_mapper`, `pdr_interface`, `qrtr`, `qrtr-smd`; its other dependencies (GLINK, SMEM, sysmon, mdt_loader) come through `modules.dep`. The four staged DSP images (`qcadsp8380.mbn`, `adsp_dtb.mbn`, `qccdsp8380.mbn`, `cdsp_dtb.mbn` under `qcom/x1e80100/microsoft/Denali/`) are installed with dracut `install_items`. The GPU zap shader and `gen70500` stay out (`msm_open()` loads them at the first open). The kiwi overlay's `90-sp11.conf` replaces the shared one (which still carries the F1 `omit_drivers` for the lorax path).
+- **L0 5.5** requires every module of the display chain (`msm panel_edp phy_qcom_edp drm_dp_aux_bus pwm_bl leds_qcom_lpg dispcc_x1e80100`) and the DSP set, and everything `modules.dep` says they need, to be in the actual initramfs CPIO (or built in); a missing one fails L0. The check was run against the M3 initramfs first and failed on exactly `leds_qcom_lpg`. **5.7** requires the four DSP images in the initramfs with the SHA-256 of `firmware/manifest.toml`; **5.8** requires the GPU zap shader and `gen70500` to be absent.
+- **Failure capture in the initramfs** (dracut module `95sp11-initrd-log`, shipped by the kiwi overlay, added by `92-sp11-initrd-log.conf`): hooks `initqueue/timeout` (two thirds of `rd.retry`) and `emergency`. Each writes `/EFI/sp11-logs/initrd-<boot-id>/` on the ESP (label `BOOT`) with `journal-<reason>.txt.gz`, `dmesg-…`, `rdsosreport-…` (made with `/sbin/rdsosreport` when dracut has not yet), a state report (cmdline, `blkid`, `lsblk`, `/dev/disk/by-label`, initqueue hooks, modules, `devices_deferred`), `STATUS.<reason>`, `SEQ`, `COMPLETE`. Same cap (`CAP_ESP_KIB` from `/etc/sp11-log-collector.conf`, installed into the initramfs) and gzip rule as the collector; the oldest other boot directory goes first. The boot id is the collector's, so `initrd-<id>` and `<id>` belong together.
+- **S4: write only to the boot medium.** The test device is also a Windows machine (internal NVMe with ESP, MSR, NTFS C:, WinRE). The collector and the initramfs hook find the boot medium by (1) the label of `root=live:CDLABEL=` (or `LABEL=`) on the command line, resolved with `blkid -L`, taking the parent disk from sysfs (the PKNAME); (2) the `/run/initramfs/live` mount source; (3) the label built into the ISO (`/etc/sp11-boot-medium`, `Fedora-WS-Live-44`, L0 checks it equals the ISO volume id), for the case that the command line label is the failure; the method that worked is logged and written to `boot-medium.txt`. They mount **only** a partition labelled `SP11LOGS` or `BOOT` whose parent disk is that disk. If no medium is found they write nothing outside `/run` and say so in the journal. They refuse a disk that carries an NTFS or BitLocker file system or a Microsoft reserved partition (GUID `e6d6d379-…`), found with `blkid -p`, not `lsblk`, because the udev database may not exist yet. The old rule ("any partition labelled `BOOT`" when the parent was unknown) is gone; L0 8.11-8.13 check both scripts. `image/tools/collector_selftest.sh` tests the guard and the rule with loop devices and a fake Windows disk; L1 `--decoy` attaches that disk (`image/tools/make-decoy-disk.sh`: FAT32 `BOOT` with the EFI type, FAT32 `SP11LOGS`, NTFS, MSR) and compares its md5sum before and after.
+- **L1 additions:** `--decoy`; `--initrd-fail` (the VM entry is edited in GRUB with a wrong `root=live:CDLABEL=` last, `rd.retry=12 rd.shell=0`; this entry exists only in the test run, not in the ISO).
 
 ### L1 details
 
@@ -436,6 +445,37 @@ L1 of the M3 ISO (QEMU TCG, `neoverse-n1`, 8 threads, 4 GiB, `--esp-fallback`: n
 
 Two defects of my test driver found by this run, fixed: with the fallback, `mdir -b` prints the whole path, so the boot directory was not recognised (the first run was stopped and judged by hand from the ESP of its disk copy, which already showed the complete directory; the run above is the clean rerun), and the "to SP11LOGS" label of the check now says "to the log target".
 
+### M4 ISO (2026-10-25, decision D20)
+
+| Item | Value |
+|:--|:--|
+| ISO | `out/iso/sp11-fedora44-aarch64-kiwi-20261025T183834Z.iso` (record `.json`, checksum `.iso.sha256`) |
+| Size | 2,802,515,968 bytes (2.61 GiB) |
+| SHA-256 | `0325c6f41b073781688b349f5ab4adfa9a880c2c18b82a504f6fee300eac4d9c` |
+| Build time | 1595 s for the kiwi run, 1969 packages |
+| Kernel | `kernel-core-7.3.0-65.sp11.3.fc44.aarch64` (same RPMs as M3) |
+| ESP | FAT32, label `BOOT`, 64 MiB, 129022 clusters; `BOOTAA64.EFI` = `grubaa64.efi` (D17, D18) |
+| DTBs on the ISO (`/boot/dtb/qcom/`) | packaged `582725d5…f9fd`; **`-parity` `1db70aa9426f37885c96acce15a3b4b626a8b26c23fc24acd9d5946046c12f71`** (used by entries 1, 3-6); `-edponly` `eb41249b…6fad` and `-nobl` `bc9463f8…e896` (unreferenced) |
+| L0 | 131 passed, 0 failed, 0 skipped |
+| L1 `--esp-fallback --decoy` | PASS (menu of 7, VM entry boots, collector writes `/EFI/sp11-logs` on the `BOOT` ESP, fake Windows disk unchanged) |
+| L1 `--initrd-fail --decoy` | PASS (dracut failure capture, fake Windows disk unchanged) |
+
+Menu (common arguments `debug loglevel=8 ignore_loglevel printk.devkmsg=on log_buf_len=16M rd.plymouth=0 plymouth.enable=0 systemd.show_status=1 rd.udev.log_level=info console=tty0 root=live:CDLABEL=Fedora-WS-Live-44 rd.live.image`, then):
+
+| # | Title | `sp11.entry` | DTB | Extra arguments |
+|:--|:--|:--|:--|:--|
+| 1 | `SP11 debug` (default) | `debug` | parity | `clk_ignore_unused pd_ignore_unused rootdelay=10` |
+| 2 | `SP11 debug, M3 command line` | `m3cmdline` | packaged | none |
+| 3 | `SP11 debug, no early DSP` | `nodsp` | parity | as 1, plus `rd.driver.blacklist=qcom_q6v5_pas` |
+| 4 | `SP11 debug + DRM trace` | `drm-trace` | parity | as 1, plus `drm.debug=0x1ff` |
+| 5 | `SP11 debug nomodeset` | `nomodeset` | parity | as 1, plus `nomodeset` |
+| 6 | `SP11 debug, stop in initramfs` | `initramfs` | parity | as 1, plus `rd.break=pre-mount` |
+| 7 | `VM test (no devicetree)` | `vmtest` | none | `console=ttyAMA0,115200` |
+
+L0 on this ISO (new or changed): 2.5/2.12/2.17 (the seven entries, the arguments per entry, the DTB per entry); 3.6-3.11 (the parity DTB: decompiles, Denali root compatible, differs from the packaged DTB, equals the build record, `out/dtb-variants/` and the kernel worker's JSON); **5.5** (display chain and DSP set with their `modules.dep` closure in the real initramfs: 14 modules and 52 dependency entries); 5.6 (failure capture hooks and tools in the initramfs); **5.7** (the four DSP images in the initramfs with the `firmware/manifest.toml` hashes); 5.8 (no GPU zap, no `gen70500` in the initramfs); 8.11-8.13 (S4: PKNAME restriction and the Windows guard in both scripts, no "any BOOT partition" fallback, `/etc/sp11-boot-medium` equals the ISO volume id). Defects of my own tests found on the way: the L0 entry id pattern had no digits (`m3cmdline`), and the first `--initrd-fail` runs typed the edit into the wrong line of the GRUB editor (the entry body starts with an empty line after `setparams`), which first booted the system normally and then stopped at a GRUB error; the run above is the third.
+
+L1 with the fake Windows disk (`image/tools/make-decoy-disk.sh`: GPT, FAT32 `BOOT` with the EFI system type, FAT32 `SP11LOGS`, NTFS `WINDOWS`, Microsoft reserved): attached writable next to the stick; it enumerated as `sda` in one run and `sdb` in another, so both orders were exercised. `md5sum` before and after: identical in both runs (`4ebca9db…` and `76aa9aa2…`). In the first run the collector's `boot-medium.txt` says `boot_disk: sdb  method: cmdline label Fedora-WS-Live-44 -> /dev/sdb1` while the decoy was `sda`. In the second run (`--initrd-fail`, the cmdline label is wrong on purpose) the hook found the stick through the built-in ISO label: `boot_medium: sda (built-in ISO label Fedora-WS-Live-44 -> /dev/sda1)`, wrote `initrd-<boot-id>/` (journal 656,966 bytes, dmesg, rdsosreport with the wrong label, state, STATUS, SEQ, COMPLETE) to the stick's ESP 311 s after start, and no `<boot-id>/` of a real root exists. **Not tested:** the Windows guard on a boot medium that itself carries NTFS (only the function, with loop devices, in `collector_selftest.sh`); the collector with a real `msm`; GDM (no full L1).
+
 ## Requests
 
 - installer path (R9, future): the installed system must boot `grubaa64.efi` directly. Anaconda installs shim and points the UEFI boot entry at it, and this firmware does not run shim. The installer step (kickstart `%post` of the installed system, or an Anaconda addon / `efibootmgr` call after install) must (a) create the boot entry for `\\EFI\\fedora\\grubaa64.efi` with `efibootmgr -c -d <disk> -p <esp partition> -L Fedora -l '\\EFI\\fedora\\grubaa64.efi'`, and (b) copy `grubaa64.efi` to `EFI/BOOT/BOOTAA64.EFI` on the installed ESP, for firmware that only reads the fallback path. Both must leave `EFI/fedora/shimaa64.efi` in place. Not implemented: this image has no installer step yet; verify on the device (R9).
@@ -451,3 +491,4 @@ Two defects of my test driver found by this run, fixed: with the fallback, `mdir
 - 2026-10-25: D17. kiwi ISO rebuilt with a 64 MiB FAT32 ESP (xorriso replay, 129022 clusters), L0 83/83 (new checks 1.5-1.7), GRUB menu and kernel start seen in QEMU (5 min, no `file not found`); full L1 not rerun.
 - 2026-10-25: D18. ESP step makes `BOOTAA64.EFI` Fedora's GRUB, shim kept as `shimaa64.efi`, `bootx64.efi` removed, marker line first; L0 87/87 (new checks 2.13-2.16); QEMU shows the marker, the menu and the kernel start (4 min run, no full L1).
 - 2026-10-25: D19/M3. ISO `sp11-fedora44-aarch64-kiwi-20261025T160856Z` (SHA-256 `2a7f7fc1...`): 8-entry menu, three DTBs, early display snapshot and the display evidence files, `collect-dpcd.py` in the image, 64 MiB FAT32 ESP with direct GRUB. L0 103/103; L1 `--esp-fallback` PASS (collector writes `/EFI/sp11-logs` on the `BOOT` ESP). Build refuses kernels not newer than 7.3.0-65.sp11 and more than one kernel NEVRA at the top of `out/rpms`.
+- 2026-10-25: D20/M4 and S4. ISO `sp11-fedora44-aarch64-kiwi-20261025T183834Z` (SHA-256 `0325c6f4...`): seven-entry menu with the parity DTB as default, `leds-qcom-lpg` and the DSP remoteproc set with the four DSP images in the initramfs, failure capture to the ESP, collector and hook write only to the boot medium and refuse Windows disks. L0 131/131; L1 `--esp-fallback --decoy` and `--initrd-fail --decoy` PASS, fake Windows disk byte-identical.

@@ -174,9 +174,9 @@ else
 fi
 titles=$(grep -o "^menuentry '[^']*'" "$cfg_esp" | sed "s/menuentry '//;s/'\$//")
 if [ "$builder" = kiwi ]; then
-	# D19: the eight entries of the M3 menu, in this order
-	expect=$'SP11 debug\nSP11 debug, keep firmware clocks\nSP11 debug, eDP only (USB-C DP off)\nSP11 debug, DTB without PWM backlight\nSP11 debug + DRM trace\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)'
-	nentries=8
+	# M4 (D20): the seven entries of the menu, in this order
+	expect=$'SP11 debug\nSP11 debug, M3 command line\nSP11 debug, no early DSP\nSP11 debug + DRM trace\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)'
+	nentries=7
 else
 	expect=$'SP11 debug\nSP11 debug + DRM trace\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)'
 	nentries=5
@@ -197,8 +197,8 @@ sp11_entries=$(grep -c "^menuentry 'SP11" "$cfg_esp")
 ids_ok=1
 awk '/^menuentry /{t=$0} /^[[:space:]]+linux /{print t "\t" $0}' "$cfg_esp" >"$W/linux-lines.txt"
 while IFS=$'\t' read -r t l; do
-	id=$(echo "$t" | sed -n "s/.*--id sp11-\([a-z-]*\).*/\1/p")
-	case $id in drm-trace | debug | keepclk | edponly | nobl | nomodeset | initramfs | vmtest) ;; *) ids_ok=0; fail 2.12 "unknown entry id '$id' ($t)" ;; esac
+	id=$(echo "$t" | sed -n "s/.*--id sp11-\([a-z0-9-]*\).*/\1/p")
+	case $id in drm-trace | debug | m3cmdline | nodsp | nomodeset | initramfs | vmtest) ;; *) ids_ok=0; fail 2.12 "unknown entry id '$id' ($t)" ;; esac
 	want=$id
 	case $l in *" sp11.entry=$want"*) ;; *) ids_ok=0; fail 2.12 "entry '$t' lacks sp11.entry=$want" ;; esac
 	case $l in *console=ttyAMA0*) [ "$id" = vmtest ] || { ids_ok=0; fail 2.12 "serial console on a device entry: $t"; } ;; *) [ "$id" != vmtest ] || { ids_ok=0; fail 2.12 "VM entry lacks the serial console"; } ;; esac
@@ -209,21 +209,28 @@ vm=$(awk '/^menuentry .VM test/{f=1} f&&/^[[:space:]]+devicetree /{print "x"}' "
 [ -z "$vm" ] && pass 2.8 "VM test entry has no devicetree" || fail 2.8 "VM test entry has a devicetree line"
 [ "$(grep -c "^menuentry '" "$cfg_esp")" = "$nentries" ] && [ "$(grep '^set default' "$cfg_esp")" = "set default=0" ] && pass 2.9 "VM test entry is not the default"
 if [ "$builder" = kiwi ]; then
-	# D19: which entry does what. clk_ignore_unused/pd_ignore_unused only on keepclk; each DTB variant on its own entry.
+	# D20: which entry does what. Entries 1, 3-6 are the parity boot (clk_ignore_unused pd_ignore_unused rootdelay=10, parity DTB);
+	# m3cmdline is the M3 command line with the packaged DTB; nodsp adds the PAS blacklist; the others add one argument.
 	d19=1
 	while IFS=$'\t' read -r t l; do
-		id=$(echo "$t" | sed -n "s/.*--id sp11-\([a-z-]*\).*/\1/p")
-		case $l in *clk_ignore_unused*pd_ignore_unused*) [ "$id" = keepclk ] || { d19=0; fail 2.17 "clk_ignore_unused on entry $id"; } ;; *) [ "$id" != keepclk ] || { d19=0; fail 2.17 "keepclk lacks clk_ignore_unused pd_ignore_unused"; } ;; esac
-		case $l in *clk_ignore_unused*) ;; *pd_ignore_unused*) d19=0; fail 2.17 "pd_ignore_unused without clk_ignore_unused on $id" ;; esac
-		want=x1p64100-microsoft-denali.dtb
-		[ "$id" = edponly ] && want=x1p64100-microsoft-denali-edponly.dtb
-		[ "$id" = nobl ] && want=x1p64100-microsoft-denali-nobl.dtb
-		if [ "$id" != vmtest ]; then
+		id=$(echo "$t" | sed -n "s/.*--id sp11-\([a-z0-9-]*\).*/\1/p")
+		case $id in
+		m3cmdline) base=0; extra=; want=x1p64100-microsoft-denali.dtb ;;
+		vmtest) base=0; extra=; want= ;;
+		*) base=1; want=x1p64100-microsoft-denali-parity.dtb
+			case $id in nodsp) extra=rd.driver.blacklist=qcom_q6v5_pas ;; drm-trace) extra=drm.debug=0x1ff ;; nomodeset) extra=nomodeset ;; initramfs) extra=rd.break=pre-mount ;; *) extra= ;; esac ;;
+		esac
+		case $l in *" clk_ignore_unused pd_ignore_unused rootdelay=10"*) have=1 ;; *) have=0 ;; esac
+		[ "$base" = "$have" ] || { d19=0; fail 2.17 "entry $id: clk_ignore_unused pd_ignore_unused rootdelay=10 expected=$base found=$have"; }
+		for x in rd.driver.blacklist=qcom_q6v5_pas drm.debug=0x1ff nomodeset rd.break=pre-mount; do
+			case $l in *" $x "*) [ "$x" = "$extra" ] || { d19=0; fail 2.17 "entry $id carries $x"; } ;; *) [ "$x" != "$extra" ] || { d19=0; fail 2.17 "entry $id lacks $x"; } ;; esac
+		done
+		if [ -n "$want" ]; then
 			got=$(awk -v t="$t" '$0==t{f=1;next} /^menuentry /{f=0} f&&/^\tdevicetree /{print $2}' "$cfg_esp")
 			[ "$got" = "(\$root)/boot/dtb/qcom/$want" ] || { d19=0; fail 2.17 "entry $id loads '$got', expected qcom/$want"; }
 		fi
 	done <"$W/linux-lines.txt"
-	[ "$d19" = 1 ] && pass 2.17 "keepclk is the only entry with clk_ignore_unused pd_ignore_unused; edponly and nobl load their own DTB, all others the packaged one"
+	[ "$d19" = 1 ] && pass 2.17 "M4 menu: default and entries 3-6 are the parity boot (parity DTB, clk_ignore_unused pd_ignore_unused rootdelay=10) plus exactly their one extra argument; M3 command line entry has the packaged DTB and no extra"
 fi
 free=$(mdir -i "$esp_img" ::/ 2>/dev/null | awk '/bytes free/{gsub(/[^0-9]/,""); print}')
 if [ -n "${free:-}" ] && [ "$free" -ge 8388608 ]; then pass 2.10 "embedded ESP has $((free / 1048576)) MiB free for /EFI/sp11-logs"; else fail 2.10 "embedded ESP free space too small (${free:-?} bytes)"; fi
@@ -310,11 +317,14 @@ fi
 if [ "$builder" = kiwi ]; then
 	# D19: DTB variants next to the packaged one. Same SoC and board (root compatible), different from the
 	# packaged DTB, hashes as in the build record and as in out/dtb-variants (the kernel worker's output).
-	for v in edponly nobl; do
+	for v in parity edponly nobl; do
 		vf=x1p64100-microsoft-denali-$v.dtb
 		vd=$W/$vf
 		x "/boot/dtb/qcom/$vf" "$vd"
-		if [ ! -s "$vd" ]; then fail 3.6 "variant DTB /boot/dtb/qcom/$vf missing on the ISO"; continue; fi
+		if [ ! -s "$vd" ]; then
+			if [ "$v" = parity ]; then fail 3.6 "variant DTB /boot/dtb/qcom/$vf missing on the ISO"; else skip 3.6 "variant $v is not on the ISO (unreferenced in M4, optional)"; fi
+			continue
+		fi
 		dtc -I dtb -O dts -o "$vd.dts" "$vd" 2>"$vd.err" && pass 3.6 "variant $v decompiles with dtc" || fail 3.6 "variant $v: dtc failed: $(head -n2 "$vd.err")"
 		rc=$(fdtget "$vd" / compatible 2>/dev/null)
 		case " $rc " in *" microsoft,denali-lcd "*) pass 3.7 "variant $v root compatible has microsoft,denali-lcd" ;; *) fail 3.7 "variant $v root compatible is '$rc'" ;; esac
@@ -410,6 +420,61 @@ else
 		esac
 	done <"$REPO/image/expected-modules.txt"
 fi
+# 5.5 (M4): the display chain and everything modules.dep says it needs must be in the real initramfs
+# (a module that is built in needs nothing). Names are normalised (- = _). A missing one fails L0.
+if [ "$smoke" != true ]; then
+	python3 -I - "$ROOT/lib/modules/$kver/modules.dep" "$W/initrd-ko.txt" "$W/builtin-names.txt" "$REPO/image/expected-modules.txt" <<'PY' >"$W/initrd-deps.txt"
+import re, sys
+dep, ko, builtin, exp = sys.argv[1:5]
+norm = lambda n: re.sub(r'\.ko(\..*)?$', '', n.rsplit('/', 1)[-1]).replace('-', '_')
+deps = {}
+for l in open(dep):
+    p, _, d = l.partition(':')
+    deps[norm(p)] = [norm(x) for x in d.split()]
+inird = {l.strip() for l in open(ko)}
+built = {l.strip() for l in open(builtin)}
+chain = [norm(l.split()[1]) for l in open(exp) if l.split() and l.split()[0] == 'early']
+missing, total = [], 0
+for m in chain:
+    if m in built:
+        continue
+    if m not in deps:
+        missing.append(f"{m} (not in modules.dep)"); continue
+    seen, todo = set(), [m]
+    while todo:
+        x = todo.pop()
+        if x in seen: continue
+        seen.add(x); todo += deps.get(x, [])
+    for x in sorted(seen):
+        total += 1
+        if x not in inird and x not in built:
+            missing.append(f"{x} (needed by {m})")
+print(("FAIL " + "; ".join(sorted(set(missing)))) if missing else f"PASS {len(chain)} display-chain modules and their {total} module-dependency entries are in the initramfs or built in")
+PY
+	line=$(cat "$W/initrd-deps.txt"); case $line in PASS*) pass 5.5 "${line#PASS }" ;; *) fail 5.5 "display chain not complete in the initramfs: ${line#FAIL }" ;; esac
+fi
+if [ "$builder" = kiwi ]; then
+	# M4: the failure capture hook is in the initramfs, with the tools and the vfat module it needs
+	miss=
+	for f in usr/libexec/sp11-initrd-log etc/sp11-boot-medium usr/bin/lsblk usr/bin/blkid usr/bin/gzip usr/bin/journalctl; do grep -q -E "[ /]${f}( |\$)" "$W/initrd-list.txt" || miss="$miss $f"; done
+	grep -q -E 'hooks/emergency/.*60-hook-emergency|hooks/emergency/.*sp11' "$W/initrd-list.txt" || miss="$miss hooks/emergency"
+	grep -q -E 'hooks/initqueue/timeout/.*sp11|hooks/initqueue/timeout/.*98-hook-timeout' "$W/initrd-list.txt" || miss="$miss hooks/initqueue/timeout"
+	grep -q -E '/vfat\.ko' "$W/initrd-list.txt" || miss="$miss vfat.ko"
+	[ -z "$miss" ] && pass 5.6 "initramfs has the sp11-initrd-log hooks (emergency, initqueue timeout), its tools and vfat" || fail 5.6 "initramfs lacks:$miss"
+fi
+if [ "$builder" = kiwi ]; then
+	# D20: the four DSP images are in the initramfs with the hashes of firmware/manifest.toml; the GPU zap shader and
+	# gen70500 are not (msm_open loads them at the first open)
+	for lp in qcom/x1e80100/microsoft/Denali/qcadsp8380.mbn qcom/x1e80100/microsoft/Denali/adsp_dtb.mbn qcom/x1e80100/microsoft/Denali/qccdsp8380.mbn qcom/x1e80100/microsoft/Denali/cdsp_dtb.mbn; do
+		want=$(python3 -I -c "
+import sys, tomllib
+m = tomllib.load(open(sys.argv[1], 'rb'))
+print(next((b['sha256'] for b in m['blob'] if b.get('linux_path') == sys.argv[2]), ''))" "$REPO/firmware/manifest.toml" "$lp")
+		got=$(lsinitrd "$initrd_img" -f "usr/lib/firmware/$lp" 2>/dev/null | sha256sum | cut -d' ' -f1)
+		if [ -n "$want" ] && [ "$got" = "$want" ]; then pass 5.7 "initramfs has $lp, SHA-256 equals firmware/manifest.toml"; else fail 5.7 "initramfs $lp: SHA-256 ${got:0:16}... (manifest ${want:0:16}...)"; fi
+	done
+	if grep -q -E 'gen70500|qcdxkmsuc8380' "$W/initrd-list.txt"; then fail 5.8 "GPU zap shader or gen70500 is in the initramfs"; else pass 5.8 "GPU zap shader and gen70500 are not in the initramfs"; fi
+fi
 grep -E '^[-dlcbps][-rwxsStT]{9} .*plymouth' "$W/initrd-list.txt" >/dev/null && fail 5.4 "plymouth files in the initramfs" || pass 5.4 "no plymouth in the initramfs"
 
 # ---------------------------------------------------------------- check 6 ----
@@ -498,6 +563,15 @@ if [ "$builder" = kiwi ]; then
 	# D19: the display-lcd DPCD tool is in the image, byte-identical to the worker's file, and the unit starts early
 	[ -x "$ROOT/usr/libexec/sp11-collect-dpcd.py" ] && cmp -s "$ROOT/usr/libexec/sp11-collect-dpcd.py" "$REPO/hardware/display-lcd/tools/collect-dpcd.py" && python3 -I -c "import ast,sys; ast.parse(open(sys.argv[1]).read())" "$ROOT/usr/libexec/sp11-collect-dpcd.py" && pass 8.8 "collect-dpcd.py is in the image, executable, equal to hardware/display-lcd/tools/collect-dpcd.py" || fail 8.8 "collect-dpcd.py missing, not executable or different from the display-lcd tool"
 	grep -q '^DefaultDependencies=no' "$svc" && pass 8.9 "collector unit starts without default dependencies (early)" || fail 8.9 "collector unit has default dependencies"
+	# S4: the collector and the initramfs hook write only to a partition of the boot medium's disk
+	ck=$ROOT/usr/libexec/sp11-log-collector; ih=$ROOT/usr/lib/dracut/modules.d/95sp11-initrd-log/sp11-initrd-log.sh
+	for f in "$ck" "$ih"; do
+		if grep -q 'pkname' "$f" && grep -q 'BOOT_DISK' "$f" && grep -q 'disk_has_windows\|e6d6d379-f507-44c2-a23c-238f2a3df928' "$f" && grep -q 'S4' "$f"; then pass 8.11 "$(basename "$f"): PKNAME restriction to the boot medium and the NTFS/BitLocker/MSR guard are present"; else fail 8.11 "$(basename "$f") lacks the PKNAME restriction or the Windows-disk guard (S4)"; fi
+	done
+	! grep -q 'live_parent_disk\|\[ -z "\$dev" \] && dev=\$cand' "$ck" "$ih" && pass 8.12 "no 'any partition labelled ...' fallback left in either script" || fail 8.12 "an 'any BOOT partition' fallback is still in a script (S4)"
+	iso_vol=$(xorriso -indev "$iso" -pvd_info 2>&1 | sed -n 's/^Volume Id *: *//p' | head -n1)
+	. "$ROOT/etc/sp11-boot-medium" 2>/dev/null
+	[ -n "$iso_vol" ] && [ "${SP11_MEDIUM_LABEL:-}" = "$iso_vol" ] && pass 8.13 "/etc/sp11-boot-medium label '$SP11_MEDIUM_LABEL' equals the ISO volume id" || fail 8.13 "/etc/sp11-boot-medium label '${SP11_MEDIUM_LABEL:-}' differs from the ISO volume id '$iso_vol'"
 	grep -q '^CAP_ESP_KIB=32768' "$ROOT/etc/sp11-log-collector.conf" && grep -q '^ESP_LABEL=BOOT' "$ROOT/etc/sp11-log-collector.conf" && pass 8.10 "collector fallback is the ESP labelled BOOT, cap 32 MiB" || fail 8.10 "collector ESP settings missing in /etc/sp11-log-collector.conf"
 fi
 for t in dmesg journalctl lspci lsusb dtc timeout blkid mount python3 lsmod; do
