@@ -113,3 +113,19 @@ Append-only. Each entry: number, date, decision, reason, consequence. A later en
 - **Reason (operator evidence):** FAT32 alone (D17) did not help. The Surface still returns to its boot menu before GRUB with Fedora shim 16.1-7, Secure Boot off. The previous project hit the same problem: FAT32 with shim failed, and FAT32 with GRUB direct reached the Linux console on 2026-10-18. Why shim fails on this firmware is unknown (Hypothesis). Secure Boot is off anyway (D9: GRUB lockdown refuses `devicetree`), so shim does nothing for us.
 - **Consequence:** an installed system will hit the same problem, because Anaconda installs shim and points the boot entry at it. The installer path must point the UEFI boot entry at `grubaa64.efi` (`efibootmgr`), or drop shim. Track this as risk R9.
 - **Evidence:** `out/iso/sp11-fedora44-aarch64-kiwi-20261025T115940Z-directgrub.iso`, with SHA-256 `b4cb9024fc6e021361abdab66f54dafe2b5df9cb11aba2be9d1a46e09a9745c3`. It differs from the D17 ISO only in the ESP: `BOOTAA64.EFI` is GRUB, plus the marker line. In QEMU it shows the marker and the menu, and starts `SP11 debug`.
+
+## D19 (2026-10-25): M3 display candidate after the first device boot
+
+- **Observation (operator, kiwi `-d18` ISO):** GRUB works and `SP11 debug` starts the kernel. The console text scrolls on the firmware framebuffer, then the LCD goes black and stays black. No device logs have been read yet.
+- **Hypotheses**, each tested by its own GRUB entry on one stick:
+  - **H1:** `clk_disable_unused` (late_initcall_sync, `sources/linux/drivers/clk/clk.c:1627`) gates the built-in GCC display clocks, such as `gcc_disp_hf_axi_clk` (`sources/linux/drivers/clk/qcom/gcc-x1e80100.c:2991`, not critical). That kills the firmware framebuffer before `msm` binds. If `msm` then never binds or fails on eDP, the screen stays black.
+  - **H2:** `msm` binds, but eDP or the panel fails (HPD mux, panel power or backlight).
+  - **H3:** the LCD backlight is described wrong. In vanilla, `pmc8380_3` GPIO4, the LCD backlight enable, is the panel enable, and there is no PWM backlight.
+- **Decision:**
+  1. `kernel/series` gets display-lcd 0001 (panel ID), 0002 (HPD pinctrl) and 0003 (PWM backlight).
+     - 0003 is released despite the display-lcd hold. Dale Whinham's series carries `Tested-by: Haipeng Lin` on the Surface Pro 11 LCD (openwall linux-kernel 2026/10/17/1002).
+     - The PMK8550 GPIO5 pad subtype belongs to the PMIC part, not to the unit, so the func3 risk is reduced to Inference (strong).
+     - `CONFIG_DRM_DP_AUX_CHARDEV=y` (display-lcd request, DPCD collection).
+  2. The ISO also ships a DTB variant without 0003 (`…-nobl.dtb`, from the same tree), so a backlight regression can be told apart on the same stick.
+  3. GRUB device entries: default `SP11 debug`; `SP11 debug, keep firmware clocks` (`clk_ignore_unused pd_ignore_unused`, diagnostic for H1, never default); `SP11 debug, DTB without PWM backlight`; the existing DRM trace, nomodeset and initramfs entries; and the VM entry.
+- **Exit:** the device logs (`EFI/sp11-logs` on the stick) decide which hypothesis holds. `clk_ignore_unused` never becomes the default without a log that shows H1.
