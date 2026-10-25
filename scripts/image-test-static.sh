@@ -492,7 +492,13 @@ grep -q '^WantedBy=multi-user.target' "$svc" && ! grep -q -E '^(After|Requires|W
 [ -x "$ROOT/usr/libexec/sp11-log-collector" ] && bash -n "$ROOT/usr/libexec/sp11-log-collector" && pass 8.4 "collector script executable, syntax ok" || fail 8.4 "collector script missing, not executable or broken"
 # first boot runs `preset-all` when /etc/machine-id is "uninitialized" (kiwi); the unit must be enabled by preset
 grep -q -x 'enable sp11-log-collector.service' "$ROOT"/usr/lib/systemd/system-preset/80-sp11.preset 2>/dev/null && pass 8.7 "preset enables the collector (survives preset-all at first boot)" || fail 8.7 "no preset enabling sp11-log-collector.service"
-for t in dmesg journalctl lspci lsusb dtc timeout blkid mount; do
+if [ "$builder" = kiwi ]; then
+	# D19: the display-lcd DPCD tool is in the image, byte-identical to the worker's file, and the unit starts early
+	[ -x "$ROOT/usr/libexec/sp11-collect-dpcd.py" ] && cmp -s "$ROOT/usr/libexec/sp11-collect-dpcd.py" "$REPO/hardware/display-lcd/tools/collect-dpcd.py" && python3 -I -c "import ast,sys; ast.parse(open(sys.argv[1]).read())" "$ROOT/usr/libexec/sp11-collect-dpcd.py" && pass 8.8 "collect-dpcd.py is in the image, executable, equal to hardware/display-lcd/tools/collect-dpcd.py" || fail 8.8 "collect-dpcd.py missing, not executable or different from the display-lcd tool"
+	grep -q '^DefaultDependencies=no' "$svc" && pass 8.9 "collector unit starts without default dependencies (early)" || fail 8.9 "collector unit has default dependencies"
+	grep -q '^CAP_ESP_KIB=32768' "$ROOT/etc/sp11-log-collector.conf" && grep -q '^ESP_LABEL=BOOT' "$ROOT/etc/sp11-log-collector.conf" && pass 8.10 "collector fallback is the ESP labelled BOOT, cap 32 MiB" || fail 8.10 "collector ESP settings missing in /etc/sp11-log-collector.conf"
+fi
+for t in dmesg journalctl lspci lsusb dtc timeout blkid mount python3 lsmod; do
 	[ -x "$ROOT/usr/bin/$t" ] || [ -x "$ROOT/usr/sbin/$t" ] || fail 8.5 "collector needs $t, not in the image"
 done
 for t in debug loglevel=8 ignore_loglevel; do grep -q "$t" "$ROOT/etc/default/grub" || fail 8.6 "/etc/default/grub lacks $t"; done

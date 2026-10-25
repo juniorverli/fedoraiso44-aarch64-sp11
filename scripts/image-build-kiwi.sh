@@ -77,6 +77,10 @@ rm -f "$desc/root/etc/sp11-log-collector.conf"   # lmc-only; the kiwi overlay ha
 cp -a "$REPO/image/kiwi/overlay/root/." "$desc/root/"
 cp -a "$REPO/image/kiwi/overlay/sp11.xml" "$REPO/image/kiwi/overlay/grub-arm.cfg.iso-template" "$desc/"
 chmod 0755 "$desc/root/usr/libexec/sp11-log-collector"
+# D19 / display-lcd request: the DPCD reader of the display worker, shipped unchanged and run by the
+# collector as root against every /dev/drm_dp_aux*
+cp "$REPO/hardware/display-lcd/tools/collect-dpcd.py" "$desc/root/usr/libexec/sp11-collect-dpcd.py"
+chmod 0755 "$desc/root/usr/libexec/sp11-collect-dpcd.py"
 mkdir -p "$desc/root/etc/systemd/system/multi-user.target.wants"
 # Plymouth is installed (required by Fedora's package groups) but switched off: units masked
 for u in start quit quit-wait read-write switch-root halt reboot poweroff kexec; do

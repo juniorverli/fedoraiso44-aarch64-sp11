@@ -10,7 +10,8 @@
 # It only reads from the system (sysfs, debugfs, /dev/drm_dp_aux*, journal); the
 # only writes are to the target and to /run. Nothing is ever written to the NVMe.
 #
-#   sp11-log-collector run     loop: snapshot now, then at growing intervals
+#   sp11-log-collector run     early display snapshot at once, then full snapshots at growing intervals
+#   sp11-log-collector early   only the early display snapshot (manual use, selftest)
 #   sp11-log-collector final   one last snapshot and unmount (manual; SIGTERM does the same)
 #   sp11-log-collector once    one snapshot and exit (manual use)
 set -u
@@ -155,6 +156,78 @@ dpcd() {
 	done
 }
 
+# ---------------------------------------------------------------- display ----
+# The display evidence of decision D19 (hypotheses H1-H5) and of the display-lcd request. Called by
+# the early snapshot (a few seconds after the service starts, before the slow full snapshot) and by
+# every full snapshot. Everything here only reads; the DPCD tool reads AUX and never writes.
+display_set() {
+	# which entry booted, what the kernel was told
+	snap cmdline.txt cat /proc/cmdline
+	shsnap entry.txt 'tr " " "\n" </proc/cmdline | grep -E "^(sp11\.entry=|clk_ignore_unused|pd_ignore_unused|nomodeset|drm\.debug=|console=)" ; echo "dtb model: $(tr "\0" " " </sys/firmware/devicetree/base/model 2>&1)"; echo "dtb compatible: $(tr "\0" " " </sys/firmware/devicetree/base/compatible 2>&1)"'
+	# H5: devices that never probed, and which component masters wait for which components
+	snap devices_deferred.txt cat /sys/kernel/debug/devices_deferred
+	dump_tree device_component.txt /sys/kernel/debug/device_component
+	# drm class, modules, framebuffers (is the firmware framebuffer / simpledrm still there?)
+	shsnap drm-class-ls.txt 'ls -l /sys/class/drm 2>&1; echo; ls -l /dev/dri 2>&1'
+	snap lsmod.txt lsmod
+	shsnap fb-state.txt 'echo "== /dev/fb*"; ls -l /dev/fb* 2>&1; echo "== /proc/fb"; cat /proc/fb 2>&1; echo "== /sys/class/graphics"; for g in /sys/class/graphics/fb*; do [ -d "$g" ] || continue; echo "$g: name=$(cat $g/name 2>&1) size=$(cat $g/virtual_size 2>&1) bpp=$(cat $g/bits_per_pixel 2>&1) blank=$(cat $g/blank 2>&1) dev=$(readlink -f $g/device 2>&1)"; done; echo "== drivers"; ls -l /sys/bus/platform/drivers/simple-framebuffer /sys/bus/platform/drivers/simpledrm /sys/bus/platform/drivers/msm_dpu /sys/bus/platform/drivers/msm-mdss 2>&1; echo "== modules"; for m in simpledrm simple_framebuffer drm_client_lib msm panel_edp pwm_bl leds_qcom_lpg; do [ -d /sys/module/$m ] && echo "$m: present" || echo "$m: absent"; done; echo "== dmesg"; dmesg | grep -i -E "simple-framebuffer|simpledrm|efifb|fb0|Console: switching|frame buffer"'
+	# H1: display clocks, power domains
+	shsnap clk-display.txt 'grep -i -E "disp|mdss|edp|dp" /sys/kernel/debug/clk/clk_summary 2>&1 | head -n 400'
+	snap genpd_summary.txt cat /sys/kernel/debug/pm_genpd/pm_genpd_summary
+	snap clk_summary.txt cat /sys/kernel/debug/clk/clk_summary
+	snap regulator_summary.txt cat /sys/kernel/debug/regulator/regulator_summary
+	# H2/H3: msm, eDP link, panel, backlight, PWM, pmic pins
+	shsnap display-dmesg.txt "dmesg --time-format=iso 2>&1 | grep -i -E 'msm|dpu|mdss|drm|\bdp\b|dp_|panel|edp|backlight|pwm|lpg|simpledrm|simple-framebuffer|efifb|dispcc|phy.*(dp|edp)|pmk8550|pmc8380|spmi-gpio|clk_disable|unused|genpd|probe.*defer|deferred'"
+	shsnap drm-state.txt 'cat /sys/kernel/debug/dri/*/state 2>&1'
+	shsnap dp-link.txt 'find /sys/kernel/debug/dri -type f -name dp_debug -print -exec cat {} \; 2>&1'
+	shsnap drm-connectors.txt 'for c in /sys/class/drm/card*-*; do [ -d "$c" ] || continue; echo "== $c: status=$(cat $c/status 2>&1) enabled=$(cat $c/enabled 2>&1) dpms=$(cat $c/dpms 2>&1)"; head -n 5 "$c/modes" 2>&1; done; for d in /sys/kernel/debug/dri/*/; do for c in "$d"eDP-1 "$d"DP-*; do [ -d "$c" ] || continue; echo "== $c"; ls "$c" 2>&1; done; done'
+	attrs backlight.txt /sys/class/backlight/*
+	shsnap pwm.txt 'ls -l /sys/class/pwm 2>&1; cat /sys/kernel/debug/pwm 2>&1'
+	attrs leds.txt /sys/class/leds/*
+	dump_tree pinctrl-pmic.txt /sys/kernel/debug/pinctrl/*pmic*
+	shsnap spmi-gpio-dmesg.txt "dmesg | grep -i -E 'subtype|func3|spmi-gpio|pmk8550|pmc8380'"
+	# DPCD 0x000-0x0ff and 0x700-0x7ff of every AUX adapter: the display-lcd tool (kept unchanged,
+	# flattened into dpcd-* files because the publish step copies files, not directories), and the
+	# plain dd reader as a second opinion
+	rm -rf "$WORK/dpcd-tool"
+	if [ -x /usr/libexec/sp11-collect-dpcd.py ]; then
+		timeout "$CMD_TIMEOUT" python3 /usr/libexec/sp11-collect-dpcd.py "$WORK/dpcd-tool" >"$OUT/dpcd-tool.txt" 2>&1
+		for f in "$WORK"/dpcd-tool/*; do [ -f "$f" ] && cp -f "$f" "$OUT/dpcd-$(basename "$f")"; done
+	else
+		echo "sp11-collect-dpcd.py is not in this image" >"$OUT/dpcd-tool.txt"
+	fi
+	export -f dpcd
+	shsnap drm-dpcd.txt 'for n in /dev/drm_dp_aux*; do [ -e "$n" ] && dpcd "$n"; done; for n in /sys/class/drm_dp_aux_dev/*; do [ -e "$n" ] && echo "$n: $(cat $n/name 2>&1)"; done'
+}
+
+# the first snapshot: small, fast, written before anything slow runs. When the screen dies this is the
+# one that matters. No COMPLETE marker (CYCLE stays 0); the target may not be mounted yet, so it retries.
+early_snapshot() {
+	local i
+	mkdir -p "$OUT"
+	if ! mountpoint -q /sys/kernel/debug 2>/dev/null; then
+		mount -t debugfs debugfs /sys/kernel/debug 2>"$OUT/debugfs-mount.txt" || say "cannot mount debugfs: $(cat "$OUT/debugfs-mount.txt")"
+		[ -s "$OUT/debugfs-mount.txt" ] || rm -f "$OUT/debugfs-mount.txt"
+	fi
+	snap uname.txt uname -a
+	shsnap kernel-rpm.txt 'rpm -q kernel-core 2>&1'
+	shsnap dmesg.txt 'dmesg --time-format=iso 2>&1 || dmesg'
+	shsnap btf.txt 'if [ -e /sys/kernel/btf/vmlinux ]; then echo "btf: present"; else echo "btf: MISSING"; fi'
+	display_set
+	{
+		echo "boot_id: $BOOT_ID"
+		echo "cycle: 0 (early display snapshot)"
+		echo "date_utc: $(date -u +%FT%TZ)"
+		echo "uptime: $(cut -d' ' -f1 /proc/uptime)"
+	} >"$OUT/STATUS"
+	for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+		publish && { say "early snapshot written to $TARGET_KIND:$TARGET_DIR/$BOOT_ID"; return 0; }
+		sleep 2
+	done
+	say "early snapshot: no target after 30 s, files stay in $OUT"
+	return 1
+}
+
 # --------------------------------------------------------------- snapshot ----
 snapshot() {
 	local d
@@ -174,7 +247,7 @@ snapshot() {
 	} >"$OUT/STATUS.new"
 
 	# --- kernel, boot
-	snap cmdline.txt cat /proc/cmdline
+	display_set
 	snap uname.txt uname -a
 	snap os-release.txt cat /etc/os-release
 	shsnap kernel-rpm.txt 'rpm -q kernel-core kernel-modules-core 2>&1'
@@ -182,9 +255,7 @@ snapshot() {
 	shsnap journal.txt 'journalctl -b --no-pager -o short-monotonic 2>&1'
 	shsnap journal-warnings.txt 'journalctl -b --no-pager -p warning -o short-monotonic 2>&1'
 	shsnap firmware-failures.txt "dmesg | grep -i -E 'firmware|request_firmware|Direct firmware load|failed to load|-ENOENT|error -2'"
-	shsnap deferred.txt 'cat /sys/kernel/debug/devices_deferred 2>&1'
 	shsnap btf.txt 'if [ -e /sys/kernel/btf/vmlinux ]; then echo "btf: present"; ls -l /sys/kernel/btf/vmlinux; echo "btf entries: $(ls /sys/kernel/btf | wc -l)"; else echo "btf: MISSING"; fi'
-	snap lsmod.txt lsmod
 	shsnap modules-loaded-late.txt 'cat /proc/modules'
 	shsnap procs.txt 'ps -eo pid,ppid,stat,etime,comm,args --sort=pid | head -n 400'
 	shsnap mounts.txt 'findmnt -A; echo; df -h; echo; lsblk -f; echo; blkid'
@@ -211,15 +282,11 @@ snapshot() {
 	shsnap devicetree.dts 'dtc -I fs -O dts /sys/firmware/devicetree/base 2>&1 | head -c 4194304'
 	snap interrupts.txt cat /proc/interrupts
 	snap iomem.txt cat /proc/iomem
-	snap clk_summary.txt cat /sys/kernel/debug/clk/clk_summary
-	snap regulator_summary.txt cat /sys/kernel/debug/regulator/regulator_summary
-	snap genpd_summary.txt cat /sys/kernel/debug/pm_genpd/pm_genpd_summary
 	snap gpio.txt cat /sys/kernel/debug/gpio
 	dump_tree pinctrl.txt /sys/kernel/debug/pinctrl
 	# display-lcd request: pins, pinmux-pins, pinconf-pins of every controller (spmi-gpio of
 	# PMK8550 and PMC8380_3 included), plus the dmesg lines about the spmi-gpio subtype
 	shsnap pinctrl-pins.txt 'for c in /sys/kernel/debug/pinctrl/*/; do for f in pins pinmux-pins pinconf-pins; do [ -r "$c$f" ] && { echo "=== $c$f"; cat "$c$f"; }; done; done; echo "=== devices"; cat /sys/kernel/debug/pinctrl/pinctrl-devices 2>&1'
-	shsnap spmi-gpio-dmesg.txt "dmesg | grep -i -E 'subtype|func3|spmi-gpio|pmk8550|pmc8380'"
 	shsnap spmi-gpio-sysfs.txt 'ls -l /sys/bus/spmi/devices /sys/bus/platform/drivers/qcom-spmi-gpio 2>&1'
 	dump_tree devfreq.txt /sys/class/devfreq /sys/kernel/debug/devfreq
 	attrs thermal.txt /sys/class/thermal/thermal_zone* /sys/class/thermal/cooling_device*
@@ -227,16 +294,12 @@ snapshot() {
 	# --- remoteprocs, power, backlight
 	attrs remoteproc.txt /sys/class/remoteproc/*
 	attrs power_supply.txt /sys/class/power_supply/*
-	attrs backlight.txt /sys/class/backlight/*
-	attrs leds.txt /sys/class/leds/*
 
-	# --- display
+	# --- display (the display evidence itself is display_set, above)
 	shsnap drm-tree.txt 'ls -lR /sys/class/drm /dev/dri 2>&1'
 	dump_tree drm-sysfs.txt /sys/class/drm
 	dump_tree drm-debugfs.txt /sys/kernel/debug/dri
 	shsnap drm-edid.txt 'for e in /sys/class/drm/*/edid; do [ -s "$e" ] && { echo "== $e"; od -A x -t x1z -v "$e"; }; done'
-	export -f dpcd
-	shsnap drm-dpcd.txt 'for n in /dev/drm_dp_aux*; do [ -e "$n" ] && dpcd "$n"; done; for n in /sys/class/drm_dp_aux_dev/*; do [ -e "$n" ] && echo "$n: $(cat $n/name 2>&1)"; done' 
 	shsnap drm-modules.txt 'for m in msm drm_dp_aux_bus panel_edp phy_qcom_edp pwm_bl simpledrm virtio_gpu; do [ -d /sys/module/$m ] && echo "$m: loaded"; done'
 
 	# --- buses
@@ -340,6 +403,7 @@ nap() { # interruptible sleep, so SIGTERM runs the trap at once
 case ${1:-run} in
 run)
 	trap 'finish; exit 0' TERM
+	early_snapshot
 	do_snapshot
 	for i in $INTERVALS; do
 		nap "$i"
@@ -351,10 +415,11 @@ run)
 		do_snapshot
 	done
 	;;
+early) early_snapshot ;;
 final) finish ;;
 once) do_snapshot ;;
 *)
-	echo "usage: $0 run|final|once" >&2
+	echo "usage: $0 run|early|final|once" >&2
 	exit 2
 	;;
 esac
