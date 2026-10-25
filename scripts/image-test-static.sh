@@ -325,6 +325,8 @@ if [ "$builder" = kiwi ]; then
 			cmp -s "$vd" "$dtbf" && fail 3.8 "variant $v is identical to the packaged DTB" || pass 3.8 "variant $v differs from the packaged DTB"
 		fi
 		[ "$vsha" = "$(jq_ ".dtb_files[\"$vf\"] // empty")" ] && pass 3.9 "variant $v SHA-256 equals the build record" || fail 3.9 "variant $v SHA-256 $vsha differs from the build record ($(jq_ ".dtb_files[\"$vf\"] // \"none\""))"
+		rsha=$(jq_ ".dtb_variant_records[\"$vf.json\"].sha256 // empty")
+		if [ -n "$rsha" ]; then [ "$vsha" = "$rsha" ] && pass 3.11 "variant $v SHA-256 equals the kernel worker's JSON record" || fail 3.11 "variant $v SHA-256 differs from the kernel worker's JSON record ($rsha)"; else skip 3.11 "no JSON record of the kernel worker for variant $v in the build record"; fi
 		src=$(ls "$OUT"/dtb-variants/"$kver"/qcom/$vf 2>/dev/null | head -n1)
 		if [ -n "$src" ]; then cmp -s "$src" "$vd" && pass 3.10 "variant $v equals out/dtb-variants/$kver/qcom/$vf" || fail 3.10 "variant $v differs from $src"; else skip 3.10 "no out/dtb-variants/$kver/qcom/$vf to compare with"; fi
 	done
