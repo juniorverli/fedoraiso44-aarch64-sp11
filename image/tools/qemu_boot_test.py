@@ -81,6 +81,15 @@ def read_log(img, bootdir, name):
     return data.decode(errors="replace")
 
 
+def find_initrd_dir(img):
+    """initrd-<boot-id>/ with a COMPLETE marker below /EFI/sp11-logs (the dracut capture hook)."""
+    for entry in mtools_listing(img):
+        e = entry.replace("::", "", 1).strip("/").split("/")[-1]
+        if re.fullmatch(r"initrd-[0-9a-f-]{36}", e) and mtools_cat(img, f"{e}/COMPLETE") is not None:
+            return e
+    return None
+
+
 def find_bootdir(img):
     for entry in mtools_listing(img):
         e = entry.replace("::", "", 1).strip("/").split("/")[-1]   # with LOGROOT, mdir -b prints the whole path
@@ -99,6 +108,11 @@ def main():
                          "/EFI/sp11-logs on the embedded ESP (label BOOT); implies --early")
     ap.add_argument("--early", action="store_true",
                     help="stop as soon as the collector has a complete <boot-id>/ with BTF present; no GDM, no unit checks")
+    ap.add_argument("--decoy", default="", help="raw image of a fake Windows disk (image/tools/make-decoy-disk.sh), attached "
+                    "writable; its md5sum must be unchanged after the run (risk S4)")
+    ap.add_argument("--initrd-fail", action="store_true",
+                    help="test of the dracut failure capture: edit the VM entry in GRUB so that root=live:CDLABEL= is wrong; implies "
+                         "--esp-fallback; passes when /EFI/sp11-logs/initrd-<boot-id>/ is complete on the ESP")
     ap.add_argument("--legacy-menu", action="store_true", help="the ISO has the five-entry menu of before M3")
     ap.add_argument("--no-display-files", action="store_true", help="do not require the D19 display files (ISOs older than M3)")
     ap.add_argument("--work", required=True)
@@ -117,7 +131,14 @@ def main():
     if a.legacy_menu:
         ENTRIES = LEGACY_ENTRIES
     os.makedirs(a.work, exist_ok=True)
+    if a.initrd_fail:
+        a.esp_fallback = True
     early = a.early or a.esp_fallback
+    decoy_md5 = None
+    if a.decoy:
+        import hashlib
+        decoy_md5 = hashlib.md5(open(a.decoy, "rb").read()).hexdigest()
+        print(f"decoy disk {a.decoy} md5 before: {decoy_md5}", flush=True)
     iso_path, iso_ro = a.iso, "on"
     if a.esp_fallback:
         # a copy of the ISO the guest may write to; its GPT partition 2 is the embedded ESP
@@ -160,7 +181,10 @@ def main():
     ] + ([] if a.esp_fallback else [
         "-drive", f"if=none,id=logs,format=raw,file={a.logs}",
         "-device", "usb-storage,bus=xhci.0,drive=logs",
-    ]) + [
+    ]) + ([
+        "-drive", f"if=none,id=decoy,format=raw,file={a.decoy}",
+        "-device", "usb-storage,bus=xhci.0,drive=decoy",
+    ] if a.decoy else []) + [
         "-device", "virtio-gpu-pci",
         "-device", "usb-kbd,bus=xhci.0",
         "-netdev", "user,id=n0", "-device", "virtio-net-pci,netdev=n0",
@@ -208,7 +232,18 @@ def main():
                     child.send(b"\x1b[B")
                     time.sleep(0.5)
                 time.sleep(1)
-                child.send(b"\r")
+                if a.initrd_fail:
+                    # GRUB editor: e, to the end of the linux line (Ctrl-E), a wrong root label last (the last root= wins),
+                    # a short rd.retry and no interactive shell, Ctrl-X boots. This entry exists only in this test run.
+                    child.send(b"e")
+                    time.sleep(3)
+                    child.send(b"\x05")
+                    time.sleep(1)
+                    child.send(b" root=live:CDLABEL=SP11-NO-SUCH-LABEL rd.retry=12 rd.shell=0 rd.emergency=reboot")
+                    time.sleep(2)
+                    child.send(b"\x18")
+                else:
+                    child.send(b"\r")
                 state["selected"] = True
                 buf_all = b""
                 print(f"[{int(now - start)}s] selected '{a.entry}' ({idx} x Down, Enter)", flush=True)
@@ -219,7 +254,7 @@ def main():
                     state["gdm"] = True
                 if re.search(rb"Reached target .*(Multi-User|Graphical)", buf_all):
                     state["target"] = True
-                for pat, label in FATAL:
+                for pat, label in ([] if a.initrd_fail else FATAL):
                     if re.search(pat, buf_all):
                         state["fatal"] = label
             if state["fatal"]:
@@ -232,6 +267,13 @@ def main():
             # poll the logs disk (read-only mtools) once the system is far enough
             if state["selected"] and now - poll_t > (60 if early else a.poll_sec):
                 poll_t = now
+                if a.initrd_fail:
+                    idir = find_initrd_dir(a.logs)
+                    if idir:
+                        print(f"[{int(now - start)}s] initramfs capture complete: {idir}", flush=True)
+                        time.sleep(10)
+                        break
+                    continue
                 bd = find_bootdir(a.logs)
                 if bd:
                     btf = read_log(a.logs, bd, "btf.txt") or ""
@@ -278,7 +320,44 @@ def main():
     logf.close()
 
     # ------------------------------------------------------------ verdict ----
+    def decoy_check():
+        if a.decoy:
+            import hashlib
+            after = hashlib.md5(open(a.decoy, "rb").read()).hexdigest()
+            check("fake Windows disk is byte-identical after the run (md5sum before = after, risk S4)", after == decoy_md5,
+                  f"md5 {after}" + ("" if after == decoy_md5 else f" (before {decoy_md5})"))
+
     check("GRUB menu shows all entries", state["menu"])
+    if a.initrd_fail:
+        serial = open(serial_log, "rb").read()
+        check("the edited entry booted with a wrong root label (SP11-NO-SUCH-LABEL on the kernel command line)", b"SP11-NO-SUCH-LABEL" in serial)
+        check("dracut gave up on the root (initqueue timeout or emergency on the console)",
+              bool(re.search(rb"initqueue: timeout|Could not boot|Warning: .*could not boot|Entering emergency|sp11-initrd-log: wrote", serial)))
+        idir = find_initrd_dir(a.logs)
+        check("initrd-<boot-id>/ with COMPLETE is on the ESP (/EFI/sp11-logs, label BOOT)", idir is not None, idir or "none")
+        if idir:
+            files = [f.lstrip('/').split('/')[-1] for f in mtools_listing(a.logs, idir)]
+            res["initrd_files"] = files
+            for pat in (r"journal-.*\.txt\.gz", r"dmesg-.*\.txt\.gz", r"rdsosreport-.*\.txt\.gz", r"state-.*\.txt\.gz", r"STATUS\..*", r"SEQ", r"COMPLETE"):
+                check(f"initrd capture file {pat}", any(re.fullmatch(pat, f, re.I) for f in files))
+            st = "".join((read_log(a.logs, idir, f.rstrip(".gz")) or "") for f in files if f.upper().startswith("STATUS."))
+            check("the boot medium was found by the built-in ISO label (the cmdline label is wrong on purpose)", "built-in ISO label" in st, st.strip().replace("\n", " | ")[:300])
+            rep = ""
+            for f in files:
+                if f.startswith("rdsosreport-"):
+                    rep = read_log(a.logs, idir, f[:-3]) or ""
+            check("rdsosreport.txt in the capture shows the wrong label on the command line", "SP11-NO-SUCH-LABEL" in rep)
+            jr = ""
+            for f in files:
+                if f.startswith("journal-"):
+                    jr = read_log(a.logs, idir, f[:-3]) or ""
+            check("initramfs journal in the capture is not empty", len(jr) > 1000, f"{len(jr)} bytes")
+        check("no real-root <boot-id>/ was written (the system never got past the initramfs)", find_bootdir(a.logs) is None)
+        decoy_check()
+        res["ok"] = all(c["ok"] for c in res["checks"])
+        json.dump(res, open(a.report, "w"), indent=1)
+        print("L1 (initramfs failure capture)", "PASS" if res["ok"] else "FAIL", flush=True)
+        return 0 if res["ok"] else 1
     check(f"entry '{a.entry}' selected and booted (sp11.entry=vmtest on the kernel command line)", state["cmdline"])
     bd = find_bootdir(a.logs)
     check("collector wrote a complete <boot-id>/ to the log target (COMPLETE marker)", bd is not None, bd or "no complete boot directory")
@@ -329,6 +408,7 @@ def main():
         check("no fatal boot message", False, state["fatal"])
     if state["stall"]:
         check("console kept printing", False, f"silent for {a.stall_min} min")
+    decoy_check()
     res["state"] = state
     res["ok"] = all(c["ok"] for c in res["checks"])
     json.dump(res, open(a.report, "w"), indent=1)
