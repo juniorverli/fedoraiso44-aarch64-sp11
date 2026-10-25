@@ -280,7 +280,7 @@ def main():
     check("GRUB menu shows all entries", state["menu"])
     check(f"entry '{a.entry}' selected and booted (sp11.entry=vmtest on the kernel command line)", state["cmdline"])
     bd = find_bootdir(a.logs)
-    check("collector wrote a complete <boot-id>/ to SP11LOGS (COMPLETE marker)", bd is not None, bd or "no complete boot directory")
+    check("collector wrote a complete <boot-id>/ to the log target (COMPLETE marker)", bd is not None, bd or "no complete boot directory")
     if bd:
         files = mtools_listing(a.logs, bd)
         res["log_files"] = files
