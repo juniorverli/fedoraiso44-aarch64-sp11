@@ -1,0 +1,6 @@
+# SP11 log collector: enable it by preset. A kiwi image ships /etc/machine-id as "uninitialized",
+# so systemd runs `preset-all` on first boot; without this line the preset policy of Fedora
+# (90-default.preset, `disable *`) removed the multi-user.target.wants symlink at 379 s of the
+# first L1 run ("Removed '/etc/systemd/system/multi-user.target.wants/sp11-log-collector.service'")
+# and the collector never ran.
+enable sp11-log-collector.service
