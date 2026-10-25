@@ -16,11 +16,18 @@ set -euo pipefail
 
 OUT=${SP11_OUT:-/out}
 REPO=/sp11
-name_arg= post_only=
-if [ "${1:-}" = --post-only ]; then post_only=${2:?build id}; shift 2; fi   # redo steps 7-9 of a finished kiwi run
-name_arg=${1:-}
+name_arg= post_only= smoke=0
+while [ $# -gt 0 ]; do
+	case $1 in
+	--post-only) post_only=${2:?build id}; shift ;;   # redo steps 6b-9 of a finished kiwi run
+	--smoke) smoke=1 ;;   # D19: a missing DTB variant is replaced by a copy of the packaged DTB (pipeline test only)
+	*) name_arg=$1 ;;
+	esac
+	shift
+done
 id=${post_only:-$(date -u +%Y%m%dT%H%M%SZ)}
-name=${name_arg:-sp11-fedora44-aarch64-kiwi-$id}
+kind=kiwi; [ "$smoke" = 1 ] && kind=kiwi-smoke
+name=${name_arg:-sp11-fedora44-aarch64-$kind-$id}
 work=$OUT/image-work/$id
 isodir=$OUT/iso
 mkdir -p "$work/tmp" "$isodir" "$OUT/kiwi"
@@ -28,6 +35,24 @@ cd "$work"   # /sp11 is a worktree whose .git file points outside the container
 log() { echo "image-build[kiwi]: $*" >&2; }
 
 if [ -z "$post_only" ]; then
+# ---- 0. the kernel RPMs: the newest kernel-core in out/rpms, and it must be newer than the last
+# kernel that is known not to carry the M3 display patches (image/kiwi/MIN_KERNEL_EXCLUSIVE, D19).
+# out/rpms may hold several builds; all five RPMs of the image come from the same one.
+newest=
+for f in "$OUT"/rpms/kernel-core-[0-9]*.aarch64.rpm; do
+	[ -e "$f" ] || { log "no kernel-core RPM in $OUT/rpms"; exit 1; }
+	vr=$(rpm -qp --qf '%{version}-%{release}' "$f")
+	if [ -z "$newest" ] || [ "$(rpm --eval "%{lua:print(rpm.vercmp('$vr', '$newest_vr'))}")" -gt 0 ]; then newest=$f newest_vr=$vr; fi
+done
+kcore_src=$newest
+min=$(tr -d '[:space:]' <"$REPO/image/kiwi/MIN_KERNEL_EXCLUSIVE")
+if [ "$(rpm --eval "%{lua:print(rpm.vercmp('$newest_vr', '$min'))}")" -le 0 ]; then
+	log "REFUSED: newest kernel-core in $OUT/rpms is $newest_vr; the M3 image needs one newer than $min (D19)"
+	exit 5
+fi
+kver_full=$(rpm -qp --qf '%{version}-%{release}.%{arch}' "$kcore_src")
+log "kernel $kver_full (newer than $min)"
+
 # ---- 1. Fedora's description at the pinned commit
 pin=$(tr -d '[:space:]' <"$REPO/image/kiwi/DESCRIPTION_COMMIT")
 src=$OUT/kiwi/fedora-kiwi-descriptions.git
@@ -70,8 +95,8 @@ log "local repository from $OUT/rpms"
 rm -rf "$OUT/repo"
 mkdir -p "$OUT/repo"
 for n in kernel kernel-core kernel-modules kernel-modules-core kernel-modules-extra; do
-	f=$(ls "$OUT"/rpms/"$n"-[0-9]*.aarch64.rpm 2>/dev/null | head -n1) || true
-	[ -n "$f" ] || { log "no $n RPM in $OUT/rpms"; exit 1; }
+	f=$OUT/rpms/$n-$kver_full.rpm
+	[ -f "$f" ] || { log "no $n-$kver_full.rpm in $OUT/rpms"; exit 1; }
 	cp "$f" "$OUT/repo/"
 done
 createrepo_c -q "$OUT/repo"
@@ -85,12 +110,29 @@ mkdir -p "$dtbtmp/boot/dtb/qcom"
 rpm2cpio "$kcore" | cpio -i --quiet --to-stdout "./lib/modules/$kver/dtb/qcom/x1p64100-microsoft-denali.dtb" \
 	>"$dtbtmp/boot/dtb/qcom/x1p64100-microsoft-denali.dtb"
 [ -s "$dtbtmp/boot/dtb/qcom/x1p64100-microsoft-denali.dtb" ] || { log "DTB not in $kcore"; exit 1; }
+# D19: the two variants of the kernel worker, next to the packaged DTB. The build fails without
+# them; with --smoke a copy of the packaged DTB stands in (recorded, never for the device).
+variants_smoke_copy=0
+for v in edponly nobl; do
+	vf=x1p64100-microsoft-denali-$v.dtb
+	vsrc=$OUT/dtb-variants/$kver/qcom/$vf
+	if [ -s "$vsrc" ]; then
+		cp "$vsrc" "$dtbtmp/boot/dtb/qcom/$vf"
+	elif [ "$smoke" = 1 ]; then
+		log "SMOKE: $vsrc missing, using a copy of the packaged DTB for the $v entry"
+		cp "$dtbtmp/boot/dtb/qcom/x1p64100-microsoft-denali.dtb" "$dtbtmp/boot/dtb/qcom/$vf"
+		variants_smoke_copy=1
+	else
+		log "REFUSED: DTB variant $vsrc is missing (the kernel worker writes it); --smoke only for a pipeline test"
+		exit 6
+	fi
+done
 tar -C "$dtbtmp" -cf "$desc/config-cdroot.tar" boot
 
 # ---- 5. pins for the build record
 dnf -q repoinfo fedora updates --setopt=reposdir=/etc/yum.repos.d 2>/dev/null |
 	grep -E '^(Repo-id|Repo-revision|Repo-updated)' >"$work/repos.txt" || true
-printf "pin=%s\nhead=%s\nkver=%s\n" "$pin" "$head" "$kver" >"$work/build-vars.env"
+printf "pin=%s\nhead=%s\nkver=%s\nvariants_smoke_copy=%s\n" "$pin" "$head" "$kver" "$variants_smoke_copy" >"$work/build-vars.env"
 # ---- 6. kiwi, through Fedora's own wrapper
 # The image root must not be built below /out: /out is a bind mount of a host path, kernel-install
 # computes the BLS entry paths from the mount's source (/proc/self/mountinfo) and wrote the host path
@@ -173,8 +215,11 @@ mcopy -i "$chk/bi/eltorito_img1_uefi.img" ::EFI/BOOT/grub.cfg "$chk/esp-grub.cfg
 for f in "$chk"/_* "$chk/esp-grub.cfg"; do
 	if grep -v '^[[:space:]]*#' "$f" | grep -w -E 'quiet|rhgb|splash' >/dev/null; then log "FAIL: quiet/rhgb/splash in $f"; exit 1; fi
 done
-n=$(grep -c "^menuentry '" "$chk/_boot_grub2_grub.cfg"); [ "$n" = 5 ] || { log "FAIL: $n menu entries, expected 5"; exit 1; }
-for e in debug drm-trace nomodeset initramfs vmtest; do grep -q "sp11.entry=$e\$" "$chk/_boot_grub2_grub.cfg" || { log "FAIL: no entry with sp11.entry=$e"; exit 1; }; done
+n=$(grep -c "^menuentry '" "$chk/_boot_grub2_grub.cfg"); [ "$n" = 8 ] || { log "FAIL: $n menu entries, expected 8 (D19)"; exit 1; }
+for e in debug keepclk edponly nobl drm-trace nomodeset initramfs vmtest; do grep -q "sp11.entry=$e\$" "$chk/_boot_grub2_grub.cfg" || { log "FAIL: no entry with sp11.entry=$e"; exit 1; }; done
+for f in x1p64100-microsoft-denali x1p64100-microsoft-denali-edponly x1p64100-microsoft-denali-nobl; do
+	xorriso -indev "$iso" -find "/boot/dtb/qcom/$f.dtb" -type f 2>/dev/null | grep -q . || { log "FAIL: /boot/dtb/qcom/$f.dtb not on the ISO"; exit 1; }
+done
 
 # ---- 8. publish
 mv -f "$iso" "$isodir/$name.iso"
@@ -182,9 +227,9 @@ mv -f "$iso" "$isodir/$name.iso"
 sha=$(cut -d' ' -f1 "$isodir/$name.iso.sha256")
 
 # ---- 9. build record
-python3 - "$isodir/$name.json" "$name" "$sha" "$id" "$elapsed" "$work" "$REPO" "$OUT" "$pin" "$head" <<'PYEOF'
+python3 - "$isodir/$name.json" "$name" "$sha" "$id" "$elapsed" "$work" "$REPO" "$OUT" "$pin" "$head" "${variants_smoke_copy:-0}" "$kind" <<'PYEOF'
 import hashlib, json, os, re, subprocess, sys
-rec, name, sha, bid, elapsed, work, repo, out, pin, head = sys.argv[1:11]
+rec, name, sha, bid, elapsed, work, repo, out, pin, head, variants_smoke_copy, kind = sys.argv[1:13]
 
 def sha256(p):
     h = hashlib.sha256()
@@ -216,7 +261,7 @@ series = f"{repo}/kernel/series"
 manifest = f"{repo}/firmware/manifest.toml"
 patches = sorted(os.listdir(f"{repo}/image/kiwi/patches"))
 record = {
-    "name": name, "kind": "kiwi", "builder": "kiwi", "smoke": False, "build_id": bid,
+    "name": name, "kind": kind, "builder": "kiwi", "smoke": False, "build_id": bid,
     "iso_sha256": sha, "iso_size": os.path.getsize(f"{out}/iso/{name}.iso"),
     "build_seconds": int(elapsed),
     "kernel_nevra": read(f"{out}/image-work/kernel-nevra.txt").strip(),
@@ -225,6 +270,9 @@ record = {
     "firmware_installed": [{"sha256": a, "path": b} for a, b in fw],
     "firmware_installed_listing_sha256": hashlib.sha256("\n".join(" ".join(x) for x in fw).encode()).hexdigest(),
     "dtb": "qcom/x1p64100-microsoft-denali.dtb",
+    "dtb_files": {f: sha256(f"{work}/dtb/boot/dtb/qcom/{f}") for f in sorted(os.listdir(f"{work}/dtb/boot/dtb/qcom"))},
+    "dtb_variants_smoke_copy": variants_smoke_copy == "1",
+    "dtb_variants_source": "out/dtb-variants/<kernel version>/qcom/ (kernel worker)",
     "kernel_cmdline_reasons": "image/README.md, GRUB 2 and the kernel command line",
     "grub_entries": entries,
     "kiwi_description": {"url": "https://pagure.io/fedora-kiwi-descriptions.git", "branch": "f44", "pinned_commit": pin,
