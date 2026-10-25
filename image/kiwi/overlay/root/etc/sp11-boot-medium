@@ -1,0 +1,4 @@
+# The volume label of this ISO (Fedora's volid for Workstation-Live, scripts/fedora-live-iso-label-generator),
+# used by the log collector and the initramfs capture hook to find the boot medium when root=live:CDLABEL=
+# on the command line does not resolve (risk S4). L0 checks it equals the ISO's volume id.
+SP11_MEDIUM_LABEL=Fedora-WS-Live-44

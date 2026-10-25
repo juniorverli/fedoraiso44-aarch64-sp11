@@ -18,17 +18,56 @@ MNT=/run/sp11-esp
 BOOT_ID=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo unknown-boot)
 say() { echo "sp11-initrd-log: $*" >&2; }
 
+# ---- boot medium (risk S4): the same rules as the collector. Write only to a partition of the disk the
+# live system is booting from, never to another disk (the test device is also a Windows machine), and
+# never to a disk that carries NTFS, BitLocker or a Microsoft reserved partition.
+SP11_MSR_GUID=e6d6d379-f507-44c2-a23c-238f2a3df928
+pkname() {
+	_n=${1##*/}
+	if [ -e "/sys/class/block/$_n/partition" ]; then basename "$(readlink -f "/sys/class/block/$_n/..")"; else echo "$_n"; fi
+}
+BOOT_DISK= BOOT_HOW=
+_label=
+for _a in $(cat /proc/cmdline 2>/dev/null); do
+	case $_a in root=live:CDLABEL=*) _label=${_a#root=live:CDLABEL=} ;; root=live:LABEL=*) _label=${_a#root=live:LABEL=} ;; esac
+done
+if [ -n "$_label" ]; then
+	_dev=$(blkid -L "$_label" 2>/dev/null | head -n1)
+	[ -n "$_dev" ] && { BOOT_DISK=$(pkname "$_dev"); BOOT_HOW="cmdline label $_label -> $_dev"; }
+fi
+if [ -z "$BOOT_DISK" ]; then
+	_src=$(awk '$2=="/run/initramfs/live"{print $1}' /proc/mounts 2>/dev/null | head -n1)
+	[ -n "$_src" ] && [ -b "$_src" ] && { BOOT_DISK=$(pkname "$_src"); BOOT_HOW="live mount source $_src"; }
+fi
+if [ -z "$BOOT_DISK" ] && [ -r /etc/sp11-boot-medium ]; then
+	# the label the ISO was built with (a wrong or missing root= label is the very failure this hook is for)
+	. /etc/sp11-boot-medium
+	_dev=$(blkid -L "$SP11_MEDIUM_LABEL" 2>/dev/null | head -n1)
+	[ -n "$_dev" ] && { BOOT_DISK=$(pkname "$_dev"); BOOT_HOW="built-in ISO label $SP11_MEDIUM_LABEL -> $_dev"; }
+fi
+if [ -z "$BOOT_DISK" ]; then
+	say "S4: boot medium unknown ($reason: root=live:CDLABEL=$_label does not resolve, no live mount): writing nothing"
+	exit 0
+fi
+say "boot medium: $BOOT_DISK ($BOOT_HOW)"
+if lsblk -rno FSTYPE "/dev/$BOOT_DISK" 2>/dev/null | tr 'A-Z' 'a-z' | grep -q -E '^(ntfs|bitlocker.*)$' ||
+	lsblk -rno PARTTYPE "/dev/$BOOT_DISK" 2>/dev/null | tr 'A-Z' 'a-z' | grep -q -x "$SP11_MSR_GUID"; then
+	say "S4: disk $BOOT_DISK carries NTFS, BitLocker or a Microsoft reserved partition: refusing to write to it"
+	exit 0
+fi
+
 mkdir -p "$MNT"
 modprobe vfat 2>/dev/null
 dev=
 for cand in $(blkid -t "LABEL=$ESP_LABEL" -o device 2>/dev/null); do
+	[ "$(pkname "$cand")" = "$BOOT_DISK" ] || continue
 	if mount -t vfat -o rw,noatime,nodev,nosuid,noexec,umask=0077,shortname=winnt "$cand" "$MNT" 2>/dev/null; then
 		dev=$cand
 		break
 	fi
 done
 if [ -z "$dev" ]; then
-	say "no writable FAT partition labelled $ESP_LABEL ($reason); nothing written"
+	say "no writable FAT partition labelled $ESP_LABEL on the boot medium $BOOT_DISK ($reason); nothing written"
 	exit 0
 fi
 
@@ -48,6 +87,7 @@ gz() { gzip -c -6 >"$bd/$1.gz"; }   # gz NAME < data
 	echo "date_utc: $(date -u +%FT%TZ)"
 	echo "uptime: $(cut -d' ' -f1 /proc/uptime)"
 	echo "esp_device: $dev"
+	echo "boot_medium: $BOOT_DISK ($BOOT_HOW)"
 } >"$bd/STATUS.$reason"
 journalctl -b --no-pager -o short-monotonic 2>&1 | gz "journal-$reason.txt"
 dmesg --time-format=iso 2>&1 | gz "dmesg-$reason.txt"

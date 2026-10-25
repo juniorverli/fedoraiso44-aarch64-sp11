@@ -447,6 +447,15 @@ print(("FAIL " + "; ".join(sorted(set(missing)))) if missing else f"PASS {len(ch
 PY
 	line=$(cat "$W/initrd-deps.txt"); case $line in PASS*) pass 5.5 "${line#PASS }" ;; *) fail 5.5 "display chain not complete in the initramfs: ${line#FAIL }" ;; esac
 fi
+if [ "$builder" = kiwi ]; then
+	# M4: the failure capture hook is in the initramfs, with the tools and the vfat module it needs
+	miss=
+	for f in usr/libexec/sp11-initrd-log etc/sp11-boot-medium usr/bin/lsblk usr/bin/blkid usr/bin/gzip usr/bin/journalctl; do grep -q -E "[ /]${f}( |\$)" "$W/initrd-list.txt" || miss="$miss $f"; done
+	grep -q -E 'hooks/emergency/.*60-hook-emergency|hooks/emergency/.*sp11' "$W/initrd-list.txt" || miss="$miss hooks/emergency"
+	grep -q -E 'hooks/initqueue/timeout/.*sp11|hooks/initqueue/timeout/.*98-hook-timeout' "$W/initrd-list.txt" || miss="$miss hooks/initqueue/timeout"
+	grep -q -E '/vfat\.ko' "$W/initrd-list.txt" || miss="$miss vfat.ko"
+	[ -z "$miss" ] && pass 5.6 "initramfs has the sp11-initrd-log hooks (emergency, initqueue timeout), its tools and vfat" || fail 5.6 "initramfs lacks:$miss"
+fi
 grep -E '^[-dlcbps][-rwxsStT]{9} .*plymouth' "$W/initrd-list.txt" >/dev/null && fail 5.4 "plymouth files in the initramfs" || pass 5.4 "no plymouth in the initramfs"
 
 # ---------------------------------------------------------------- check 6 ----
@@ -535,6 +544,15 @@ if [ "$builder" = kiwi ]; then
 	# D19: the display-lcd DPCD tool is in the image, byte-identical to the worker's file, and the unit starts early
 	[ -x "$ROOT/usr/libexec/sp11-collect-dpcd.py" ] && cmp -s "$ROOT/usr/libexec/sp11-collect-dpcd.py" "$REPO/hardware/display-lcd/tools/collect-dpcd.py" && python3 -I -c "import ast,sys; ast.parse(open(sys.argv[1]).read())" "$ROOT/usr/libexec/sp11-collect-dpcd.py" && pass 8.8 "collect-dpcd.py is in the image, executable, equal to hardware/display-lcd/tools/collect-dpcd.py" || fail 8.8 "collect-dpcd.py missing, not executable or different from the display-lcd tool"
 	grep -q '^DefaultDependencies=no' "$svc" && pass 8.9 "collector unit starts without default dependencies (early)" || fail 8.9 "collector unit has default dependencies"
+	# S4: the collector and the initramfs hook write only to a partition of the boot medium's disk
+	ck=$ROOT/usr/libexec/sp11-log-collector; ih=$ROOT/usr/lib/dracut/modules.d/95sp11-initrd-log/sp11-initrd-log.sh
+	for f in "$ck" "$ih"; do
+		if grep -q 'pkname' "$f" && grep -q 'BOOT_DISK' "$f" && grep -q 'disk_has_windows\|e6d6d379-f507-44c2-a23c-238f2a3df928' "$f" && grep -q 'S4' "$f"; then pass 8.11 "$(basename "$f"): PKNAME restriction to the boot medium and the NTFS/BitLocker/MSR guard are present"; else fail 8.11 "$(basename "$f") lacks the PKNAME restriction or the Windows-disk guard (S4)"; fi
+	done
+	! grep -q 'live_parent_disk\|\[ -z "\$dev" \] && dev=\$cand' "$ck" "$ih" && pass 8.12 "no 'any partition labelled ...' fallback left in either script" || fail 8.12 "an 'any BOOT partition' fallback is still in a script (S4)"
+	iso_vol=$(xorriso -indev "$iso" -pvd_info 2>&1 | sed -n 's/^Volume Id *: *//p' | head -n1)
+	. "$ROOT/etc/sp11-boot-medium" 2>/dev/null
+	[ -n "$iso_vol" ] && [ "${SP11_MEDIUM_LABEL:-}" = "$iso_vol" ] && pass 8.13 "/etc/sp11-boot-medium label '$SP11_MEDIUM_LABEL' equals the ISO volume id" || fail 8.13 "/etc/sp11-boot-medium label '${SP11_MEDIUM_LABEL:-}' differs from the ISO volume id '$iso_vol'"
 	grep -q '^CAP_ESP_KIB=32768' "$ROOT/etc/sp11-log-collector.conf" && grep -q '^ESP_LABEL=BOOT' "$ROOT/etc/sp11-log-collector.conf" && pass 8.10 "collector fallback is the ESP labelled BOOT, cap 32 MiB" || fail 8.10 "collector ESP settings missing in /etc/sp11-log-collector.conf"
 fi
 for t in dmesg journalctl lspci lsusb dtc timeout blkid mount python3 lsmod; do

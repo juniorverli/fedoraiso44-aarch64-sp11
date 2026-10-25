@@ -27,9 +27,9 @@ installkernel() {
 # called by dracut
 install() {
     inst_multiple blkid mount umount gzip journalctl dmesg sync find du df sort head cat date \
-        mkdir rm sed tr modprobe awk
-    inst_multiple -o lsblk
+        mkdir rm sed tr modprobe awk grep lsblk readlink basename
     [[ -f /etc/sp11-log-collector.conf ]] && inst_simple /etc/sp11-log-collector.conf
+    [[ -f /etc/sp11-boot-medium ]] && inst_simple /etc/sp11-boot-medium
     inst_script "$moddir/sp11-initrd-log.sh" /usr/libexec/sp11-initrd-log
     # sourced by dracut: the emergency hook runs before the shell or the poweroff, the initqueue
     # timeout hook when the root has not shown up after two thirds of rd.retry
