@@ -122,6 +122,26 @@ else
 fi
 cd "$work"
 
+# ---- 6b. FAT32 ESP (decision D17). kiwi 11.1.1 makes the embedded ESP with `mkdosfs -n BOOT FILE`
+# (bootloader/config/grub2.py, _create_embedded_fat_efi_image): no -F, so mkfs.fat picks FAT16 for
+# 30 MiB (15321 clusters), and the only knob, efifatimagesize, sets the size, not the FAT type
+# (a size that gives >= 65525 clusters would need cluster size 512 B, which mkdosfs does not choose
+# either). The Surface UEFI boots only from a FAT32 USB ESP. So the finished ISO is replayed with a
+# 64 MiB FAT32 ESP made with the documented flags and the same EFI/BOOT files:
+#   xorriso -boot_image any replay -append_partition 2 0xef ESP   (El Torito entry follows partition 2)
+log "replacing the FAT16 ESP by a 64 MiB FAT32 ESP (D17)"
+esp=$work/esp; rm -rf "$esp"; mkdir -p "$esp/files"
+xorriso -osirrox on -indev "$iso" -extract_boot_images "$esp/old/" >/dev/null 2>&1
+mcopy -n -s -i "$esp/old/eltorito_img1_uefi.img" ::EFI "$esp/files/"
+mkfs.fat -C -F 32 -s 1 -S 512 -n BOOT "$esp/esp32.img" 65536 >/dev/null
+mcopy -s -i "$esp/esp32.img" "$esp/files/EFI" ::
+xorriso -indev "$iso" -outdev "$iso.fat32" -boot_image any replay -append_partition 2 0xef "$esp/esp32.img" -commit >"$esp/xorriso.txt" 2>&1 \
+	|| { tail -n 5 "$esp/xorriso.txt" >&2; log "xorriso replay failed"; exit 1; }
+mv -f "$iso.fat32" "$iso"
+# the replay changed the bytes the media tag of kiwi (implantisomd5) covers: tag again, or checkisomd5 fails
+implantisomd5 --force --supported-iso "$iso" >"$esp/implant.txt" 2>&1 || { cat "$esp/implant.txt" >&2; log "implantisomd5 failed"; exit 1; }
+rm -rf "$esp/old"
+
 # ---- 7. the checks of the task: no quiet/rhgb/splash in any grub.cfg of the ISO and its ESP
 log "grep check: quiet/rhgb/splash in every grub.cfg"
 chk=$work/grubcheck

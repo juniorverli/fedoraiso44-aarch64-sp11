@@ -4,6 +4,8 @@
 # image/kiwi/DESCRIPTION_COMMIT), which is "inspired by the config used for lorax-built live
 # media": same header (load_video, modules), same `search`, same kernel/initrd line shape.
 # Differences, all listed in image/README.md ("kiwi layer", change 3):
+#   - load_video keeps efi_gop and all_video only: efi_uga, video_bochs and video_cirrus do not exist
+#     on arm64-efi (QEMU printed "file not found" for each; they are x86 modules in Fedora's template);
 #   - no `Test this media` and no `Troubleshooting` submenu; the five SP11 entries instead;
 #   - `set default=0` and timeout_style=menu with a fixed timeout: the menu is always shown;
 #   - every device entry has a `devicetree` line (GRUB 2 command, D9); the VM test entry has none;
@@ -15,9 +17,6 @@
 
 function load_video {
 	insmod efi_gop
-	insmod efi_uga
-	insmod video_bochs
-	insmod video_cirrus
 	insmod all_video
 }
 

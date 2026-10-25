@@ -100,6 +100,40 @@ if [ -n "$start" ] && [ -f "$esp_img" ] && dd if="$iso" bs=512 skip="$start" cou
 else
 	fail 1.3 "GPT partition 2 differs from images/efiboot.img (start sector '${start:-?}')"
 fi
+# D17: the Surface UEFI boots only from a FAT32 USB ESP. Decided by the cluster count of the BPB
+# (>= 65525 is FAT32 by definition) and by the size (>= 64 MiB), never by the label. The image that
+# El Torito points to and GPT partition 2 must be the same FAT32 image.
+python3 -I - "$esp_img" "$iso" "$(awk -F'[: ]+' '/First sector/{print $3}' "$W/gpt2.txt")" "$(awk -F'[: ]+' '/Partition size/{print $3}' "$W/gpt2.txt")" <<'PY' >"$W/esp-fat.txt"
+import struct, sys
+esp, iso, start, size = sys.argv[1], sys.argv[2], int(sys.argv[3] or 0), int(sys.argv[4] or 0)
+def bpb(b):
+    bps = struct.unpack_from('<H', b, 11)[0]; spc = b[13]; rsv = struct.unpack_from('<H', b, 14)[0]; nfat = b[16]
+    rootent = struct.unpack_from('<H', b, 17)[0]; tot16 = struct.unpack_from('<H', b, 19)[0]
+    fat16 = struct.unpack_from('<H', b, 22)[0]; tot32 = struct.unpack_from('<I', b, 32)[0]; fat32 = struct.unpack_from('<I', b, 36)[0]
+    tot = tot16 or tot32; fsz = fat16 or fat32
+    rootsec = (rootent * 32 + bps - 1) // bps
+    return (tot - rsv - nfat * fsz - rootsec) // spc, tot * bps, bps, spc
+a = open(esp, 'rb').read(4096)
+n_el, size_el, bps, spc = bpb(a)
+f = open(iso, 'rb'); f.seek(start * 512); g = f.read(4096)
+n_gpt, size_gpt, _, _ = bpb(g)
+import os
+same = False
+if start:
+    import hashlib
+    h1 = hashlib.sha256(); h2 = hashlib.sha256(); L = os.path.getsize(esp)
+    with open(esp, 'rb') as x: 
+        for c in iter(lambda: x.read(1 << 20), b''): h1.update(c)
+    f.seek(start * 512); left = L
+    while left:
+        c = f.read(min(1 << 20, left)); h2.update(c); left -= len(c)
+    same = h1.hexdigest() == h2.hexdigest()
+print(f"{n_el} {size_el} {n_gpt} {size_gpt} {int(same)} {bps} {spc}")
+PY
+read -r n_el size_el n_gpt size_gpt same_img bps spc <"$W/esp-fat.txt"
+if [ -n "${n_el:-}" ] && [ "$n_el" -ge 65525 ] && [ "$n_gpt" -ge 65525 ]; then pass 1.5 "ESP is FAT32 by cluster count: El Torito image $n_el clusters, GPT partition 2 $n_gpt clusters (>= 65525)"; else fail 1.5 "ESP is not FAT32 by cluster count (El Torito ${n_el:-?}, GPT ${n_gpt:-?}; FAT16 has < 65525)"; fi
+if [ -n "${size_el:-}" ] && [ "$size_el" -ge 67108864 ] && [ "$size_gpt" -ge 67108864 ]; then pass 1.6 "ESP size $((size_el / 1048576)) MiB >= 64 MiB"; else fail 1.6 "ESP smaller than 64 MiB (El Torito ${size_el:-?} B, GPT ${size_gpt:-?} B)"; fi
+[ "${same_img:-0}" = 1 ] && pass 1.7 "El Torito UEFI image and GPT partition 2 are the same bytes" || fail 1.7 "El Torito UEFI image and GPT partition 2 differ"
 if checkisomd5 "$iso" >"$W/checkisomd5.txt" 2>&1; then pass 1.4 "checkisomd5 passes"; else fail 1.4 "checkisomd5 failed ($(tail -n1 "$W/checkisomd5.txt"))"; fi
 
 # ---------------------------------------------------------------- check 2 ----
