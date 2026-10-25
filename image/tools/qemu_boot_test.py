@@ -235,6 +235,8 @@ def main():
                     # a short rd.retry and no interactive shell, Ctrl-X boots. This entry exists only in this test run.
                     child.send(b"e")
                     time.sleep(3)
+                    child.send(b"\x1b[B")   # the editor starts on the "setparams" line; the linux line is the next one
+                    time.sleep(1)
                     child.send(b"\x05")
                     time.sleep(1)
                     child.send(b" root=live:CDLABEL=SP11-NO-SUCH-LABEL rd.retry=12 rd.shell=0 rd.emergency=reboot")
