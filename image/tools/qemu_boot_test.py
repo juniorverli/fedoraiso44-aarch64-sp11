@@ -31,6 +31,7 @@ ENTRIES = [   # D19 menu order; the VM entry must stay last (selected by countin
     "SP11 debug, stop in initramfs",
     "VM test (no devicetree)",
 ]
+LEGACY_ENTRIES = ENTRIES[:1] + ENTRIES[4:]   # ISOs before M3 (kiwi d18 and earlier): five entries
 FATAL = [
     (rb"Kernel panic - not syncing", "kernel panic"),
     (rb"[Ee]mergency mode", "emergency mode"),
@@ -97,6 +98,7 @@ def main():
                          "/EFI/sp11-logs on the embedded ESP (label BOOT); implies --early")
     ap.add_argument("--early", action="store_true",
                     help="stop as soon as the collector has a complete <boot-id>/ with BTF present; no GDM, no unit checks")
+    ap.add_argument("--legacy-menu", action="store_true", help="the ISO has the five-entry menu of before M3")
     ap.add_argument("--no-display-files", action="store_true", help="do not require the D19 display files (ISOs older than M3)")
     ap.add_argument("--work", required=True)
     ap.add_argument("--report", required=True)
@@ -110,7 +112,9 @@ def main():
     ap.add_argument("--entry", default="VM test (no devicetree)")
     a = ap.parse_args()
 
-    global LOGROOT
+    global LOGROOT, ENTRIES
+    if a.legacy_menu:
+        ENTRIES = LEGACY_ENTRIES
     os.makedirs(a.work, exist_ok=True)
     early = a.early or a.esp_fallback
     iso_path, iso_ro = a.iso, "on"

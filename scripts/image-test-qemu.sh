@@ -7,7 +7,7 @@
 # --early: stop as soon as the collector has a complete log directory (no GDM, no unit checks).
 # --esp-fallback (implies --early): no SP11LOGS disk; the ISO is attached as a writable copy and the
 #   collector must write to /EFI/sp11-logs on the embedded ESP (label BOOT, D17/D18 layout).
-# --no-display-files: do not require the D19 display files (ISOs older than M3).
+# --no-display-files, --legacy-menu: for ISOs older than M3 (no D19 display files; five-entry menu).
 #
 # QEMU system emulation, machine virt, TCG (the WSL2 host has no /dev/kvm), edk2 firmware,
 # the ISO attached as a raw USB disk, a second small FAT disk labelled SP11LOGS, serial
@@ -54,7 +54,7 @@ while [ $# -gt 0 ]; do
 	--mem) mem=${2:?}; shift ;;
 	--smp) smp=${2:?}; shift ;;
 	--cpu) cpu=${2:?}; shift ;;
-	--esp-fallback | --early | --no-display-files) extra+=("$1") ;;
+	--esp-fallback | --early | --no-display-files | --legacy-menu) extra+=("$1") ;;
 	*) iso=$1 ;;
 	esac
 	shift
