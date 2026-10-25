@@ -35,23 +35,31 @@ cd "$work"   # /sp11 is a worktree whose .git file points outside the container
 log() { echo "image-build[kiwi]: $*" >&2; }
 
 if [ -z "$post_only" ]; then
-# ---- 0. the kernel RPMs: the newest kernel-core in out/rpms, and it must be newer than the last
-# kernel that is known not to carry the M3 display patches (image/kiwi/MIN_KERNEL_EXCLUSIVE, D19).
-# out/rpms may hold several builds; all five RPMs of the image come from the same one.
-newest=
-for f in "$OUT"/rpms/kernel-core-[0-9]*.aarch64.rpm; do
-	[ -e "$f" ] || { log "no kernel-core RPM in $OUT/rpms"; exit 1; }
-	vr=$(rpm -qp --qf '%{version}-%{release}' "$f")
-	if [ -z "$newest" ] || [ "$(rpm --eval "%{lua:print(rpm.vercmp('$vr', '$newest_vr'))}")" -gt 0 ]; then newest=$f newest_vr=$vr; fi
-done
-kcore_src=$newest
-min=$(tr -d '[:space:]' <"$REPO/image/kiwi/MIN_KERNEL_EXCLUSIVE")
-if [ "$(rpm --eval "%{lua:print(rpm.vercmp('$newest_vr', '$min'))}")" -le 0 ]; then
-	log "REFUSED: newest kernel-core in $OUT/rpms is $newest_vr; the M3 image needs one newer than $min (D19)"
+# ---- 0. the kernel RPMs. Only the top level of out/rpms counts (older builds live in out/rpms/archive/):
+# exactly one kernel NEVRA may sit there, and it must be newer than the last kernel that is known not
+# to carry the M3 display patches (image/kiwi/MIN_KERNEL_EXCLUSIVE, D19). All five RPMs of the image
+# come from that one build.
+nevras=$(for f in "$OUT"/rpms/kernel*-[0-9]*.rpm; do
+	[ -e "$f" ] || continue
+	case $f in *.src.rpm) continue ;; esac
+	rpm -qp --qf '%{version}-%{release}.%{arch}\n' "$f"
+done | sort -u)
+[ -n "$nevras" ] || { log "no kernel RPM in $OUT/rpms"; exit 1; }
+if [ "$(echo "$nevras" | wc -l)" -gt 1 ]; then
+	log "REFUSED: more than one kernel NEVRA at the top level of $OUT/rpms (older ones belong in $OUT/rpms/archive/):"
+	echo "$nevras" | sed 's/^/    /' >&2
 	exit 5
 fi
-kver_full=$(rpm -qp --qf '%{version}-%{release}.%{arch}' "$kcore_src")
-log "kernel $kver_full (newer than $min)"
+kver_full=$nevras
+kcore_src=$OUT/rpms/kernel-core-$kver_full.rpm
+[ -f "$kcore_src" ] || { log "no kernel-core-$kver_full.rpm in $OUT/rpms"; exit 1; }
+newest_vr=${kver_full%.*}
+min=$(tr -d '[:space:]' <"$REPO/image/kiwi/MIN_KERNEL_EXCLUSIVE")
+if [ "$(rpm --eval "%{lua:print(rpm.vercmp('$newest_vr', '$min'))}")" -le 0 ]; then
+	log "REFUSED: kernel $newest_vr is not newer than $min; the M3 image needs the build with the display patches (D19)"
+	exit 5
+fi
+log "kernel $kver_full (newer than $min, the only kernel NEVRA at the top level of out/rpms)"
 
 # ---- 1. Fedora's description at the pinned commit
 pin=$(tr -d '[:space:]' <"$REPO/image/kiwi/DESCRIPTION_COMMIT")
@@ -122,6 +130,8 @@ for v in edponly nobl; do
 	vsrc=$OUT/dtb-variants/$kver/qcom/$vf
 	if [ -s "$vsrc" ]; then
 		cp "$vsrc" "$dtbtmp/boot/dtb/qcom/$vf"
+		mkdir -p "$work/dtb-records"
+		for r in "${vsrc%.dtb}.json" "$vsrc.json"; do [ -f "$r" ] && cp "$r" "$work/dtb-records/$vf.json"; done
 	elif [ "$smoke" = 1 ]; then
 		log "SMOKE: $vsrc missing, using a copy of the packaged DTB for the $v entry"
 		cp "$dtbtmp/boot/dtb/qcom/x1p64100-microsoft-denali.dtb" "$dtbtmp/boot/dtb/qcom/$vf"
@@ -277,6 +287,7 @@ record = {
     "dtb_files": {f: sha256(f"{work}/dtb/boot/dtb/qcom/{f}") for f in sorted(os.listdir(f"{work}/dtb/boot/dtb/qcom"))},
     "dtb_variants_smoke_copy": variants_smoke_copy == "1",
     "dtb_variants_source": "out/dtb-variants/<kernel version>/qcom/ (kernel worker)",
+    "dtb_variant_records": {f: json.load(open(f"{work}/dtb-records/{f}")) for f in sorted(os.listdir(f"{work}/dtb-records"))} if os.path.isdir(f"{work}/dtb-records") else {},
     "kernel_cmdline_reasons": "image/README.md, GRUB 2 and the kernel command line",
     "grub_entries": entries,
     "kiwi_description": {"url": "https://pagure.io/fedora-kiwi-descriptions.git", "branch": "f44", "pinned_commit": pin,
