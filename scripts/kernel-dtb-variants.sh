@@ -3,7 +3,8 @@
 #
 #   scripts/kernel-dtb-variants.sh [KVER]
 #
-# KVER defaults to the version of the RPMs this repo builds (kernel/base.toml).
+# KVER defaults to the version of the RPMs this repo builds (kernel/base.toml: tag, spec release, series_rev),
+# e.g. 7.3.0-65.sp11.3.fc44.aarch64. The variants are DT-only: rebuilt, never patched in the RPM.
 # Output: out/dtb-variants/<kver>/qcom/<name>.dtb and <name>.json (source commit, patches, sha256).
 #   x1p64100-microsoft-denali-nobl      display-lcd 0001+0002 (no backlight node)       tree out/linux/m3nobl
 #   x1p64100-microsoft-denali-edponly   0001-0003, mdss_dp0/dp1 disabled (H5), from
@@ -12,11 +13,8 @@
 # Owner: kernel worker.
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/kernel-common.sh"
-BASE_TOML="$KERNEL_REPO/kernel/base.toml"
-t() { sed -n -E "s/^$1[[:space:]]*=[[:space:]]*\"?([^\"]*)\"?[[:space:]]*\$/\1/p" "$BASE_TOML" | head -1; }
-rel=$(t nevra | sed -E 's/^kernel-[0-9.]+-([0-9]+)\..*/\1/')
-kver="${1:-$(t tag | sed 's/^v//').0-${rel}$(t buildid)$(t dist).aarch64}"
-base_dtb=$(t dtb); outdir="$SP11_OUT/dtb-variants/$kver/qcom"
+kver="${1:-$KERNEL_KVER}"
+base_dtb=$(kernel_toml dtb); outdir="$SP11_OUT/dtb-variants/$kver/qcom"
 mkdir -p "$outdir"
 
 build() {   # name tree-id patches-description overlay-or-empty
@@ -30,13 +28,13 @@ build() {   # name tree-id patches-description overlay-or-empty
   fi
   cp -f "$built" "$outdir/$name.dtb"
   sum=$(sha256sum "$outdir/$name.dtb" | cut -d' ' -f1)
-  python3 -I - "$outdir/$name.json" "$name" "$kver" "$id" "$(git -C "$src" rev-parse HEAD)" "$patches" \
+  SERIES_REV=$KERNEL_SERIES_REV python3 -I - "$outdir/$name.json" "$name" "$kver" "$id" "$(git -C "$src" rev-parse HEAD)" "$patches" \
       "${overlay:+$(sha256sum "$overlay" | cut -d' ' -f1)}" "${overlay:+${overlay#$KERNEL_REPO/}}" "$sum" \
       "$(git -C "$src" log --reverse --format=%s v7.3..HEAD | paste -sd'|')" <<'PY'
-import json, sys
+import json, os, sys
 out, name, kver, tree, commit, patches, ovsha, ovpath, sha, subjects = sys.argv[1:11]
 json.dump({"name": name, "kver": kver, "base": "v7.3 c03c1a14507dfaf8b856c2608f9ac216021fc222",
-           "kernel_tree": f"out/linux/{tree}", "source_commit": commit,
+           "series_rev": int(os.environ["SERIES_REV"]), "kernel_tree": f"out/linux/{tree}", "source_commit": commit,
            "patches_applied": patches.split(","), "patch_subjects": subjects.split("|"),
            "overlay": ovpath or None, "overlay_sha256": ovsha or None,
            "dtb": f"qcom/{name}.dtb", "sha256": sha}, open(out, "w"), indent=2)

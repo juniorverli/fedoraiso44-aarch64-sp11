@@ -23,9 +23,12 @@ TOPDIR="$KERNEL_BUILD_DIR/rpmbuild"
 CK="$KERNEL_BUILD_DIR/check"
 rm -rf "$CK"; mkdir -p "$CK/root"
 RPMDIR="$TOPDIR/RPMS/aarch64"
-core=$(ls "$RPMDIR"/kernel-core-*.rpm | head -1)
-nevra=$(rpm -qp --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}' "$RPMDIR"/kernel-[0-9]*.rpm)
+kernel_series_check
+core="$RPMDIR/kernel-core-$KERNEL_KVER.rpm"
+[[ -f $core ]] || die "no $core: the build tree has no RPMs for series_rev $KERNEL_SERIES_REV (expected kver $KERNEL_KVER)"
+nevra=$(rpm -qp --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}' "$RPMDIR/kernel-$KERNEL_KVER.rpm")
 kver=$(rpm -qp --qf '%{VERSION}-%{RELEASE}.%{ARCH}' "$core")
+[[ $kver == "$KERNEL_KVER" ]] || die "kernel-core is $kver, expected $KERNEL_KVER"
 echo "kernel-check: $nevra, kver $kver"
 
 # 1a. vmlinux
@@ -96,16 +99,10 @@ fi
 
 # 4. record
 source "$KERNEL_BUILD_DIR/build-stats.env"
-series_hash=$(
-  if [[ -f $KERNEL_REPO/kernel/series ]]; then
-    while IFS= read -r p; do
-      p="${p%%#*}"; p="${p//[[:space:]]/}"
-      if [[ -n $p ]]; then echo "$p $(sha256sum < "$KERNEL_REPO/$p" | cut -d' ' -f1)"; fi
-    done < "$KERNEL_REPO/kernel/series"
-  fi | sha256sum | cut -d' ' -f1)
+series_hash=$(kernel_series_hash)
 # RPM metadata digest: names, deps, file lists with modes and owners (no sizes, digests or times),
 # to compare a ccache build against another build of the same inputs.
-for r in "$RPMDIR"/*.rpm; do
+for r in "$RPMDIR"/*-$KERNEL_KVER.rpm; do
   rpm -qp --qf '%{NEVRA}\n' "$r"
   rpm -qp --requires "$r" | sort
   rpm -qp --provides "$r" | sort
@@ -119,7 +116,7 @@ def toml(k):
     for l in open("$KERNEL_REPO/kernel/base.toml"):
         if l.startswith(k + ' ') or l.startswith(k + '='):
             return l.split('=', 1)[1].strip().strip('"')
-rpms = {os.path.basename(p): sha(p) for p in sorted(glob.glob("$RPMDIR/*.rpm"))}
+rpms = {os.path.basename(p): sha(p) for p in sorted(glob.glob("$RPMDIR/*-$KERNEL_KVER.rpm"))}
 mods = json.load(open("$CK/modules.json"))
 rec = {
   'nevra': "$nevra", 'kver': "$kver",
@@ -128,7 +125,7 @@ rec = {
   'spec_source': {'srpm': toml('srpm_file'), 'srpm_sha256': toml('srpm_sha256'), 'url': toml('srpm_url'),
                   'dist_git_commit': toml('dist_git_commit'), 'switches': "$(printf '%s ' "${KERNEL_RPM_SWITCHES[@]}")".split(),
                   'buildid': "$KERNEL_BUILDID", 'dist': "$KERNEL_DIST"},
-  'series_hash_sha256': "$series_hash",
+  'series_hash_sha256': "$series_hash", 'series_rev': int("$KERNEL_SERIES_REV"),
   'config': {'fragment_sha256': sha("$KERNEL_REPO/kernel/config/sp11.config"),
              'shipped_config_sha256': sha("$CK/shipped.config"), 'fragment_check': "$cfg_ok"},
   'btf': {'vmlinux': "$btf_vmlinux", 'modules_total': mods['modules'], 'modules_with_btf': mods['with_btf'],

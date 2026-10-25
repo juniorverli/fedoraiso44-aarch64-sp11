@@ -31,6 +31,7 @@ while (($#)); do
   esac
 done
 ((jobs >= 1 && jobs <= 6)) || die "-j must be 1..6"
+((inner)) || kernel_series_check
 
 toml() { sed -n -E "s/^$1[[:space:]]*=[[:space:]]*\"?([^\"]*)\"?[[:space:]]*\$/\1/p" "$BASE_TOML" | head -1; }
 
@@ -132,6 +133,9 @@ echo "kernel-build: free -g available = ${avail_gb} GB, jobs = $jobs"
 ((avail_gb >= 4)) || die "only ${avail_gb} GB available, need >= 4; stop other jobs or lower -j"
 echo "kernel-build: rpmbuild starts $(date -u +%FT%TZ)"
 rm -f "$KERNEL_BUILD_DIR/build-stats.env" "$KERNEL_BUILD_DIR/mem-anon-peak.bytes"
+# RPMs of an earlier series revision stay in out/rpms (archived after this build succeeds); drop the build-tree copies
+rm -f "$TOPDIR"/RPMS/*/*.rpm
+echo "kernel-build: series_rev $KERNEL_SERIES_REV, series sha256 $(kernel_series_hash), expected kver $KERNEL_KVER"
 export KERNEL_CONTAINER_NAME="sp11-kernel-release-$$"
 kernel_watchdog_start "$KERNEL_CONTAINER_NAME" "$KERNEL_BUILD_DIR/rpmbuild.log"
 trap 'docker kill "$KERNEL_CONTAINER_NAME" >/dev/null 2>&1 || true; kernel_watchdog_stop || true' INT TERM
@@ -141,6 +145,15 @@ kernel_watchdog_stop || die "build stopped by the disk watchdog, see $KERNEL_BUI
 [[ -f $KERNEL_WATCHDOG_FLAG.min ]] && echo "kernel-build: min headroom seen $(( $(cat "$KERNEL_WATCHDOG_FLAG.min") / KERNEL_GIB )) GiB" | tee -a "$KERNEL_BUILD_DIR/rpmbuild.log"
 ((rc == 0)) || die "rpmbuild failed (rc=$rc), see $KERNEL_BUILD_DIR/rpmbuild.log"
 
-# 6. collect RPMs, check, record
-find "$TOPDIR/RPMS" -name '*.rpm' -exec cp -f {} "$KERNEL_RPMS_DIR/" \;
+# 6. archive RPMs of other series revisions (out/rpms/archive/<ver>-<rel>.sp11[.<rev>]/), collect, check, record
+shopt -s nullglob
+for f in "$KERNEL_RPMS_DIR"/*; do
+  [[ -f $f && $f != *"-$KERNEL_KVER"* ]] || continue
+  if [[ $(basename "$f") =~ ([0-9]+\.[0-9]+\.[0-9]+-[0-9]+\.sp11[0-9.]*)\.fc44\.aarch64 ]]; then
+    mkdir -p "$KERNEL_RPMS_DIR/archive/${BASH_REMATCH[1]}"
+    mv -n "$f" "$KERNEL_RPMS_DIR/archive/${BASH_REMATCH[1]}/"
+  fi
+done
+shopt -u nullglob
+find "$TOPDIR/RPMS" -name "*-$KERNEL_KVER.rpm" -exec cp -f {} "$KERNEL_RPMS_DIR/" \;
 "$KERNEL_REPO/scripts/kernel-check"
