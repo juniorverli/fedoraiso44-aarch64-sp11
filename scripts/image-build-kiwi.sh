@@ -138,6 +138,8 @@ mcopy -s -i "$esp/esp32.img" "$esp/files/EFI" ::
 xorriso -indev "$iso" -outdev "$iso.fat32" -boot_image any replay -append_partition 2 0xef "$esp/esp32.img" -commit >"$esp/xorriso.txt" 2>&1 \
 	|| { tail -n 5 "$esp/xorriso.txt" >&2; log "xorriso replay failed"; exit 1; }
 mv -f "$iso.fat32" "$iso"
+# the replay changed the bytes the media tag of kiwi (implantisomd5) covers: tag again, or checkisomd5 fails
+implantisomd5 --force --supported-iso "$iso" >"$esp/implant.txt" 2>&1 || { cat "$esp/implant.txt" >&2; log "implantisomd5 failed"; exit 1; }
 rm -rf "$esp/old"
 
 # ---- 7. the checks of the task: no quiet/rhgb/splash in any grub.cfg of the ISO and its ESP
