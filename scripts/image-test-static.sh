@@ -197,7 +197,7 @@ sp11_entries=$(grep -c "^menuentry 'SP11" "$cfg_esp")
 ids_ok=1
 awk '/^menuentry /{t=$0} /^[[:space:]]+linux /{print t "\t" $0}' "$cfg_esp" >"$W/linux-lines.txt"
 while IFS=$'\t' read -r t l; do
-	id=$(echo "$t" | sed -n "s/.*--id sp11-\([a-z-]*\).*/\1/p")
+	id=$(echo "$t" | sed -n "s/.*--id sp11-\([a-z0-9-]*\).*/\1/p")
 	case $id in drm-trace | debug | m3cmdline | nodsp | nomodeset | initramfs | vmtest) ;; *) ids_ok=0; fail 2.12 "unknown entry id '$id' ($t)" ;; esac
 	want=$id
 	case $l in *" sp11.entry=$want"*) ;; *) ids_ok=0; fail 2.12 "entry '$t' lacks sp11.entry=$want" ;; esac
@@ -213,7 +213,7 @@ if [ "$builder" = kiwi ]; then
 	# m3cmdline is the M3 command line with the packaged DTB; nodsp adds the PAS blacklist; the others add one argument.
 	d19=1
 	while IFS=$'\t' read -r t l; do
-		id=$(echo "$t" | sed -n "s/.*--id sp11-\([a-z-]*\).*/\1/p")
+		id=$(echo "$t" | sed -n "s/.*--id sp11-\([a-z0-9-]*\).*/\1/p")
 		case $id in
 		m3cmdline) base=0; extra=; want=x1p64100-microsoft-denali.dtb ;;
 		vmtest) base=0; extra=; want= ;;
