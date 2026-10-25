@@ -5,7 +5,10 @@
 #
 # --builder kiwi (default, decision D16): kiwi-ng with Fedora's f44 Workstation-Live description,
 # scripts/image-build-kiwi.sh. --builder lmc: the livemedia-creator path of M2 (D11), kept until
-# the kiwi ISO passes L0 and L1; --smoke exists only there.
+# the kiwi ISO passes L0 and L1. With kiwi, --smoke only allows a missing DTB variant (D19): a copy of
+# the packaged DTB stands in, the ISO is named ...-kiwi-smoke-..., the record says
+# "dtb_variants_smoke_copy": true, and it never goes to the device. The kiwi build also refuses a
+# kernel-core not newer than image/kiwi/MIN_KERNEL_EXCLUSIVE.
 #
 # Default (M2 build): needs the kernel RPMs in out/rpms/ and the staged firmware in
 # out/firmware-root/ (scripts/firmware-stage.sh). --smoke uses Fedora's own kernel and no
@@ -33,7 +36,6 @@ while [ $# -gt 0 ]; do
 done
 
 case $builder in kiwi | lmc) ;; *) echo "image-build: --builder must be kiwi or lmc" >&2; exit 2 ;; esac
-if [ "$builder" = kiwi ] && [ "$smoke" = 1 ]; then echo "image-build: --smoke exists only with --builder lmc" >&2; exit 2; fi
 # mkfs.erofs of the kiwi live root needs about 3 GiB of its own on top of the build (OOM at 6 GiB)
 [ -n "$mem" ] || { [ "$builder" = kiwi ] && mem=9 || mem=6; }
 
@@ -61,7 +63,10 @@ if [ "$inside" = 0 ]; then
 	if [ "$builder" = kiwi ]; then
 		ls "$out"/rpms/kernel-core-*.rpm >/dev/null 2>&1 || { echo "image-build: no kernel-core RPM in $out/rpms/" >&2; exit 1; }
 		[ -d "$out/firmware-root/lib/firmware" ] || { echo "image-build: $out/firmware-root missing; run scripts/firmware-stage.sh" >&2; exit 1; }
-		SP11_DOCKER_MEMORY="${mem}g" exec "$here/scripts/image-container.sh" run /sp11/scripts/image-build-kiwi.sh ${name:+"$name"}
+		kargs=()
+		[ "$smoke" = 1 ] && kargs+=(--smoke)
+		[ -n "$name" ] && kargs+=("$name")
+		SP11_DOCKER_MEMORY="${mem}g" exec "$here/scripts/image-container.sh" run /sp11/scripts/image-build-kiwi.sh "${kargs[@]}"
 	fi
 	# the container gets a memory cap so a running kernel build keeps its RAM
 	args=("--inside")

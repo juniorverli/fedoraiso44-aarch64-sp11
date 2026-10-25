@@ -1,8 +1,14 @@
 [Unit]
 Description=SP11 log collector (writes boot logs to the SP11LOGS partition or the embedded EFI partition)
 # Needs only the base system: runs without GDM and without a working display.
+# D19: starts as early as it can (the first snapshot is the one that survives a dead screen), so no
+# default dependencies: it does not wait for basic.target and sysinit.target. It orders itself against
+# shutdown by hand, so that its last snapshot is written before the file systems go away.
+DefaultDependencies=no
 After=local-fs.target systemd-journald.service systemd-udevd.service
 Wants=systemd-udevd.service
+Conflicts=shutdown.target
+Before=shutdown.target
 
 [Service]
 Type=simple

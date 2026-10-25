@@ -54,12 +54,16 @@ Entries:
 
 | Entry | Extra arguments | Use |
 |:--|:--|:--|
-| `SP11 debug` (default) | — | Normal test boot |
+| `SP11 debug` (default) | — | Normal test boot, packaged DTB |
+| `SP11 debug, keep firmware clocks` | `clk_ignore_unused pd_ignore_unused` | D19, hypothesis H1 (`clk_disable_unused` gates the display clocks of the firmware framebuffer). Diagnostic, never the default |
+| `SP11 debug, eDP only (USB-C DP off)` | DTB `…-denali-edponly.dtb` | D19, H5: the full M3 DT with the external USB-C DP0/DP1 disabled, so a DP bridge chain that never probes cannot keep `msm` from binding |
+| `SP11 debug, DTB without PWM backlight` | DTB `…-denali-nobl.dtb` | D19, H3: display-lcd 0001+0002 only, without the PWM backlight patch 0003 |
 | `SP11 debug + DRM trace` | `drm.debug=0x1ff` | Display problems (very verbose) |
 | `SP11 debug nomodeset` | `nomodeset` | Fallback when the panel goes dark; keeps the firmware framebuffer |
 | `SP11 debug, stop in initramfs` | `rd.break=pre-mount` | Rescue shell before the root is mounted |
+| `VM test (no devicetree)` | `console=ttyAMA0,115200`, no `devicetree` | L1 only, never default |
 
-Any further argument (for example `clk_ignore_unused`) needs a request from a component worker with a log that justifies it, and is listed with its reason in the build record.
+Every entry also has `sp11.entry=<id>` (`debug`, `keepclk`, `edponly`, `nobl`, `drm-trace`, `nomodeset`, `initramfs`, `vmtest`); the collector writes it to `entry.txt`, so a log says which entry booted. Any further argument needs a request from a component worker with a log that justifies it, and is listed with its reason in the build record. `clk_ignore_unused` never becomes a default without a log that shows H1 (D19).
 
 ### Secure Boot
 
@@ -211,6 +215,16 @@ Entries `SP11 debug`, `+ DRM trace` (`drm.debug=0x1ff`), `nomodeset`, `stop in i
 
 Tested (2026-10-24): snapshot, publish, `SEQ` and cap logic on a plain directory (`image/tools/collector_selftest.sh`, passes); one snapshot on the WSL2 host (all files written, 40 s). **Not tested:** mounting `SP11LOGS` and the embedded ESP (the WSL2 build kernel has no vfat); that path is first exercised by L1.
 
+### M3: display evidence and early collection (decision D19)
+
+The first device boot with the kiwi `-d18` ISO printed the console on the firmware framebuffer and then the LCD went black. The M3 image is built to tell the hypotheses H1 (display clocks gated), H2 (eDP or panel fails after `msm` binds), H3 (backlight described wrong) and H5 (USB-C DP bridge chain never probes) apart on one stick. The build needs the M3 kernel RPMs (`7.3.0-65.sp11.3.fc44`) and refuses anything not newer than `7.3.0-65.sp11.fc44` (`image/kiwi/MIN_KERNEL_EXCLUSIVE`).
+
+- **Kernel RPM selection** (`scripts/image-build-kiwi.sh`, step 0): only the top level of `out/rpms/` counts (`out/rpms/archive/` holds the M1 build); the build fails when more than one kernel NEVRA sits there; the five image RPMs all come from that one NEVRA.
+- **Three DTBs on the ISO**, all in `/boot/dtb/qcom/`: the packaged `x1p64100-microsoft-denali.dtb` (from `kernel-core`), and `…-denali-edponly.dtb` and `…-denali-nobl.dtb` (from `out/dtb-variants/<kver>/qcom/`, written by the kernel worker). The build fails when a variant is missing; `--smoke` replaces it with a copy of the packaged DTB, names the ISO `…-kiwi-smoke-…` and sets `dtb_variants_smoke_copy` in the record (pipeline test only, never for the device). The record has `dtb_files` (SHA-256 of all three) and, when the kernel worker's JSON records exist, `dtb_variant_records`.
+- **Early snapshot.** `sp11-log-collector run` first writes a small display snapshot and publishes it (retrying up to 30 s while the target is not mounted yet), then the first full snapshot, then at 20, 60, 120, 300 s and every 300 s. The unit has `DefaultDependencies=no` (after `local-fs.target`, journald, udev only) so it starts before `basic.target`. The early snapshot has no `COMPLETE` marker; `STATUS` says `cycle: 0 (early display snapshot)`.
+- **Display files** (early and every full snapshot; `display_set` in the collector): `cmdline.txt`, `entry.txt` (the `sp11.entry`, clock and `nomodeset` arguments, DTB model and compatible), `devices_deferred.txt` (key for H5), `device_component.txt` (`/sys/kernel/debug/device_component/*`), `drm-class-ls.txt`, `lsmod.txt`, `fb-state.txt` (`/dev/fb*`, `/proc/fb`, simpledrm and simple-framebuffer drivers and modules, framebuffer dmesg lines), `clk-display.txt` (`clk_summary` filtered for disp, mdss, edp, dp), `clk_summary.txt`, `genpd_summary.txt`, `regulator_summary.txt`, `display-dmesg.txt` (msm, dpu, mdss, drm, dp, panel, edp, backlight, pwm, lpg, simpledrm, efifb, dispcc, pmic and clock/genpd lines), `drm-state.txt` (`dri/*/state`), `dp-link.txt` (`dp_debug`), `drm-connectors.txt` (status, enabled, dpms, modes, the `eDP-1` debugfs directory), `backlight.txt` (brightness, max_brightness, actual_brightness, bl_power), `pwm.txt`, `leds.txt`, `pinctrl-pmic.txt` (`/sys/kernel/debug/pinctrl/*pmic*`), `spmi-gpio-dmesg.txt`, `dpcd-tool.txt` and `dpcd-drm_dp_aux*-000.bin/-700.bin/.txt` (the display-lcd `collect-dpcd.py`, unchanged, run as root against every `/dev/drm_dp_aux*`: DPCD 0x000-0x0ff and 0x700-0x7ff, read only), and the shell reader `drm-dpcd.txt` as a second opinion. The publish step copies files, not directories, so the tool's output is flattened into `dpcd-*`.
+- **ESP fallback** (`/EFI/sp11-logs` on the partition labelled `BOOT`): the ESP is 64 MiB FAT32 (D17) with the D18 layout; the kiwi collector config raises the cap to 32 MiB (`CAP_ESP_KIB=32768`), files on the ESP are gzip-compressed, the oldest boot is removed first. `scripts/image-test-qemu.sh --esp-fallback` tests it: no `SP11LOGS` disk, the ISO is attached as a writable copy, and the test reads `/EFI/sp11-logs/<boot-id>/` out of GPT partition 2 afterwards.
+
 ### L1 details
 
 `scripts/image-test-qemu.sh`: `qemu-system-aarch64 -machine virt,gic-version=3 -accel tcg,thread=multi -cpu neoverse-n1 -smp 8 -m 4096`, edk2 `QEMU_EFI-silent-pflash.raw` with a copy of `vars-template-pflash.raw`, the ISO as a read-only raw USB disk (`usb-storage`, boot index 1), a 128 MiB FAT disk labelled `SP11LOGS` as a second USB disk, `virtio-gpu-pci`, `virtio-net-pci`, serial on a pty driven by `image/tools/qemu_boot_test.py` (pexpect). It waits for the menu with all five entries, presses Down four times and Enter, watches for fatal messages (panic, emergency mode, dracut shell), polls the logs disk with mtools every 120 s, then powers the VM off through the QEMU monitor (`system_powerdown`, then `quit`) and reads the logs back. Timeouts: 150 min total, 25 min without serial output.
@@ -290,7 +304,7 @@ Fedora's profile on aarch64 is: erofs live root (`erofscompression="lzma,level=6
 | 1 | Our kernel RPMs, Fedora's kernel out. `kernel`, `kernel-core`, `kernel-modules`, `kernel-modules-core`, `kernel-modules-extra` of `out/rpms` go into `out/repo` (`createrepo_c`); the repository is `sp11-local` with `priority="10"` (Fedora's default is 99). dnf5 then takes the local package for every name it provides, even when Fedora's is newer (Fedora's updates carry `kernel-7.2.11-200.fc44`, ours is `7.3.0-65.sp11.fc44`). | `image/kiwi/overlay/sp11.xml`, `scripts/image-build-kiwi.sh` | Task 1 of D16 |
 | 1b | `kernel-uki-dtbloader` is no longer requested for aarch64. Fedora's `components/boot.xml` installs it for the aarch64 live ISO; we boot a plain kernel with the GRUB 2 `devicetree` command (D9). Patch 0003. | `image/kiwi/patches/0003-no-uki-dtbloader.patch` | D9 |
 | 2 | Firmware: `out/firmware-root/lib/firmware` is copied into the description's `root/usr/lib/firmware` (kiwi's root overlay, applied after the packages); `qcom-firmware` and `linux-firmware` are requested. | `scripts/image-build-kiwi.sh`, `sp11.xml` | D16, firmware worker request 1-2 |
-| 3 | GRUB 2: `grub-arm.cfg.iso-template` of the description is replaced by ours. Five entries: `SP11 debug` (default), `SP11 debug + DRM trace`, `SP11 debug nomodeset`, `SP11 debug, stop in initramfs` (all four with `devicetree`), `VM test (no devicetree)` (no `devicetree`, never default, the only one with `console=ttyAMA0,115200`). Every entry has `--id sp11-<id>` and `sp11.entry=<id>` on its `linux` line. Menu always shown (`timeout_style=menu`, `timeout=10`). Removed from Fedora's template: `Test this media` and the `Troubleshooting` submenu. | `image/kiwi/overlay/grub-arm.cfg.iso-template` | D9, D10, D15 |
+| 3 | GRUB 2: `grub-arm.cfg.iso-template` of the description is replaced by ours. Eight entries (D19, table in "GRUB 2 and the kernel command line"): seven device entries with `devicetree` (the packaged DTB, except `edponly` and `nobl`), and `VM test (no devicetree)` (no `devicetree`, never default, the only one with `console=ttyAMA0,115200`). Every entry has `--id sp11-<id>` and `sp11.entry=<id>` on its `linux` line. Menu always shown (`timeout_style=menu`, `timeout=10`). Removed from Fedora's template: `Test this media` and the `Troubleshooting` submenu. | `image/kiwi/overlay/grub-arm.cfg.iso-template` | D9, D10, D15 |
 | 3b | Verbose command line: patch 0002 changes `kernelcmdline="quiet rhgb"` of the aarch64 live type to `debug loglevel=8 ignore_loglevel printk.devkmsg=on log_buf_len=16M rd.plymouth=0 plymouth.enable=0 systemd.show_status=1 rd.udev.log_level=info console=tty0` (reasons per argument: "GRUB 2 and the kernel command line" above). kiwi appends `root=live:CDLABEL=Fedora-WS-Live-44 rd.live.image` itself. The same string is also kiwi's `GRUB_CMDLINE_LINUX_DEFAULT` in the installed system's `/etc/default/grub`. | `image/kiwi/patches/0002-verbose-kernel-cmdline.patch` | D9 |
 | 3c | No Plymouth: not removed, switched off. Excluding the package makes dnf5 fail ("Argument 'plymouth' matches only excluded packages", Fedora's package groups request it). It is omitted from the initramfs (`omit_dracutmodules+=" plymouth "`), `rd.plymouth=0 plymouth.enable=0` is on every entry, and its nine units are masked in `/etc/systemd/system`. L0 check 9.2 therefore checks the masks in a kiwi image and the package absence in an lmc image; check 5.4 (no Plymouth in the initramfs) is the same for both. | `sp11.xml` (comment), `image/overlay/etc/dracut.conf.d/90-sp11.conf`, `scripts/image-build-kiwi.sh` | D9 |
 | 4 | Log collector, its unit and `/usr/lib/systemd/system-preset/80-sp11.preset`. The preset is needed with kiwi: the image ships `/etc/machine-id` as `uninitialized`, systemd then runs `preset-all` at first boot, and Fedora's `90-default.preset` (`disable *`) removed the unit's `multi-user.target.wants` symlink (first L1 run: `Removed '/etc/systemd/system/multi-user.target.wants/sp11-log-collector.service'` at 379 s; the collector never ran). Collector setting `ESP_LABEL=BOOT` (kiwi names the embedded ESP `BOOT`). | `image/overlay/` (shared with lmc), `image/kiwi/overlay/root/etc/sp11-log-collector.conf` | D7, D15 |
@@ -339,7 +353,11 @@ Build status of the ISO `sp11-fedora44-aarch64-kiwi-20261025T115940Z-d18.iso`: m
 | 0.2 | erofs unpacked with `fsck.erofs`, not mounted | WSL2 kernel, above |
 | 2.1-2.4 | forbidden-word check on all four `grub.cfg` (ISO main, ISO `EFI/BOOT`, ISO `EFI/fedora`, ESP); the three EFI ones must be chain stubs; `loopback.cfg` must only `source` the main one | kiwi's stub layout |
 | 2.5-2.9 | read from the main `grub.cfg`; `devicetree ($root)/boot/dtb/...` accepted | template |
+| 2.5-2.9 (D19) | the eight titles in the D19 order; entry count 8 | M3 menu |
 | 2.12 (new) | every entry has `sp11.entry=<id>`, is verbose (`debug loglevel=8 ignore_loglevel`), and only the VM entry has `console=ttyAMA0` | D15 |
+| 2.17 (D19) | `clk_ignore_unused pd_ignore_unused` only on `keepclk`; `edponly` and `nobl` load their own DTB, every other device entry the packaged one | M3 menu |
+| 3.6-3.10 (D19) | each variant DTB is on the ISO, decompiles, has the Denali root compatible, differs from the packaged DTB, and equals both the build record hash and `out/dtb-variants/<kver>/qcom/` | M3 DTBs |
+| 8.8-8.10 (D19) | `collect-dpcd.py` in the image equals `hardware/display-lcd/tools/collect-dpcd.py`; the collector unit has `DefaultDependencies=no`; `ESP_LABEL=BOOT`, `CAP_ESP_KIB=32768` | collector |
 | 9.2 | Plymouth units masked instead of package absent | change 3c |
 | 4.8 | `grep -c`, not `grep -q`, under `pipefail` | defect of my own check: `grep -q` closes the pipe, `xz` gets SIGPIPE, the check failed at random (it had passed by luck on the M2 ISO) |
 | 7.2 | scans only files no RPM owns | unchanged from the M2 fix |
@@ -385,6 +403,39 @@ So two of the four M2 units (`tuned`, `udisks2`) time out again under TCG; `fire
 
 Because L1 failed on this criterion, the livemedia-creator path (`--builder lmc`, `image/sp11-live.ks`, `image/lorax-templates/`) is **not** removed yet; that is the orchestrator's decision.
 
+### M3 ISO (2026-10-25, decision D19)
+
+| Item | Value |
+|:--|:--|
+| ISO | `out/iso/sp11-fedora44-aarch64-kiwi-20261025T160856Z.iso` (record `.json`, checksum `.iso.sha256`) |
+| Size | 2,784,362,496 bytes (2.59 GiB) |
+| SHA-256 | `2a7f7fc162501f8cc0d5c7b57be29c99bb6cf601d69be1a0392517112b42c195` |
+| Build time | 1550 s for the kiwi run (about 26 min), 1969 packages |
+| Kernel | `kernel-core-7.3.0-65.sp11.3.fc44.aarch64` (the only kernel NEVRA at the top of `out/rpms`; M1 is in `out/rpms/archive/`) |
+| ESP | FAT32, label `BOOT`, 64 MiB, 129022 clusters, 52 MiB free (D17); `BOOTAA64.EFI` = `grubaa64.efi` (D18) |
+| DTB, packaged | `/boot/dtb/qcom/x1p64100-microsoft-denali.dtb`, SHA-256 `582725d52d7ec5c9d71bae5f4847abada1633b9686e08d81be4e421375f2c9fd` (from `kernel-core`) |
+| DTB, `edponly` | `/boot/dtb/qcom/x1p64100-microsoft-denali-edponly.dtb`, SHA-256 `eb41249b8419f4f904353e38268e0c1ee4bee321e0e4c3f0f497a2c6048a6fad` |
+| DTB, `nobl` | `/boot/dtb/qcom/x1p64100-microsoft-denali-nobl.dtb`, SHA-256 `bc9463f8b72edede60fd1d349017129d2172cc3e8bcbdce29e5cd680debde896` |
+| L0 | 103 passed, 0 failed, 0 skipped (`out/iso/<name>.l0.txt`) |
+| L1 (`--esp-fallback`, no GDM) | PASS, see below |
+
+GRUB entries, in menu order (every device entry: common arguments `debug loglevel=8 ignore_loglevel printk.devkmsg=on log_buf_len=16M rd.plymouth=0 plymouth.enable=0 systemd.show_status=1 rd.udev.log_level=info console=tty0 root=live:CDLABEL=Fedora-WS-Live-44 rd.live.image`, then):
+
+| # | Title | `--id` / `sp11.entry` | DTB (`devicetree`) | Extra arguments |
+|:--|:--|:--|:--|:--|
+| 1 | `SP11 debug` (default) | `debug` | `denali.dtb` | — |
+| 2 | `SP11 debug, keep firmware clocks` | `keepclk` | `denali.dtb` | `clk_ignore_unused pd_ignore_unused` |
+| 3 | `SP11 debug, eDP only (USB-C DP off)` | `edponly` | `denali-edponly.dtb` | — |
+| 4 | `SP11 debug, DTB without PWM backlight` | `nobl` | `denali-nobl.dtb` | — |
+| 5 | `SP11 debug + DRM trace` | `drm-trace` | `denali.dtb` | `drm.debug=0x1ff` |
+| 6 | `SP11 debug nomodeset` | `nomodeset` | `denali.dtb` | `nomodeset` |
+| 7 | `SP11 debug, stop in initramfs` | `initramfs` | `denali.dtb` | `rd.break=pre-mount` |
+| 8 | `VM test (no devicetree)` | `vmtest` | none | `console=ttyAMA0,115200` |
+
+L1 of the M3 ISO (QEMU TCG, `neoverse-n1`, 8 threads, 4 GiB, `--esp-fallback`: no `SP11LOGS` disk, the ISO attached as a writable copy): the menu listed all 8 entries; `VM test (no devicetree)` (7 Down keys) booted the kernel with `sp11.entry=vmtest`; after 1053 s the collector had a complete `<boot-id>/` in `/EFI/sp11-logs/` on the embedded ESP (label `BOOT`, 64 MiB FAT32, D18 layout; `STATUS`: `target: esp`, `cycle: 1`), 70 files, gzip-compressed; BTF present; the 14 required D19 display files were there and `entry.txt` names `sp11.entry=vmtest`. Not run: GDM, the unit allow-list (`--early`), and the `SP11LOGS` disk path with the new collector (the earlier L1 runs covered that path with the previous collector). In QEMU `devices_deferred.txt` is empty (nothing deferred in the VM; an empty file means that), there is no `msm`, no AUX device (`dpcd-tool.txt`: "No AUX devices"), `backlight.txt` and `pinctrl-pmic.txt` are empty and `drm-state.txt` holds only a cat error: the display evidence itself can only come from the Surface.
+
+Two defects of my test driver found by this run, fixed: with the fallback, `mdir -b` prints the whole path, so the boot directory was not recognised (the first run was stopped and judged by hand from the ESP of its disk copy, which already showed the complete directory; the run above is the clean rerun), and the "to SP11LOGS" label of the check now says "to the log target".
+
 ## Requests
 
 - installer path (R9, future): the installed system must boot `grubaa64.efi` directly. Anaconda installs shim and points the UEFI boot entry at it, and this firmware does not run shim. The installer step (kickstart `%post` of the installed system, or an Anaconda addon / `efibootmgr` call after install) must (a) create the boot entry for `\\EFI\\fedora\\grubaa64.efi` with `efibootmgr -c -d <disk> -p <esp partition> -L Fedora -l '\\EFI\\fedora\\grubaa64.efi'`, and (b) copy `grubaa64.efi` to `EFI/BOOT/BOOTAA64.EFI` on the installed ESP, for firmware that only reads the fallback path. Both must leave `EFI/fedora/shimaa64.efi` in place. Not implemented: this image has no installer step yet; verify on the device (R9).
@@ -399,3 +450,4 @@ Because L1 failed on this criterion, the livemedia-creator path (`--builder lmc`
 - 2026-10-25: D16. kiwi builds the ISO from Fedora's `f44` Workstation-Live description (pin `dfc49a5`) plus the SP11 layer; L0 80/80; L1 reaches GDM and a complete collector log, fails on six unit start failures (five TCG timeouts, one `NetworkManager-wait-online` exit code). `image-build.sh` uses kiwi by default; lmc kept. Privacy scan 7.4 (`rpm -Va`) added.
 - 2026-10-25: D17. kiwi ISO rebuilt with a 64 MiB FAT32 ESP (xorriso replay, 129022 clusters), L0 83/83 (new checks 1.5-1.7), GRUB menu and kernel start seen in QEMU (5 min, no `file not found`); full L1 not rerun.
 - 2026-10-25: D18. ESP step makes `BOOTAA64.EFI` Fedora's GRUB, shim kept as `shimaa64.efi`, `bootx64.efi` removed, marker line first; L0 87/87 (new checks 2.13-2.16); QEMU shows the marker, the menu and the kernel start (4 min run, no full L1).
+- 2026-10-25: D19/M3. ISO `sp11-fedora44-aarch64-kiwi-20261025T160856Z` (SHA-256 `2a7f7fc1...`): 8-entry menu, three DTBs, early display snapshot and the display evidence files, `collect-dpcd.py` in the image, 64 MiB FAT32 ESP with direct GRUB. L0 103/103; L1 `--esp-fallback` PASS (collector writes `/EFI/sp11-logs` on the `BOOT` ESP). Build refuses kernels not newer than 7.3.0-65.sp11 and more than one kernel NEVRA at the top of `out/rpms`.

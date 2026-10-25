@@ -173,8 +173,15 @@ else
 	[ -z "$other" ] && pass 2.4 "no other grub.cfg in the ISO" || fail 2.4 "other grub config: $other"
 fi
 titles=$(grep -o "^menuentry '[^']*'" "$cfg_esp" | sed "s/menuentry '//;s/'\$//")
-expect=$'SP11 debug\nSP11 debug + DRM trace\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)'
-[ "$titles" = "$expect" ] && pass 2.5 "exactly the five entries, in order" || fail 2.5 "entries differ: $(echo "$titles" | tr '\n' '|')"
+if [ "$builder" = kiwi ]; then
+	# D19: the eight entries of the M3 menu, in this order
+	expect=$'SP11 debug\nSP11 debug, keep firmware clocks\nSP11 debug, eDP only (USB-C DP off)\nSP11 debug, DTB without PWM backlight\nSP11 debug + DRM trace\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)'
+	nentries=8
+else
+	expect=$'SP11 debug\nSP11 debug + DRM trace\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)'
+	nentries=5
+fi
+[ "$titles" = "$expect" ] && pass 2.5 "exactly the $nentries entries, in order" || fail 2.5 "entries differ: $(echo "$titles" | tr '\n' '|')"
 [ "$(grep -c '^set default=0' "$cfg_esp")" = 1 ] && pass 2.6 "default entry is the first (SP11 debug)" || fail 2.6 "default is not entry 0"
 bad=0
 awk '/^menuentry /{t=$0} /^\tdevicetree /{print $2 "\t" t}' "$cfg_esp" >"$W/dt-lines.txt"
@@ -191,16 +198,33 @@ ids_ok=1
 awk '/^menuentry /{t=$0} /^[[:space:]]+linux /{print t "\t" $0}' "$cfg_esp" >"$W/linux-lines.txt"
 while IFS=$'\t' read -r t l; do
 	id=$(echo "$t" | sed -n "s/.*--id sp11-\([a-z-]*\).*/\1/p")
-	case $id in drm-trace | debug | nomodeset | initramfs | vmtest) ;; *) ids_ok=0 ;; esac
-	want=$id; [ "$id" = drm-trace ] && want=drm-trace
+	case $id in drm-trace | debug | keepclk | edponly | nobl | nomodeset | initramfs | vmtest) ;; *) ids_ok=0; fail 2.12 "unknown entry id '$id' ($t)" ;; esac
+	want=$id
 	case $l in *" sp11.entry=$want"*) ;; *) ids_ok=0; fail 2.12 "entry '$t' lacks sp11.entry=$want" ;; esac
 	case $l in *console=ttyAMA0*) [ "$id" = vmtest ] || { ids_ok=0; fail 2.12 "serial console on a device entry: $t"; } ;; *) [ "$id" != vmtest ] || { ids_ok=0; fail 2.12 "VM entry lacks the serial console"; } ;; esac
 	case $l in *" debug "*loglevel=8*ignore_loglevel*) ;; *) ids_ok=0; fail 2.12 "entry '$t' is not verbose (debug loglevel=8 ignore_loglevel)" ;; esac
 done <"$W/linux-lines.txt"
-[ "$ids_ok" = 1 ] && [ "$(wc -l <"$W/linux-lines.txt")" = 5 ] && pass 2.12 "every entry has sp11.entry=<id> and is verbose; serial console only on the VM entry"
+[ "$ids_ok" = 1 ] && [ "$(wc -l <"$W/linux-lines.txt")" = "$nentries" ] && pass 2.12 "every entry has sp11.entry=<id> and is verbose; serial console only on the VM entry"
 vm=$(awk '/^menuentry .VM test/{f=1} f&&/^[[:space:]]+devicetree /{print "x"}' "$cfg_esp")
 [ -z "$vm" ] && pass 2.8 "VM test entry has no devicetree" || fail 2.8 "VM test entry has a devicetree line"
-[ "$(grep -c "^menuentry '" "$cfg_esp")" = 5 ] && [ "$(grep '^set default' "$cfg_esp")" = "set default=0" ] && pass 2.9 "VM test entry is not the default"
+[ "$(grep -c "^menuentry '" "$cfg_esp")" = "$nentries" ] && [ "$(grep '^set default' "$cfg_esp")" = "set default=0" ] && pass 2.9 "VM test entry is not the default"
+if [ "$builder" = kiwi ]; then
+	# D19: which entry does what. clk_ignore_unused/pd_ignore_unused only on keepclk; each DTB variant on its own entry.
+	d19=1
+	while IFS=$'\t' read -r t l; do
+		id=$(echo "$t" | sed -n "s/.*--id sp11-\([a-z-]*\).*/\1/p")
+		case $l in *clk_ignore_unused*pd_ignore_unused*) [ "$id" = keepclk ] || { d19=0; fail 2.17 "clk_ignore_unused on entry $id"; } ;; *) [ "$id" != keepclk ] || { d19=0; fail 2.17 "keepclk lacks clk_ignore_unused pd_ignore_unused"; } ;; esac
+		case $l in *clk_ignore_unused*) ;; *pd_ignore_unused*) d19=0; fail 2.17 "pd_ignore_unused without clk_ignore_unused on $id" ;; esac
+		want=x1p64100-microsoft-denali.dtb
+		[ "$id" = edponly ] && want=x1p64100-microsoft-denali-edponly.dtb
+		[ "$id" = nobl ] && want=x1p64100-microsoft-denali-nobl.dtb
+		if [ "$id" != vmtest ]; then
+			got=$(awk -v t="$t" '$0==t{f=1;next} /^menuentry /{f=0} f&&/^\tdevicetree /{print $2}' "$cfg_esp")
+			[ "$got" = "(\$root)/boot/dtb/qcom/$want" ] || { d19=0; fail 2.17 "entry $id loads '$got', expected qcom/$want"; }
+		fi
+	done <"$W/linux-lines.txt"
+	[ "$d19" = 1 ] && pass 2.17 "keepclk is the only entry with clk_ignore_unused pd_ignore_unused; edponly and nobl load their own DTB, all others the packaged one"
+fi
 free=$(mdir -i "$esp_img" ::/ 2>/dev/null | awk '/bytes free/{gsub(/[^0-9]/,""); print}')
 if [ -n "${free:-}" ] && [ "$free" -ge 8388608 ]; then pass 2.10 "embedded ESP has $((free / 1048576)) MiB free for /EFI/sp11-logs"; else fail 2.10 "embedded ESP free space too small (${free:-?} bytes)"; fi
 for f in BOOTAA64.EFI grubaa64.efi mmaa64.efi grub.cfg; do
@@ -281,6 +305,31 @@ if [ -s "$dtbf" ]; then
 	cmp -s "$dtbf" "$ROOT/lib/modules/$kver/dtb/$dtb" && pass 3.5 "ISO DTB equals the kernel package DTB" || fail 3.5 "ISO DTB differs from lib/modules/$kver/dtb/$dtb"
 else
 	fail 3.1 "DTB $dtb_iso_path missing"
+fi
+
+if [ "$builder" = kiwi ]; then
+	# D19: DTB variants next to the packaged one. Same SoC and board (root compatible), different from the
+	# packaged DTB, hashes as in the build record and as in out/dtb-variants (the kernel worker's output).
+	for v in edponly nobl; do
+		vf=x1p64100-microsoft-denali-$v.dtb
+		vd=$W/$vf
+		x "/boot/dtb/qcom/$vf" "$vd"
+		if [ ! -s "$vd" ]; then fail 3.6 "variant DTB /boot/dtb/qcom/$vf missing on the ISO"; continue; fi
+		dtc -I dtb -O dts -o "$vd.dts" "$vd" 2>"$vd.err" && pass 3.6 "variant $v decompiles with dtc" || fail 3.6 "variant $v: dtc failed: $(head -n2 "$vd.err")"
+		rc=$(fdtget "$vd" / compatible 2>/dev/null)
+		case " $rc " in *" microsoft,denali-lcd "*) pass 3.7 "variant $v root compatible has microsoft,denali-lcd" ;; *) fail 3.7 "variant $v root compatible is '$rc'" ;; esac
+		vsha=$(sha256sum "$vd" | cut -d' ' -f1)
+		if [ "$(jq_ ".dtb_variants_smoke_copy // false")" = true ]; then
+			skip 3.8 "smoke build: variant $v is a copy of the packaged DTB, not a real variant"
+		else
+			cmp -s "$vd" "$dtbf" && fail 3.8 "variant $v is identical to the packaged DTB" || pass 3.8 "variant $v differs from the packaged DTB"
+		fi
+		[ "$vsha" = "$(jq_ ".dtb_files[\"$vf\"] // empty")" ] && pass 3.9 "variant $v SHA-256 equals the build record" || fail 3.9 "variant $v SHA-256 $vsha differs from the build record ($(jq_ ".dtb_files[\"$vf\"] // \"none\""))"
+		rsha=$(jq_ ".dtb_variant_records[\"$vf.json\"].sha256 // empty")
+		if [ -n "$rsha" ]; then [ "$vsha" = "$rsha" ] && pass 3.11 "variant $v SHA-256 equals the kernel worker's JSON record" || fail 3.11 "variant $v SHA-256 differs from the kernel worker's JSON record ($rsha)"; else skip 3.11 "no JSON record of the kernel worker for variant $v in the build record"; fi
+		src=$(ls "$OUT"/dtb-variants/"$kver"/qcom/$vf 2>/dev/null | head -n1)
+		if [ -n "$src" ]; then cmp -s "$src" "$vd" && pass 3.10 "variant $v equals out/dtb-variants/$kver/qcom/$vf" || fail 3.10 "variant $v differs from $src"; else skip 3.10 "no out/dtb-variants/$kver/qcom/$vf to compare with"; fi
+	done
 fi
 
 # ---------------------------------------------------------------- check 4 ----
@@ -445,7 +494,13 @@ grep -q '^WantedBy=multi-user.target' "$svc" && ! grep -q -E '^(After|Requires|W
 [ -x "$ROOT/usr/libexec/sp11-log-collector" ] && bash -n "$ROOT/usr/libexec/sp11-log-collector" && pass 8.4 "collector script executable, syntax ok" || fail 8.4 "collector script missing, not executable or broken"
 # first boot runs `preset-all` when /etc/machine-id is "uninitialized" (kiwi); the unit must be enabled by preset
 grep -q -x 'enable sp11-log-collector.service' "$ROOT"/usr/lib/systemd/system-preset/80-sp11.preset 2>/dev/null && pass 8.7 "preset enables the collector (survives preset-all at first boot)" || fail 8.7 "no preset enabling sp11-log-collector.service"
-for t in dmesg journalctl lspci lsusb dtc timeout blkid mount; do
+if [ "$builder" = kiwi ]; then
+	# D19: the display-lcd DPCD tool is in the image, byte-identical to the worker's file, and the unit starts early
+	[ -x "$ROOT/usr/libexec/sp11-collect-dpcd.py" ] && cmp -s "$ROOT/usr/libexec/sp11-collect-dpcd.py" "$REPO/hardware/display-lcd/tools/collect-dpcd.py" && python3 -I -c "import ast,sys; ast.parse(open(sys.argv[1]).read())" "$ROOT/usr/libexec/sp11-collect-dpcd.py" && pass 8.8 "collect-dpcd.py is in the image, executable, equal to hardware/display-lcd/tools/collect-dpcd.py" || fail 8.8 "collect-dpcd.py missing, not executable or different from the display-lcd tool"
+	grep -q '^DefaultDependencies=no' "$svc" && pass 8.9 "collector unit starts without default dependencies (early)" || fail 8.9 "collector unit has default dependencies"
+	grep -q '^CAP_ESP_KIB=32768' "$ROOT/etc/sp11-log-collector.conf" && grep -q '^ESP_LABEL=BOOT' "$ROOT/etc/sp11-log-collector.conf" && pass 8.10 "collector fallback is the ESP labelled BOOT, cap 32 MiB" || fail 8.10 "collector ESP settings missing in /etc/sp11-log-collector.conf"
+fi
+for t in dmesg journalctl lspci lsusb dtc timeout blkid mount python3 lsmod; do
 	[ -x "$ROOT/usr/bin/$t" ] || [ -x "$ROOT/usr/sbin/$t" ] || fail 8.5 "collector needs $t, not in the image"
 done
 for t in debug loglevel=8 ignore_loglevel; do grep -q "$t" "$ROOT/etc/default/grub" || fail 8.6 "/etc/default/grub lacks $t"; done
