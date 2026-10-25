@@ -23,3 +23,4 @@
 | R6 | Firmware names in Linux differ from Windows names | Medium | `firmware` worker owns one manifest with source and destination |
 | R7 | Rebase burden when moving past 7.3 | Medium | Small upstream-style patches; send upstream where possible |
 | R8 | Reverse-engineered values wrong | High | Grades and citations (`agents/protocol.md` §5); no value without a source |
+| R9 | Surface UEFI refuses Fedora shim 16.1 (Secure Boot off), so an installed system does not boot | High | D18: stick boots GRUB directly; installer path must set the UEFI boot entry to `grubaa64.efi`; verify on the device |
