@@ -82,7 +82,7 @@ def read_log(img, bootdir, name):
 
 def find_bootdir(img):
     for entry in mtools_listing(img):
-        e = entry.replace("::", "", 1).strip("/")
+        e = entry.replace("::", "", 1).strip("/").split("/")[-1]   # with LOGROOT, mdir -b prints the whole path
         if re.fullmatch(r"[0-9a-f-]{36}", e):
             if mtools_cat(img, f"{e}/COMPLETE") is not None:
                 return e
