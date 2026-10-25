@@ -174,9 +174,9 @@ else
 fi
 titles=$(grep -o "^menuentry '[^']*'" "$cfg_esp" | sed "s/menuentry '//;s/'\$//")
 if [ "$builder" = kiwi ]; then
-	# D19: the eight entries of the M3 menu, in this order
-	expect=$'SP11 debug\nSP11 debug, keep firmware clocks\nSP11 debug, eDP only (USB-C DP off)\nSP11 debug, DTB without PWM backlight\nSP11 debug + DRM trace\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)'
-	nentries=8
+	# D19/M4: the nine entries of the menu, in this order
+	expect=$'SP11 debug\nSP11 debug, old-project parity\nSP11 debug, keep firmware clocks\nSP11 debug, eDP only (USB-C DP off)\nSP11 debug, DTB without PWM backlight\nSP11 debug + DRM trace\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)'
+	nentries=9
 else
 	expect=$'SP11 debug\nSP11 debug + DRM trace\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)'
 	nentries=5
@@ -198,7 +198,7 @@ ids_ok=1
 awk '/^menuentry /{t=$0} /^[[:space:]]+linux /{print t "\t" $0}' "$cfg_esp" >"$W/linux-lines.txt"
 while IFS=$'\t' read -r t l; do
 	id=$(echo "$t" | sed -n "s/.*--id sp11-\([a-z-]*\).*/\1/p")
-	case $id in drm-trace | debug | keepclk | edponly | nobl | nomodeset | initramfs | vmtest) ;; *) ids_ok=0; fail 2.12 "unknown entry id '$id' ($t)" ;; esac
+	case $id in drm-trace | debug | parity | keepclk | edponly | nobl | nomodeset | initramfs | vmtest) ;; *) ids_ok=0; fail 2.12 "unknown entry id '$id' ($t)" ;; esac
 	want=$id
 	case $l in *" sp11.entry=$want"*) ;; *) ids_ok=0; fail 2.12 "entry '$t' lacks sp11.entry=$want" ;; esac
 	case $l in *console=ttyAMA0*) [ "$id" = vmtest ] || { ids_ok=0; fail 2.12 "serial console on a device entry: $t"; } ;; *) [ "$id" != vmtest ] || { ids_ok=0; fail 2.12 "VM entry lacks the serial console"; } ;; esac
@@ -213,9 +213,13 @@ if [ "$builder" = kiwi ]; then
 	d19=1
 	while IFS=$'\t' read -r t l; do
 		id=$(echo "$t" | sed -n "s/.*--id sp11-\([a-z-]*\).*/\1/p")
-		case $l in *clk_ignore_unused*pd_ignore_unused*) [ "$id" = keepclk ] || { d19=0; fail 2.17 "clk_ignore_unused on entry $id"; } ;; *) [ "$id" != keepclk ] || { d19=0; fail 2.17 "keepclk lacks clk_ignore_unused pd_ignore_unused"; } ;; esac
-		case $l in *clk_ignore_unused*) ;; *pd_ignore_unused*) d19=0; fail 2.17 "pd_ignore_unused without clk_ignore_unused on $id" ;; esac
+		# clk_ignore_unused pd_ignore_unused: exactly on keepclk and parity; rootdelay=10: only on parity
+		case $id in keepclk | parity) need=1 ;; *) need=0 ;; esac
+		case $l in *" clk_ignore_unused pd_ignore_unused"*) have=1 ;; *) have=0 ;; esac
+		[ "$need" = "$have" ] || { d19=0; fail 2.17 "entry $id: clk_ignore_unused pd_ignore_unused expected=$need found=$have"; }
+		case $l in *" rootdelay=10 "*) [ "$id" = parity ] || { d19=0; fail 2.17 "rootdelay=10 on entry $id"; } ;; *) [ "$id" != parity ] || { d19=0; fail 2.17 "parity lacks rootdelay=10"; } ;; esac
 		want=x1p64100-microsoft-denali.dtb
+		[ "$id" = parity ] && want=x1p64100-microsoft-denali-parity.dtb
 		[ "$id" = edponly ] && want=x1p64100-microsoft-denali-edponly.dtb
 		[ "$id" = nobl ] && want=x1p64100-microsoft-denali-nobl.dtb
 		if [ "$id" != vmtest ]; then
@@ -223,7 +227,7 @@ if [ "$builder" = kiwi ]; then
 			[ "$got" = "(\$root)/boot/dtb/qcom/$want" ] || { d19=0; fail 2.17 "entry $id loads '$got', expected qcom/$want"; }
 		fi
 	done <"$W/linux-lines.txt"
-	[ "$d19" = 1 ] && pass 2.17 "keepclk is the only entry with clk_ignore_unused pd_ignore_unused; edponly and nobl load their own DTB, all others the packaged one"
+	[ "$d19" = 1 ] && pass 2.17 "clk_ignore_unused pd_ignore_unused only on keepclk and parity, rootdelay=10 only on parity; parity, edponly and nobl load their own DTB, all others the packaged one"
 fi
 free=$(mdir -i "$esp_img" ::/ 2>/dev/null | awk '/bytes free/{gsub(/[^0-9]/,""); print}')
 if [ -n "${free:-}" ] && [ "$free" -ge 8388608 ]; then pass 2.10 "embedded ESP has $((free / 1048576)) MiB free for /EFI/sp11-logs"; else fail 2.10 "embedded ESP free space too small (${free:-?} bytes)"; fi
@@ -310,7 +314,7 @@ fi
 if [ "$builder" = kiwi ]; then
 	# D19: DTB variants next to the packaged one. Same SoC and board (root compatible), different from the
 	# packaged DTB, hashes as in the build record and as in out/dtb-variants (the kernel worker's output).
-	for v in edponly nobl; do
+	for v in parity edponly nobl; do
 		vf=x1p64100-microsoft-denali-$v.dtb
 		vd=$W/$vf
 		x "/boot/dtb/qcom/$vf" "$vd"
