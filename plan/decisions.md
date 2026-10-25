@@ -130,3 +130,13 @@ Append-only. Each entry: number, date, decision, reason, consequence. A later en
   2. The ISO also ships two DTB variants from the same tree: `…-nobl.dtb` without 0003, which isolates a backlight regression, and `…-edponly.dtb` with DP0 and DP1 disabled, which tests H5. The collector records `devices_deferred`.
   3. GRUB device entries: default `SP11 debug`; `SP11 debug, keep firmware clocks` (`clk_ignore_unused pd_ignore_unused`, diagnostic for H1, never default); `SP11 debug, eDP only (USB-C DP off)`; `SP11 debug, DTB without PWM backlight`; the existing DRM trace, nomodeset and initramfs entries; and the VM entry.
 - **Exit:** the device logs (`EFI/sp11-logs` on the stick) decide which hypothesis holds. `clk_ignore_unused` never becomes the default without a log that shows H1.
+
+## D20 (2026-10-25): M4 default entry follows the previous project's GNOME boot (operator: "work on the fixes")
+
+- **Decision:** without waiting for device logs, the M4 default entry combines every difference the comparison found between M3 and the previous project's ISO, which was reported to reach GNOME (`out/agents/surface-compare/report.md`). It adds the one Verified M3 omission:
+  1. `leds_qcom_lpg` in the initramfs, with an L0 assertion on the whole display module chain (Verified omission).
+  2. `clk_ignore_unused pd_ignore_unused rootdelay=10` on the default entry. This supersedes the D19 gate for the default only. The minimal M3 command line stays as a separate entry for comparison.
+  3. A `parity` DTB: the M3 DT, the 10-CPU topology (MADT-verified fused-off cores removed) and no system SS3 idle (CL4/CL5 kept).
+  4. `qcom_q6v5_pas` and the staged ADSP/CDSP firmware pairs (`qcadsp8380.mbn`, `adsp_dtb.mbn`, `qccdsp8380.mbn`, `cdsp_dtb.mbn`) in the initramfs. This supersedes F1 for M4. One entry blacklists PAS in the initramfs (`rd.driver.blacklist=qcom_q6v5_pas`) to compare.
+- **Kept:** the display wiring from Dale Whinham's LCD-tested patch 0003, not the previous project's GPIO4/always-on variant; BTF; verbose boot; FAT32 ESP with GRUB direct.
+- **Exit:** device logs from M3 or M4 decide which of these changes are needed. Anything a log does not justify is removed again before the installed-system work.
