@@ -174,9 +174,9 @@ else
 fi
 titles=$(grep -o "^menuentry '[^']*'" "$cfg_esp" | sed "s/menuentry '//;s/'\$//")
 if [ "$builder" = kiwi ]; then
-	# M4 (D20): the seven entries of the menu, in this order
-	expect=$'SP11 debug\nSP11 debug, M3 command line\nSP11 debug, no early DSP\nSP11 debug + DRM trace\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)'
-	nentries=7
+	# M5 (D21): the six entries of the menu, in this order
+	expect=$'SP11 debug\nSP11 debug, GPU on\nSP11 debug, GPU on + DRM trace\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)'
+	nentries=6
 else
 	expect=$'SP11 debug\nSP11 debug + DRM trace\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)'
 	nentries=5
@@ -198,7 +198,7 @@ ids_ok=1
 awk '/^menuentry /{t=$0} /^[[:space:]]+linux /{print t "\t" $0}' "$cfg_esp" >"$W/linux-lines.txt"
 while IFS=$'\t' read -r t l; do
 	id=$(echo "$t" | sed -n "s/.*--id sp11-\([a-z0-9-]*\).*/\1/p")
-	case $id in drm-trace | debug | m3cmdline | nodsp | nomodeset | initramfs | vmtest) ;; *) ids_ok=0; fail 2.12 "unknown entry id '$id' ($t)" ;; esac
+	case $id in debug | gpu | gpu-drm-trace | nomodeset | initramfs | vmtest) ;; *) ids_ok=0; fail 2.12 "unknown entry id '$id' ($t)" ;; esac
 	want=$id
 	case $l in *" sp11.entry=$want"*) ;; *) ids_ok=0; fail 2.12 "entry '$t' lacks sp11.entry=$want" ;; esac
 	case $l in *console=ttyAMA0*) [ "$id" = vmtest ] || { ids_ok=0; fail 2.12 "serial console on a device entry: $t"; } ;; *) [ "$id" != vmtest ] || { ids_ok=0; fail 2.12 "VM entry lacks the serial console"; } ;; esac
@@ -209,16 +209,18 @@ vm=$(awk '/^menuentry .VM test/{f=1} f&&/^[[:space:]]+devicetree /{print "x"}' "
 [ -z "$vm" ] && pass 2.8 "VM test entry has no devicetree" || fail 2.8 "VM test entry has a devicetree line"
 [ "$(grep -c "^menuentry '" "$cfg_esp")" = "$nentries" ] && [ "$(grep '^set default' "$cfg_esp")" = "set default=0" ] && pass 2.9 "VM test entry is not the default"
 if [ "$builder" = kiwi ]; then
-	# D20: which entry does what. Entries 1, 3-6 are the parity boot (clk_ignore_unused pd_ignore_unused rootdelay=10, parity DTB);
-	# m3cmdline is the M3 command line with the packaged DTB; nodsp adds the PAS blacklist; the others add one argument.
+	# D21: every device entry has clk_ignore_unused pd_ignore_unused rootdelay=10; the DTB is m5 (GPU off) except on the two
+	# GPU entries (m5gpu); each adds at most one argument; nothing else (no blacklist, no earlier DTB).
 	d19=1
 	while IFS=$'\t' read -r t l; do
 		id=$(echo "$t" | sed -n "s/.*--id sp11-\([a-z0-9-]*\).*/\1/p")
 		case $id in
-		m3cmdline) base=0; extra=; want=x1p64100-microsoft-denali.dtb ;;
 		vmtest) base=0; extra=; want= ;;
-		*) base=1; want=x1p64100-microsoft-denali-parity.dtb
-			case $id in nodsp) extra=rd.driver.blacklist=qcom_q6v5_pas ;; drm-trace) extra=drm.debug=0x1ff ;; nomodeset) extra=nomodeset ;; initramfs) extra=rd.break=pre-mount ;; *) extra= ;; esac ;;
+		gpu) base=1; extra=; want=x1p64100-microsoft-denali-m5gpu.dtb ;;
+		gpu-drm-trace) base=1; extra=drm.debug=0x1ff; want=x1p64100-microsoft-denali-m5gpu.dtb ;;
+		nomodeset) base=1; extra=nomodeset; want=x1p64100-microsoft-denali-m5.dtb ;;
+		initramfs) base=1; extra=rd.break=pre-mount; want=x1p64100-microsoft-denali-m5.dtb ;;
+		*) base=1; extra=; want=x1p64100-microsoft-denali-m5.dtb ;;
 		esac
 		case $l in *" clk_ignore_unused pd_ignore_unused rootdelay=10"*) have=1 ;; *) have=0 ;; esac
 		[ "$base" = "$have" ] || { d19=0; fail 2.17 "entry $id: clk_ignore_unused pd_ignore_unused rootdelay=10 expected=$base found=$have"; }
@@ -230,7 +232,22 @@ if [ "$builder" = kiwi ]; then
 			[ "$got" = "(\$root)/boot/dtb/qcom/$want" ] || { d19=0; fail 2.17 "entry $id loads '$got', expected qcom/$want"; }
 		fi
 	done <"$W/linux-lines.txt"
-	[ "$d19" = 1 ] && pass 2.17 "M4 menu: default and entries 3-6 are the parity boot (parity DTB, clk_ignore_unused pd_ignore_unused rootdelay=10) plus exactly their one extra argument; M3 command line entry has the packaged DTB and no extra"
+	[ "$d19" = 1 ] && pass 2.17 "M5 menu: every device entry has clk_ignore_unused pd_ignore_unused rootdelay=10, the m5 DTB (m5gpu on the two GPU entries) and at most its one extra argument"
+fi
+if [ "$builder" = kiwi ]; then
+	# S1 (D21): no device entry may load a DTB that enables the sound card or the WSA8845 speaker amplifiers. Every DTB a
+	# devicetree line of a device entry points to is decompiled with dtc and judged by the kernel worker's script.
+	s1ok=1
+	for dp in $(awk '/^\tdevicetree /{print $2}' "$cfg_esp" | sort -u); do
+		dp=${dp#'($root)'}
+		df=$W/s1-$(basename "$dp"); x "$dp" "$df"
+		if [ ! -s "$df" ] || ! dtc -I dtb -O dts -o "$df.dts" "$df" 2>/dev/null; then s1ok=0; fail 2.18 "cannot decompile $dp for the sound check"; continue; fi
+		# the kernel worker's scripts/kernel-dtb-safety.py: effective status (a node is enabled only if every ancestor is),
+		# watching the WSA8845 SoundWire ID, wsa884* and the x1e80100 sound card; it also needs the nodes to be present
+		python3 -I "$REPO/scripts/kernel-dtb-safety.py" "$df.dts" >"$df.s1.json" 2>&1 && res=OK || res="effectively enabled or no watched node: $(tr -d '\n ' <"$df.s1.json" | cut -c1-300)"
+		[ "$res" = OK ] || { s1ok=0; fail 2.18 "S1: $dp: $res"; }
+	done
+	[ "$s1ok" = 1 ] && pass 2.18 "S1: no DTB of any device entry enables /sound, &swr0 (soundwire@6b10000) or a WSA884x speaker node"
 fi
 free=$(mdir -i "$esp_img" ::/ 2>/dev/null | awk '/bytes free/{gsub(/[^0-9]/,""); print}')
 if [ -n "${free:-}" ] && [ "$free" -ge 8388608 ]; then pass 2.10 "embedded ESP has $((free / 1048576)) MiB free for /EFI/sp11-logs"; else fail 2.10 "embedded ESP free space too small (${free:-?} bytes)"; fi
@@ -317,12 +334,12 @@ fi
 if [ "$builder" = kiwi ]; then
 	# D19: DTB variants next to the packaged one. Same SoC and board (root compatible), different from the
 	# packaged DTB, hashes as in the build record and as in out/dtb-variants (the kernel worker's output).
-	for v in parity edponly nobl; do
+	for v in m5 m5gpu parity edponly nobl; do
 		vf=x1p64100-microsoft-denali-$v.dtb
 		vd=$W/$vf
 		x "/boot/dtb/qcom/$vf" "$vd"
 		if [ ! -s "$vd" ]; then
-			if [ "$v" = parity ]; then fail 3.6 "variant DTB /boot/dtb/qcom/$vf missing on the ISO"; else skip 3.6 "variant $v is not on the ISO (unreferenced in M4, optional)"; fi
+			if [ "$v" = m5 ] || [ "$v" = m5gpu ]; then fail 3.6 "variant DTB /boot/dtb/qcom/$vf missing on the ISO"; else skip 3.6 "variant $v is not on the ISO (unreferenced in M5, optional)"; fi
 			continue
 		fi
 		dtc -I dtb -O dts -o "$vd.dts" "$vd" 2>"$vd.err" && pass 3.6 "variant $v decompiles with dtc" || fail 3.6 "variant $v: dtc failed: $(head -n2 "$vd.err")"
@@ -563,6 +580,18 @@ if [ "$builder" = kiwi ]; then
 	# D19: the display-lcd DPCD tool is in the image, byte-identical to the worker's file, and the unit starts early
 	[ -x "$ROOT/usr/libexec/sp11-collect-dpcd.py" ] && cmp -s "$ROOT/usr/libexec/sp11-collect-dpcd.py" "$REPO/hardware/display-lcd/tools/collect-dpcd.py" && python3 -I -c "import ast,sys; ast.parse(open(sys.argv[1]).read())" "$ROOT/usr/libexec/sp11-collect-dpcd.py" && pass 8.8 "collect-dpcd.py is in the image, executable, equal to hardware/display-lcd/tools/collect-dpcd.py" || fail 8.8 "collect-dpcd.py missing, not executable or different from the display-lcd tool"
 	grep -q '^DefaultDependencies=no' "$svc" && pass 8.9 "collector unit starts without default dependencies (early)" || fail 8.9 "collector unit has default dependencies"
+	# M5 (D21): session triggers, mount only per write, only the GPU speed-bin cell of the qfprom
+	ok=1
+	for u in sp11-log-collector-session-first.path sp11-log-collector-session-user.path; do
+		[ "$(readlink "$ROOT/etc/systemd/system/multi-user.target.wants/$u")" = "/usr/lib/systemd/system/$u" ] && [ -f "$ROOT/usr/lib/systemd/system/$u" ] || { ok=0; fail 8.14 "$u missing or not enabled"; }
+	done
+	[ -f "$ROOT/usr/lib/systemd/system/sp11-log-collector-session@.service" ] && grep -q 'session %i' "$ROOT/usr/lib/systemd/system/sp11-log-collector-session@.service" || { ok=0; fail 8.14 "sp11-log-collector-session@.service missing"; }
+	grep -q 'sp11-log-collector-session-first.path' "$ROOT/usr/lib/systemd/system-preset/80-sp11.preset" && grep -q 'session-user.path' "$ROOT/usr/lib/systemd/system-preset/80-sp11.preset" || { ok=0; fail 8.14 "session path units not in the preset (preset-all would disable them)"; }
+	[ "$ok" = 1 ] && pass 8.14 "logind session triggers (path units for the first session and the first numbered user session) are installed, enabled and preset"
+	ck=$ROOT/usr/libexec/sp11-log-collector
+	if grep -q '^release_target()' "$ck" && grep -q 'release_target' "$ck" && awk '/^publish\(\)/,/^}/' "$ck" | grep -q 'release_target'; then pass 8.15 "collector: publish() mounts for the write and releases (sync, umount, verify) after it"; else fail 8.15 "collector does not release the target after each publish"; fi
+	if [ "$(grep -c 'nvmem"' "$ck")" -le 2 ] && grep -q 'dd if="$dev/nvmem" bs=1 skip=$((0x119)) count=2' "$ck" && [ "$(grep -c 'dd if="$dev/nvmem"' "$ck")" = 1 ]; then pass 8.16 "collector reads exactly 2 bytes at 0x119 of the qfprom (GPU speed bin), nothing else (S5)"; else fail 8.16 "qfprom read is not limited to 2 bytes at 0x119"; fi
+	grep -q '/proc/asound/cards' "$ck" && grep -q 'aplay -l' "$ck" && pass 8.17 "collector records /proc/asound/cards and aplay -l" || fail 8.17 "collector lacks the sound evidence"
 	# S4: the collector and the initramfs hook write only to a partition of the boot medium's disk
 	ck=$ROOT/usr/libexec/sp11-log-collector; ih=$ROOT/usr/lib/dracut/modules.d/95sp11-initrd-log/sp11-initrd-log.sh
 	for f in "$ck" "$ih"; do

@@ -1,0 +1,13 @@
+[Unit]
+Description=SP11 log collector: any systemd-logind session exists (the display manager greeter included)
+DefaultDependencies=no
+After=local-fs.target
+Conflicts=shutdown.target
+Before=shutdown.target
+
+[Path]
+DirectoryNotEmpty=/run/systemd/sessions
+Unit=sp11-log-collector-session@first.service
+
+[Install]
+WantedBy=multi-user.target

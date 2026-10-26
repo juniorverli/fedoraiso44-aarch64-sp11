@@ -94,7 +94,9 @@ mkdir -p "$desc/root/etc/systemd/system/multi-user.target.wants"
 for u in start quit quit-wait read-write switch-root halt reboot poweroff kexec; do
 	ln -sf /dev/null "$desc/root/etc/systemd/system/plymouth-$u.service"
 done
-ln -sf /usr/lib/systemd/system/sp11-log-collector.service "$desc/root/etc/systemd/system/multi-user.target.wants/sp11-log-collector.service"
+for u in sp11-log-collector.service sp11-log-collector-session-first.path sp11-log-collector-session-user.path; do
+	ln -sf "/usr/lib/systemd/system/$u" "$desc/root/etc/systemd/system/multi-user.target.wants/$u"
+done
 
 [ -d "$OUT/firmware-root/lib/firmware" ] || { log "$OUT/firmware-root missing; run scripts/firmware-stage.sh"; exit 1; }
 mkdir -p "$desc/root/usr/lib/firmware"
@@ -125,15 +127,15 @@ rpm2cpio "$kcore" | cpio -i --quiet --to-stdout "./lib/modules/$kver/dtb/qcom/x1
 # D19: the two variants of the kernel worker, next to the packaged DTB. The build fails without
 # them; with --smoke a copy of the packaged DTB stands in (recorded, never for the device).
 variants_smoke_copy=0
-for v in parity edponly nobl; do
+for v in m5 m5gpu parity edponly nobl; do
 	vf=x1p64100-microsoft-denali-$v.dtb
 	vsrc=$OUT/dtb-variants/$kver/qcom/$vf
 	if [ -s "$vsrc" ]; then
 		cp "$vsrc" "$dtbtmp/boot/dtb/qcom/$vf"
 		mkdir -p "$work/dtb-records"
 		for r in "${vsrc%.dtb}.json" "$vsrc.json"; do [ -f "$r" ] && cp "$r" "$work/dtb-records/$vf.json"; done
-	elif [ "$v" != parity ]; then
-		log "DTB variant $vsrc is missing; $v is unreferenced in M4 and optional, not shipped"
+	elif [ "$v" != m5 ] && [ "$v" != m5gpu ]; then
+		log "DTB variant $vsrc is missing; $v is unreferenced in M5 and optional, not shipped"
 	elif [ "$smoke" = 1 ]; then
 		log "SMOKE: $vsrc missing, using a copy of the packaged DTB for the $v entry"
 		cp "$dtbtmp/boot/dtb/qcom/x1p64100-microsoft-denali.dtb" "$dtbtmp/boot/dtb/qcom/$vf"
@@ -231,9 +233,9 @@ mcopy -i "$chk/bi/eltorito_img1_uefi.img" ::EFI/BOOT/grub.cfg "$chk/esp-grub.cfg
 for f in "$chk"/_* "$chk/esp-grub.cfg"; do
 	if grep -v '^[[:space:]]*#' "$f" | grep -w -E 'quiet|rhgb|splash' >/dev/null; then log "FAIL: quiet/rhgb/splash in $f"; exit 1; fi
 done
-n=$(grep -c "^menuentry '" "$chk/_boot_grub2_grub.cfg"); [ "$n" = 7 ] || { log "FAIL: $n menu entries, expected 7 (M4)"; exit 1; }
-for e in debug m3cmdline nodsp drm-trace nomodeset initramfs vmtest; do grep -q "sp11.entry=$e\$" "$chk/_boot_grub2_grub.cfg" || { log "FAIL: no entry with sp11.entry=$e"; exit 1; }; done
-for f in x1p64100-microsoft-denali x1p64100-microsoft-denali-parity; do
+n=$(grep -c "^menuentry '" "$chk/_boot_grub2_grub.cfg"); [ "$n" = 6 ] || { log "FAIL: $n menu entries, expected 6 (M5)"; exit 1; }
+for e in debug gpu gpu-drm-trace nomodeset initramfs vmtest; do grep -q "sp11.entry=$e\$" "$chk/_boot_grub2_grub.cfg" || { log "FAIL: no entry with sp11.entry=$e"; exit 1; }; done
+for f in x1p64100-microsoft-denali-m5 x1p64100-microsoft-denali-m5gpu; do
 	xorriso -indev "$iso" -find "/boot/dtb/qcom/$f.dtb" -type f 2>/dev/null | grep -q . || { log "FAIL: /boot/dtb/qcom/$f.dtb not on the ISO"; exit 1; }
 done
 

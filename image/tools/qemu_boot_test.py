@@ -21,16 +21,15 @@ import time
 
 import pexpect
 
-ENTRIES = [   # M4 (D20) menu order; the VM entry must stay last (selected by counting Down keys)
+ENTRIES = [   # M5 (D21) menu order; the VM entry must stay last (selected by counting Down keys)
     "SP11 debug",
-    "SP11 debug, M3 command line",
-    "SP11 debug, no early DSP",
-    "SP11 debug + DRM trace",
+    "SP11 debug, GPU on",
+    "SP11 debug, GPU on + DRM trace",
     "SP11 debug nomodeset",
     "SP11 debug, stop in initramfs",
     "VM test (no devicetree)",
 ]
-LEGACY_ENTRIES = ENTRIES[:1] + ENTRIES[3:]   # ISOs before M3 (kiwi d18 and earlier): five entries
+LEGACY_ENTRIES = [ENTRIES[0], "SP11 debug + DRM trace"] + ENTRIES[3:]   # ISOs before M3 (kiwi d18 and earlier): five entries
 FATAL = [
     (rb"Kernel panic - not syncing", "kernel panic"),
     (rb"[Ee]mergency mode", "emergency mode"),
@@ -112,6 +111,9 @@ def main():
                     help="test of the dracut failure capture: edit the VM entry in GRUB so that root=live:CDLABEL= is wrong; implies "
                          "--esp-fallback; passes when /EFI/sp11-logs/initrd-<boot-id>/ is complete on the ESP")
     ap.add_argument("--legacy-menu", action="store_true", help="the ISO has the five-entry menu of before M3")
+    ap.add_argument("--until-session", action="store_true",
+                    help="do not stop at the first complete collector directory: wait until the logind session triggers "
+                         "(sp11-log-collector-session-*.path) have written session-<name>-* files; implies --esp-fallback")
     ap.add_argument("--no-display-files", action="store_true", help="do not require the D19 display files (ISOs older than M3)")
     ap.add_argument("--work", required=True)
     ap.add_argument("--report", required=True)
@@ -129,7 +131,7 @@ def main():
     if a.legacy_menu:
         ENTRIES = LEGACY_ENTRIES
     os.makedirs(a.work, exist_ok=True)
-    if a.initrd_fail:
+    if a.initrd_fail or a.until_session:
         a.esp_fallback = True
     early = a.early or a.esp_fallback
     decoy_md5 = None
@@ -280,6 +282,13 @@ def main():
                 if bd:
                     btf = read_log(a.logs, bd, "btf.txt") or ""
                     gdm = read_log(a.logs, bd, "gdm-status.txt") or ""
+                    if a.until_session:
+                        names = [f.lstrip('/').split('/')[-1] for f in mtools_listing(a.logs, bd)]
+                        if any(n.startswith("session-first-") for n in names) and any(n.startswith("session-user-") for n in names):
+                            bootdir = bd
+                            print(f"[{int(now - start)}s] both logind session snapshots are in the log directory", flush=True)
+                            break
+                        continue
                     if early and "btf: present" in btf:
                         bootdir = bd
                         print(f"[{int(now - start)}s] collector logs complete, BTF present (early stop)", flush=True)
@@ -329,6 +338,27 @@ def main():
             check("fake Windows disk is byte-identical after the run (md5sum before = after, risk S4)", after == decoy_md5,
                   f"md5 {after}" + ("" if after == decoy_md5 else f" (before {decoy_md5})"))
 
+    def esp_clean_check():
+        # M5 (D21): the ESP of the stick must not be left dirty (collector and hook mount it only per write). fsck.fat -n
+        # reads only; it prints "Dirty bit is set" and exits 1 when the volume was not unmounted cleanly.
+        if not a.esp_fallback:
+            return
+        img, _, off = a.logs.partition("@@")
+        out = os.path.join(a.work, "esp-after.img")
+        with open(img, "rb") as f, open(out, "wb") as o:
+            f.seek(int(off))
+            left = 64 * 1024 * 1024
+            while left:
+                c = f.read(min(left, 1 << 20))
+                if not c:
+                    break
+                o.write(c)
+                left -= len(c)
+        r = subprocess.run(["fsck.fat", "-n", out], capture_output=True, text=True)
+        txt = (r.stdout + r.stderr).strip().replace("\n", " | ")
+        check("the ESP of the stick is clean after the run (fsck.fat -n: no dirty bit)", r.returncode == 0 and "irty" not in txt, txt[:300])
+        os.unlink(out)
+
     check("GRUB menu shows all entries", state["menu"])
     if a.initrd_fail:
         serial = open(serial_log, "rb").read()
@@ -356,6 +386,7 @@ def main():
             check("initramfs journal in the capture is not empty", len(jr) > 1000, f"{len(jr)} bytes")
         check("no real-root <boot-id>/ was written (the system never got past the initramfs)", find_bootdir(a.logs) is None)
         decoy_check()
+        esp_clean_check()
         res["ok"] = all(c["ok"] for c in res["checks"])
         json.dump(res, open(a.report, "w"), indent=1)
         print("L1 (initramfs failure capture)", "PASS" if res["ok"] else "FAIL", flush=True)
@@ -372,6 +403,13 @@ def main():
         want_target = "esp" if a.esp_fallback else "logs"
         check(f"collector wrote to the {'embedded ESP (/EFI/sp11-logs, label BOOT)' if a.esp_fallback else 'SP11LOGS disk'}",
               f"target: {want_target}" in status, status.strip().replace("\n", " | "))
+        if a.until_session:
+            check("the logind session triggers wrote session-first-* and session-user-* files",
+                  any(f.lstrip('/').split('/')[-1].startswith("session-first-") for f in files) and any(f.lstrip('/').split('/')[-1].startswith("session-user-") for f in files),
+                  ", ".join(sorted(f.lstrip('/').split('/')[-1] for f in files if "session-" in f)))
+            for tag in ("first", "user"):
+                lg = read_log(a.logs, bd, f"session-{tag}-loginctl.txt") or ""
+                check(f"session-{tag}-loginctl.txt shows a session", "SESSION" in lg or "/run/systemd/sessions" in lg, lg.strip().splitlines()[0][:120] if lg.strip() else "empty")
         if not a.no_display_files:
             lf = {x.lstrip('/').split('/')[-1].removesuffix('.gz') for x in files}
             need = ["entry.txt", "devices_deferred.txt", "device_component.txt", "drm-class-ls.txt", "lsmod.txt", "fb-state.txt",
@@ -411,6 +449,7 @@ def main():
     if state["stall"]:
         check("console kept printing", False, f"silent for {a.stall_min} min")
     decoy_check()
+    esp_clean_check()
     res["state"] = state
     res["ok"] = all(c["ok"] for c in res["checks"])
     json.dump(res, open(a.report, "w"), indent=1)

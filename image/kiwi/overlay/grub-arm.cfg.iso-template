@@ -6,10 +6,10 @@
 # Differences, all listed in image/README.md ("kiwi layer", change 3):
 #   - load_video keeps efi_gop and all_video only: efi_uga, video_bochs and video_cirrus do not exist
 #     on arm64-efi (QEMU printed "file not found" for each; they are x86 modules in Fedora's template);
-#   - no `Test this media` and no `Troubleshooting` submenu; the seven SP11 entries of M4 (D20) instead;
+#   - no `Test this media` and no `Troubleshooting` submenu; the six SP11 entries of M5 (D21) instead;
 #   - `set default=0` and timeout_style=menu with a fixed timeout: the menu is always shown;
 #   - every device entry has a `devicetree` line (GRUB 2 command, D9); the VM test entry has none;
-#     the packaged DTB and the `-parity` DTB (D20) are used; `-edponly` and `-nobl` stay on the ISO unreferenced;
+#     only the `-m5` and `-m5gpu` DTBs are used (sound off on both, S1); the other DTBs on the ISO are unreferenced;
 #   - every entry has sp11.entry=<id>; only the VM entry adds the serial console (D15);
 #   - the common kernel arguments are kiwi's boot options: its live options (root=live:CDLABEL, rd.live.image)
 #     plus the verbose kernelcmdline patched into components/liveinstall.xml (patch 0002).
@@ -37,39 +37,33 @@ set default=0
 
 search ${search_params}
 
-# D20 / M4. Entries 1 and 3-6 are the same boot: the parity DTB (the M3 DT, the 10-CPU topology and no system SS3 idle) and
-# the command line of the previous project's GNOME boot (clocks and power domains kept, rootdelay=10); they differ only in
-# the extra argument. SP11 debug is the default.
+# D21 / M5. Every device entry has the command line of the previous project's GNOME boot (clocks and power domains kept,
+# rootdelay=10) and a DTB with the sound card and the WSA8845 speaker amplifiers off (/sound and &swr0 disabled; S1).
+# m5: parity DT, sound off, GPU off (GNOME on msm KMS with llvmpipe). m5gpu: the same with the GPU on.
 menuentry 'SP11 debug' --id sp11-debug --class fedora --class gnu-linux --class gnu --class os {
 	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 sp11.entry=debug
-	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-parity.dtb
+	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m5.dtb
 	initrd ($$root)${bootpath}/${initrd_file}
 }
-# 2. The M3 command line and the packaged DTB, for comparison with the default.
-menuentry 'SP11 debug, M3 command line' --id sp11-m3cmdline --class fedora --class gnu-linux --class gnu --class os {
-	linux ($$root)${bootpath}/${kernel_file} ${boot_options} sp11.entry=m3cmdline
-	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali.dtb
+# 2. The GPU on: isolates the GPU first open (zap shader, GMU, speed bin) as the reboot cause.
+menuentry 'SP11 debug, GPU on' --id sp11-gpu --class fedora --class gnu-linux --class gnu --class os {
+	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 sp11.entry=gpu
+	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m5gpu.dtb
 	initrd ($$root)${bootpath}/${initrd_file}
 }
-# 3. As 1, without the DSP remoteproc driver in the initramfs (it loads in the real root, as in M3).
-menuentry 'SP11 debug, no early DSP' --id sp11-nodsp --class fedora --class gnu-linux --class gnu --class os {
-	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_q6v5_pas sp11.entry=nodsp
-	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-parity.dtb
-	initrd ($$root)${bootpath}/${initrd_file}
-}
-menuentry 'SP11 debug + DRM trace' --id sp11-drm-trace --class fedora --class gnu-linux --class gnu --class os {
-	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 drm.debug=0x1ff sp11.entry=drm-trace
-	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-parity.dtb
+menuentry 'SP11 debug, GPU on + DRM trace' --id sp11-gpu-drm-trace --class fedora --class gnu-linux --class gnu --class os {
+	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 drm.debug=0x1ff sp11.entry=gpu-drm-trace
+	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m5gpu.dtb
 	initrd ($$root)${bootpath}/${initrd_file}
 }
 menuentry 'SP11 debug nomodeset' --id sp11-nomodeset --class fedora --class gnu-linux --class gnu --class os {
 	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 nomodeset sp11.entry=nomodeset
-	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-parity.dtb
+	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m5.dtb
 	initrd ($$root)${bootpath}/${initrd_file}
 }
 menuentry 'SP11 debug, stop in initramfs' --id sp11-initramfs --class fedora --class gnu-linux --class gnu --class os {
 	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.break=pre-mount sp11.entry=initramfs
-	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-parity.dtb
+	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m5.dtb
 	initrd ($$root)${bootpath}/${initrd_file}
 }
 # L1 only (QEMU virt): same kernel, no devicetree, so the firmware description is used.

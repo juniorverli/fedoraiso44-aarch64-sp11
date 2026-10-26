@@ -58,7 +58,7 @@ while [ $# -gt 0 ]; do
 	--mem) mem=${2:?}; shift ;;
 	--smp) smp=${2:?}; shift ;;
 	--cpu) cpu=${2:?}; shift ;;
-	--esp-fallback | --early | --no-display-files | --legacy-menu | --initrd-fail) extra+=("$1") ;;
+	--esp-fallback | --early | --no-display-files | --legacy-menu | --initrd-fail | --until-session) extra+=("$1") ;;
 	--decoy) decoy=1 ;;
 	*) iso=$1 ;;
 	esac
@@ -85,7 +85,7 @@ logs=$W/sp11logs.img
 rm -f "$logs"
 logs_args=(--logs "$logs")
 case " ${extra[*]:-} " in
-*" --esp-fallback "* | *" --initrd-fail "*) logs_args=() ;;
+*" --esp-fallback "* | *" --initrd-fail "* | *" --until-session "*) logs_args=() ;;
 *)
 	truncate -s 128M "$logs"
 	mkfs.vfat -n SP11LOGS "$logs" >/dev/null

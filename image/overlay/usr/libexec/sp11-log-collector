@@ -25,6 +25,8 @@ CONF=/etc/sp11-log-collector.conf
 : "${CAP_LOGS_KIB:=262144}"   # total cap of the SP11LOGS partition use
 : "${CAP_ESP_KIB:=6144}"      # total cap of /EFI/sp11-logs on the embedded EFI partition
 : "${RESERVE_KIB:=512}"       # always keep this much free on the target
+: "${FAST_COUNT:=18}"          # M5: light display snapshots every FAST_INTERVAL s right after the first full snapshot
+: "${FAST_INTERVAL:=10}"
 : "${INTERVALS:=20 60 120 300}"   # seconds before snapshot 2, 3, 4, then the last one repeats
 : "${FILE_CAP:=1048576}"      # bytes read from one file of a tree dump
 : "${READ_TIMEOUT:=3}"        # seconds for one sysfs/debugfs read
@@ -118,7 +120,6 @@ find_target() {
 		mkdir -p "$TARGET_DIR"
 		return 0
 	fi
-	[ "$TARGET_KIND" != none ] && findmnt -n "$MNT" >/dev/null 2>&1 && return 0
 	TARGET_KIND=none
 	ensure_boot_disk
 	if [ -z "$BOOT_DISK" ]; then
@@ -132,7 +133,7 @@ find_target() {
 	dev=$(on_boot_disk "$LOGS_LABEL")
 	if [ -n "$dev" ] && mount_fat "$dev" && touch "$MNT/.sp11-w" 2>/dev/null; then
 		rm -f "$MNT/.sp11-w"
-		TARGET_KIND=logs
+		TARGET_KIND=logs LAST_KIND=logs
 		TARGET_DIR=$MNT
 		return 0
 	fi
@@ -141,7 +142,7 @@ find_target() {
 	dev=$(on_boot_disk "$ESP_LABEL")
 	if [ -n "$dev" ] && mount_fat "$dev" && mkdir -p "$MNT/EFI/sp11-logs" && touch "$MNT/EFI/sp11-logs/.w" 2>/dev/null; then
 		rm -f "$MNT/EFI/sp11-logs/.w"
-		TARGET_KIND=esp
+		TARGET_KIND=esp LAST_KIND=esp
 		TARGET_DIR=$MNT/EFI/sp11-logs
 		return 0
 	fi
@@ -214,6 +215,36 @@ dpcd() {
 # The display evidence of decision D19 (hypotheses H1-H5) and of the display-lcd request. Called by
 # the early snapshot (a few seconds after the service starts, before the slow full snapshot) and by
 # every full snapshot. Everything here only reads; the DPCD tool reads AUX and never writes.
+# The GPU speed-bin fuse and nothing else of the qfprom (S5): the nvmem cell gpu-speed-bin@119 of the
+# x1e80100 qfprom (sources/linux/arch/arm64/boot/dts/qcom/hamoa.dtsi:8790, reg = <0x119 0x2>, bits = <7 8>:
+# bit offset 7, 8 bits wide, i.e. bits 7-14 of the little-endian 16-bit value). Exactly two bytes are read.
+gpu_speed_bin() {
+	local d dev= raw lo hi val
+	for d in "${SP11_TEST_NVMEM:-/sys/bus/nvmem/devices}"/*; do
+		[ -e "$d/nvmem" ] || continue
+		case "$(basename "$d") $(readlink -f "$d/device" 2>/dev/null) $(tr '\0' ' ' 2>/dev/null <"$d/of_node/compatible")" in
+		*221c8000* | *qfprom*) dev=$d; break ;;
+		esac
+	done
+	{
+		echo "cell: gpu-speed-bin@119, reg <0x119 0x2>, bits <7 8> (hamoa.dtsi:8790)"
+		if [ -z "$dev" ]; then
+			echo "qfprom nvmem device: not found in /sys/bus/nvmem/devices ($(ls /sys/bus/nvmem/devices 2>&1 | tr '\n' ' '))"
+		else
+			echo "qfprom nvmem device: $dev"
+			raw=$(timeout 5 dd if="$dev/nvmem" bs=1 skip=$((0x119)) count=2 2>/dev/null | od -An -tx1 | tr -d ' \n')
+			if [ "${#raw}" = 4 ]; then
+				lo=$((0x${raw:0:2})); hi=$((0x${raw:2:2}))
+				val=$(((hi << 8 | lo) >> 7 & 0xff))
+				echo "raw bytes at 0x119 (2): ${raw:0:2} ${raw:2:2}"
+				printf 'decoded speed bin (bits 7-14): %d (0x%02x)\n' "$val" "$val"
+			else
+				echo "read of 2 bytes at 0x119 failed (got '${raw}')"
+			fi
+		fi
+	} >"$OUT/gpu-speed-bin.txt" 2>&1
+}
+
 display_set() {
 	# which entry booted, what the kernel was told
 	snap cmdline.txt cat /proc/cmdline
@@ -240,6 +271,10 @@ display_set() {
 	attrs leds.txt /sys/class/leds/*
 	dump_tree pinctrl-pmic.txt /sys/kernel/debug/pinctrl/*pmic*
 	shsnap spmi-gpio-dmesg.txt "dmesg | grep -i -E 'subtype|func3|spmi-gpio|pmk8550|pmc8380'"
+	# D21 / M5: sound must not exist (S1), the GPU speed bin, the GPU's devfreq and messages
+	shsnap sound.txt 'echo "== /proc/asound/cards"; cat /proc/asound/cards 2>&1; echo "== aplay -l"; aplay -l 2>&1; echo "== /dev/snd"; ls -l /dev/snd 2>&1; echo "== soundwire / wsa884 devices"; ls /sys/bus/soundwire/devices 2>&1; ls /sys/bus/platform/drivers 2>/dev/null | grep -i -E "wsa|swr|lpass|q6|asoc|snd" ; dmesg | grep -i -E "wsa884|soundwire|swr|snd-soc|asoc|q6apm|audioreach"'
+	gpu_speed_bin
+	shsnap gpu.txt 'for d in /sys/class/devfreq/*; do [ -d "$d" ] || continue; case $(readlink -f "$d") in *gpu*|*3d00000*|*adreno*) ;; *) case $(basename "$d") in *gpu*|*3d00000*) ;; *) continue ;; esac ;; esac; echo "== $d"; for f in available_frequencies min_freq max_freq cur_freq governor; do echo "$f: $(cat $d/$f 2>&1)"; done; done; echo "== /dev/dri"; ls -l /dev/dri 2>&1; echo "== msm gpu"; ls /sys/kernel/debug/dri/*/gpu 2>&1; echo "== dmesg"; dmesg --time-format=iso 2>&1 | grep -i -E "adreno|a6xx|gmu|zap|msm_gpu|gpu-speed|speed.?bin"'
 	# DPCD 0x000-0x0ff and 0x700-0x7ff of every AUX adapter: the display-lcd tool (kept unchanged,
 	# flattened into dpcd-* files because the publish step copies files, not directories), and the
 	# plain dd reader as a second opinion
@@ -256,7 +291,7 @@ display_set() {
 
 # the first snapshot: small, fast, written before anything slow runs. When the screen dies this is the
 # one that matters. No COMPLETE marker (CYCLE stays 0); the target may not be mounted yet, so it retries.
-early_snapshot() {
+early_snapshot() {   # early_snapshot [REASON]
 	local i
 	mkdir -p "$OUT"
 	if ! mountpoint -q /sys/kernel/debug 2>/dev/null; then
@@ -272,10 +307,11 @@ early_snapshot() {
 	display_set
 	{
 		echo "boot_id: $BOOT_ID"
-		echo "cycle: 0 (early display snapshot)"
+		echo "cycle: $CYCLE (early/fast display snapshot${1:+, $1})"
 		echo "date_utc: $(date -u +%FT%TZ)"
 		echo "uptime: $(cut -d' ' -f1 /proc/uptime)"
-	} >"$OUT/STATUS"
+	} >"$OUT/STATUS.tick"
+	[ "$CYCLE" = 0 ] && cp -f "$OUT/STATUS.tick" "$OUT/STATUS"
 	for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
 		publish && { say "early snapshot written to $TARGET_KIND:$TARGET_DIR/$BOOT_ID"; return 0; }
 		sleep 2
@@ -299,7 +335,7 @@ snapshot() {
 		echo "cycle: $CYCLE"
 		echo "date_utc: $(date -u +%FT%TZ)"
 		echo "uptime: $(cut -d' ' -f1 /proc/uptime)"
-		echo "target: $TARGET_KIND"
+		echo "target: ${LAST_KIND:-none} (the mount lasts only for each write)"
 	} >"$OUT/STATUS.new"
 
 	# --- kernel, boot
@@ -410,7 +446,34 @@ enforce_cap() { # BOOTDIR
 	done
 }
 
+# release_target: the FAT partition is mounted only while a snapshot is written (M5, D21): sync, umount, and
+# check it is really gone from /proc/mounts, so the dirty bit is clean between snapshots and a forced power-off
+# cannot leave "Volume was not properly unmounted". No fsck here: the boot ESP is never repaired automatically.
+release_target() {
+	local i
+	[ -n "${SP11_TEST_TARGET:-}" ] && return 0
+	sync
+	for i in 1 2 3 4 5; do
+		grep -q " $MNT " /proc/mounts 2>/dev/null || break
+		umount "$MNT" 2>/dev/null || sleep 1
+	done
+	if grep -q " $MNT " /proc/mounts 2>/dev/null; then say "WARNING: $MNT is still mounted after 5 umount attempts"; else TARGET_KIND=none; fi
+	sync
+}
+
 publish() {
+	local rc
+	exec 8>/run/sp11-logs.lock
+	flock 8
+	_publish
+	rc=$?
+	release_target
+	flock -u 8
+	exec 8>&-
+	return $rc
+}
+
+_publish() {
 	local bd seq f
 	find_target || { say "no SP11LOGS and no writable embedded EFI partition; logs stay in $OUT"; return 1; }
 	bd=$TARGET_DIR/$BOOT_ID
@@ -451,6 +514,27 @@ finish() {
 	findmnt -n "$MNT" >/dev/null 2>&1 && umount "$MNT" 2>/dev/null
 }
 
+# session REASON: one display snapshot when systemd-logind reports a session (units
+# sp11-log-collector-session-*.path). The reboot of the M4 boot came at the start of the first session. Its own work
+# directory, so it cannot collide with the running collector; the lock in publish() serialises the writes.
+session_snapshot() {
+	local reason=${1:-session}
+	OUT=$WORK/session-$reason
+	rm -rf "$OUT"
+	mkdir -p "$OUT"
+	shsnap "session-$reason-loginctl.txt" 'loginctl list-sessions --no-pager 2>&1; echo; for s in $(loginctl list-sessions --no-legend 2>/dev/null | awk "{print \$1}"); do loginctl show-session $s 2>&1; echo; done; ls -l /run/systemd/sessions 2>&1'
+	shsnap "session-$reason-journal.txt" 'journalctl -b --no-pager -n 600 -o short-monotonic 2>&1'
+	# the cheap part first: who has a session, and the journal tail, published at once; then the display set
+	{
+		echo "boot_id: $BOOT_ID"
+		echo "session snapshot: $reason (logind)"
+		echo "date_utc: $(date -u +%FT%TZ)"
+		echo "uptime: $(cut -d' ' -f1 /proc/uptime)"
+	} >"$OUT/STATUS.session-$reason"
+	publish && say "session $reason: logind state written to $LAST_KIND"
+	early_snapshot "session $reason"
+}
+
 nap() { # interruptible sleep, so SIGTERM runs the trap at once
 	sleep "$1" &
 	wait $!
@@ -460,7 +544,13 @@ case ${1:-run} in
 run)
 	trap 'finish; exit 0' TERM
 	early_snapshot
+	# fast cadence for the first minutes: a light display snapshot every FAST_INTERVAL s, FAST_COUNT times,
+	# with one full snapshot first (the screen or the machine may die at any moment)
 	do_snapshot
+	for _t in $(seq 1 "$FAST_COUNT"); do
+		nap "$FAST_INTERVAL"
+		early_snapshot "tick $_t"
+	done
 	for i in $INTERVALS; do
 		nap "$i"
 		do_snapshot
@@ -472,10 +562,11 @@ run)
 	done
 	;;
 early) early_snapshot ;;
+session) session_snapshot "${2:-session}" ;;
 final) finish ;;
 once) do_snapshot ;;
 *)
-	echo "usage: $0 run|early|final|once" >&2
+	echo "usage: $0 run|early|session REASON|final|once" >&2
 	exit 2
 	;;
 esac
