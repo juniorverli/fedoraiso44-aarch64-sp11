@@ -476,6 +476,42 @@ L0 on this ISO (new or changed): 2.5/2.12/2.17 (the seven entries, the arguments
 
 L1 with the fake Windows disk (`image/tools/make-decoy-disk.sh`: GPT, FAT32 `BOOT` with the EFI system type, FAT32 `SP11LOGS`, NTFS `WINDOWS`, Microsoft reserved): attached writable next to the stick; it enumerated as `sda` in one run and `sdb` in another, so both orders were exercised. `md5sum` before and after: identical in both runs (`4ebca9db…` and `76aa9aa2…`). In the first run the collector's `boot-medium.txt` says `boot_disk: sdb  method: cmdline label Fedora-WS-Live-44 -> /dev/sdb1` while the decoy was `sda`. In the second run (`--initrd-fail`, the cmdline label is wrong on purpose) the hook found the stick through the built-in ISO label: `boot_medium: sda (built-in ISO label Fedora-WS-Live-44 -> /dev/sda1)`, wrote `initrd-<boot-id>/` (journal 656,966 bytes, dmesg, rdsosreport with the wrong label, state, STATUS, SEQ, COMPLETE) to the stick's ESP 311 s after start, and no `<boot-id>/` of a real root exists. **Not tested:** the Windows guard on a boot medium that itself carries NTFS (only the function, with loop devices, in `collector_selftest.sh`); the collector with a real `msm`; GDM (no full L1).
 
+### M5 ISO (2026-10-26, decision D21, risk S1)
+
+| Item | Value |
+|:--|:--|
+| ISO | `out/iso/sp11-fedora44-aarch64-kiwi-20261026T192029Z.iso` (record `.json`, checksum `.iso.sha256`) |
+| Size | 2,803,040,256 bytes |
+| SHA-256 | `a106d5e16d6173045c9a68d026e2f6aff9ceecf686b2697bbadd59b1112bf933` |
+| Build time | 1475 s for the kiwi run |
+| Kernel | `kernel-core-7.3.0-65.sp11.3.fc44.aarch64` (same RPMs as M3 and M4; M5 is DT and image only) |
+| DTB `m5` | `7c5f8155248661ce11700cdf8ed5c126225fd597d38ab4bef83d867094e3074d` (parity, sound and `&swr0` off, GPU off) |
+| DTB `m5gpu` | `91dfcab143810907aaece65549b77d3c34c2357820723c7a28b9db9fe0773ffc` (parity, sound and `&swr0` off, GPU on) |
+| Other DTBs on the ISO, unreferenced | packaged, parity, edponly, nobl: **all four enable the speakers** (`kernel-dtb-safety.py` says unsafe); never selectable from the menu |
+| L0 | 148 passed, 0 failed, 0 skipped |
+| L1 `--until-session --decoy` | PASS |
+| L1 `--initrd-fail --decoy` | PASS |
+
+Menu (every device entry: the verbose common arguments, `root=live:CDLABEL=Fedora-WS-Live-44 rd.live.image`, `clk_ignore_unused pd_ignore_unused rootdelay=10`, then):
+
+| # | Title | `sp11.entry` | DTB | Extra |
+|:--|:--|:--|:--|:--|
+| 1 | `SP11 debug` (default) | `debug` | m5 | none |
+| 2 | `SP11 debug, GPU on` | `gpu` | m5gpu | none |
+| 3 | `SP11 debug, GPU on + DRM trace` | `gpu-drm-trace` | m5gpu | `drm.debug=0x1ff` |
+| 4 | `SP11 debug nomodeset` | `nomodeset` | m5 | `nomodeset` |
+| 5 | `SP11 debug, stop in initramfs` | `initramfs` | m5 | `rd.break=pre-mount` |
+| 6 | `VM test (no devicetree)` | `vmtest` | none | `console=ttyAMA0,115200` |
+
+What M5 changes (the initramfs of M4 is unchanged: leds-qcom-lpg, the DSP remoteproc set and the four DSP images stay):
+
+- **S1, L0 2.18:** every DTB that a `devicetree` line of a device entry points to is decompiled with `dtc` and judged by the kernel worker's `scripts/kernel-dtb-safety.py` (effective status: a node is enabled only if every ancestor is; watched: `x1e80100-sndcard`, `sdw20217020400` = WSA8845, `wsa884`). L0 fails if any of them is effectively enabled, or if no watched node exists at all. The check was run against the five DTBs of `out/dtb-variants/`: `m5` and `m5gpu` pass, `parity`, `edponly`, `nobl` fail.
+- **The ESP is mounted only for each write** (`release_target` in the collector): `publish()` takes a lock, mounts, writes, `sync`, `umount`, and checks `/proc/mounts` (five tries); the `STATUS` file names the last target (`target: esp (the mount lasts only for each write)`). The initramfs hook does the same. No `fsck` of the boot ESP anywhere. L1 extracts the ESP of the stick after the run and runs `fsck.fat -n`: no dirty bit (22,221 of 129,022 clusters used, 92 files).
+- **Evidence files:** `gpu-speed-bin.txt` (the qfprom nvmem device found under `/sys/bus/nvmem/devices`, exactly two bytes read with `dd bs=1 skip=$((0x119)) count=2`, the raw bytes and the decoded value `(u16 >> 7) & 0xff`; the cell is `gpu-speed-bin@119`, `reg = <0x119 0x2>`, `bits = <7 8>` in `hamoa.dtsi:8790`; the decode was tested on a fake nvmem file whose neighbouring bytes are `0xff`, and L0 8.16 checks the script reads nothing else, S5); `sound.txt` (`/proc/asound/cards`, `aplay -l`, `/dev/snd`, soundwire and WSA884x dmesg lines: in QEMU "no soundcards found"); `gpu.txt` (devfreq of the GPU: `available_frequencies`, `min_freq`, `max_freq`, `cur_freq`, `governor`; `/dev/dri`; dmesg lines `adreno|a6xx|gmu|zap|msm_gpu|speed bin`).
+- **Cadence and session trigger:** after the early snapshot and the first full snapshot, 18 light display snapshots every 10 s (`FAST_COUNT`, `FAST_INTERVAL`), then the old 20, 60, 120, 300 s. Two systemd path units, installed, enabled and preset: `sp11-log-collector-session-first.path` (`DirectoryNotEmpty=/run/systemd/sessions`: any logind session, the greeter included) and `sp11-log-collector-session-user.path` (`PathExistsGlob=/run/systemd/sessions/[0-9]*`: the numbered autologin session of liveuser), each starting `sp11-log-collector-session@<name>.service`, which stops its path unit first and then writes `session-<name>-loginctl.txt`, `session-<name>-journal.txt` (journal tail) and `STATUS.session-<name>`, and then the display set. A lock serialises it with the running collector.
+
+L1 evidence (QEMU TCG, `--until-session --decoy`, 1295 s): the menu listed 6 entries, the VM entry booted, the collector wrote to the `BOOT` ESP (no `SP11LOGS` disk), both session snapshots were in the log directory (`session-first-*`, `session-user-*`, `loginctl` shows the session), the fake Windows disk was byte-identical (md5 before and after), and the ESP was clean. `--initrd-fail --decoy` also passed (journal 658,167 bytes in `initrd-<boot-id>/`). Defects found by these runs, fixed before this ISO: `STATUS` said `target: none` (the mount is released after each write; now the last target is recorded); the session services, restarted by their own path units after a start timeout in a slow TCG run (the path unit is now stopped before the snapshot, the timeout is 600 s, and the logind state is published before the display set). **Not tested:** a real session start on the device, a real `qfprom`, the GPU (no `msm` in QEMU).
+
 ## Requests
 
 - installer path (R9, future): the installed system must boot `grubaa64.efi` directly. Anaconda installs shim and points the UEFI boot entry at it, and this firmware does not run shim. The installer step (kickstart `%post` of the installed system, or an Anaconda addon / `efibootmgr` call after install) must (a) create the boot entry for `\\EFI\\fedora\\grubaa64.efi` with `efibootmgr -c -d <disk> -p <esp partition> -L Fedora -l '\\EFI\\fedora\\grubaa64.efi'`, and (b) copy `grubaa64.efi` to `EFI/BOOT/BOOTAA64.EFI` on the installed ESP, for firmware that only reads the fallback path. Both must leave `EFI/fedora/shimaa64.efi` in place. Not implemented: this image has no installer step yet; verify on the device (R9).
@@ -492,3 +528,4 @@ L1 with the fake Windows disk (`image/tools/make-decoy-disk.sh`: GPT, FAT32 `BOO
 - 2026-10-25: D18. ESP step makes `BOOTAA64.EFI` Fedora's GRUB, shim kept as `shimaa64.efi`, `bootx64.efi` removed, marker line first; L0 87/87 (new checks 2.13-2.16); QEMU shows the marker, the menu and the kernel start (4 min run, no full L1).
 - 2026-10-25: D19/M3. ISO `sp11-fedora44-aarch64-kiwi-20261025T160856Z` (SHA-256 `2a7f7fc1...`): 8-entry menu, three DTBs, early display snapshot and the display evidence files, `collect-dpcd.py` in the image, 64 MiB FAT32 ESP with direct GRUB. L0 103/103; L1 `--esp-fallback` PASS (collector writes `/EFI/sp11-logs` on the `BOOT` ESP). Build refuses kernels not newer than 7.3.0-65.sp11 and more than one kernel NEVRA at the top of `out/rpms`.
 - 2026-10-25: D20/M4 and S4. ISO `sp11-fedora44-aarch64-kiwi-20261025T183834Z` (SHA-256 `0325c6f4...`): seven-entry menu with the parity DTB as default, `leds-qcom-lpg` and the DSP remoteproc set with the four DSP images in the initramfs, failure capture to the ESP, collector and hook write only to the boot medium and refuse Windows disks. L0 131/131; L1 `--esp-fallback --decoy` and `--initrd-fail --decoy` PASS, fake Windows disk byte-identical.
+- 2026-10-26: D21/M5 and S1. ISO `sp11-fedora44-aarch64-kiwi-20261026T192029Z` (SHA-256 `a106d5e1...`): six-entry menu with the sound-off DTBs `m5` and `m5gpu`; L0 2.18 fails if any device entry's DTB enables the speakers; the collector mounts the ESP per write, reads the GPU speed-bin cell only, records sound and GPU state, snapshots at the first logind session. L0 148/148, L1 `--until-session --decoy` and `--initrd-fail --decoy` PASS.
