@@ -174,9 +174,9 @@ else
 fi
 titles=$(grep -o "^menuentry '[^']*'" "$cfg_esp" | sed "s/menuentry '//;s/'\$//")
 if [ "$builder" = kiwi ]; then
-	# M4 (D20): the seven entries of the menu, in this order
-	expect=$'SP11 debug\nSP11 debug, M3 command line\nSP11 debug, no early DSP\nSP11 debug + DRM trace\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)'
-	nentries=7
+	# M5 (D21): the six entries of the menu, in this order
+	expect=$'SP11 debug\nSP11 debug, GPU on\nSP11 debug, GPU on + DRM trace\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)'
+	nentries=6
 else
 	expect=$'SP11 debug\nSP11 debug + DRM trace\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)'
 	nentries=5
@@ -198,7 +198,7 @@ ids_ok=1
 awk '/^menuentry /{t=$0} /^[[:space:]]+linux /{print t "\t" $0}' "$cfg_esp" >"$W/linux-lines.txt"
 while IFS=$'\t' read -r t l; do
 	id=$(echo "$t" | sed -n "s/.*--id sp11-\([a-z0-9-]*\).*/\1/p")
-	case $id in drm-trace | debug | m3cmdline | nodsp | nomodeset | initramfs | vmtest) ;; *) ids_ok=0; fail 2.12 "unknown entry id '$id' ($t)" ;; esac
+	case $id in debug | gpu | gpu-drm-trace | nomodeset | initramfs | vmtest) ;; *) ids_ok=0; fail 2.12 "unknown entry id '$id' ($t)" ;; esac
 	want=$id
 	case $l in *" sp11.entry=$want"*) ;; *) ids_ok=0; fail 2.12 "entry '$t' lacks sp11.entry=$want" ;; esac
 	case $l in *console=ttyAMA0*) [ "$id" = vmtest ] || { ids_ok=0; fail 2.12 "serial console on a device entry: $t"; } ;; *) [ "$id" != vmtest ] || { ids_ok=0; fail 2.12 "VM entry lacks the serial console"; } ;; esac
@@ -209,16 +209,18 @@ vm=$(awk '/^menuentry .VM test/{f=1} f&&/^[[:space:]]+devicetree /{print "x"}' "
 [ -z "$vm" ] && pass 2.8 "VM test entry has no devicetree" || fail 2.8 "VM test entry has a devicetree line"
 [ "$(grep -c "^menuentry '" "$cfg_esp")" = "$nentries" ] && [ "$(grep '^set default' "$cfg_esp")" = "set default=0" ] && pass 2.9 "VM test entry is not the default"
 if [ "$builder" = kiwi ]; then
-	# D20: which entry does what. Entries 1, 3-6 are the parity boot (clk_ignore_unused pd_ignore_unused rootdelay=10, parity DTB);
-	# m3cmdline is the M3 command line with the packaged DTB; nodsp adds the PAS blacklist; the others add one argument.
+	# D21: every device entry has clk_ignore_unused pd_ignore_unused rootdelay=10; the DTB is m5 (GPU off) except on the two
+	# GPU entries (m5gpu); each adds at most one argument; nothing else (no blacklist, no earlier DTB).
 	d19=1
 	while IFS=$'\t' read -r t l; do
 		id=$(echo "$t" | sed -n "s/.*--id sp11-\([a-z0-9-]*\).*/\1/p")
 		case $id in
-		m3cmdline) base=0; extra=; want=x1p64100-microsoft-denali.dtb ;;
 		vmtest) base=0; extra=; want= ;;
-		*) base=1; want=x1p64100-microsoft-denali-parity.dtb
-			case $id in nodsp) extra=rd.driver.blacklist=qcom_q6v5_pas ;; drm-trace) extra=drm.debug=0x1ff ;; nomodeset) extra=nomodeset ;; initramfs) extra=rd.break=pre-mount ;; *) extra= ;; esac ;;
+		gpu) base=1; extra=; want=x1p64100-microsoft-denali-m5gpu.dtb ;;
+		gpu-drm-trace) base=1; extra=drm.debug=0x1ff; want=x1p64100-microsoft-denali-m5gpu.dtb ;;
+		nomodeset) base=1; extra=nomodeset; want=x1p64100-microsoft-denali-m5.dtb ;;
+		initramfs) base=1; extra=rd.break=pre-mount; want=x1p64100-microsoft-denali-m5.dtb ;;
+		*) base=1; extra=; want=x1p64100-microsoft-denali-m5.dtb ;;
 		esac
 		case $l in *" clk_ignore_unused pd_ignore_unused rootdelay=10"*) have=1 ;; *) have=0 ;; esac
 		[ "$base" = "$have" ] || { d19=0; fail 2.17 "entry $id: clk_ignore_unused pd_ignore_unused rootdelay=10 expected=$base found=$have"; }
@@ -230,7 +232,44 @@ if [ "$builder" = kiwi ]; then
 			[ "$got" = "(\$root)/boot/dtb/qcom/$want" ] || { d19=0; fail 2.17 "entry $id loads '$got', expected qcom/$want"; }
 		fi
 	done <"$W/linux-lines.txt"
-	[ "$d19" = 1 ] && pass 2.17 "M4 menu: default and entries 3-6 are the parity boot (parity DTB, clk_ignore_unused pd_ignore_unused rootdelay=10) plus exactly their one extra argument; M3 command line entry has the packaged DTB and no extra"
+	[ "$d19" = 1 ] && pass 2.17 "M5 menu: every device entry has clk_ignore_unused pd_ignore_unused rootdelay=10, the m5 DTB (m5gpu on the two GPU entries) and at most its one extra argument"
+fi
+if [ "$builder" = kiwi ]; then
+	# S1 (D21): no device entry may load a DTB that enables the sound card or the WSA8845 speaker amplifiers. Every DTB a
+	# devicetree line of a device entry points to is decompiled with dtc: /sound, the soundwire controller &swr0
+	# (soundwire@6b10000) and every node with compatible sdw20217020400 (WSA884x) must be disabled or absent.
+	s1ok=1
+	for dp in $(awk '/^\tdevicetree /{print $2}' "$cfg_esp" | sort -u); do
+		dp=${dp#'($root)'}
+		df=$W/s1-$(basename "$dp"); x "$dp" "$df"
+		if [ ! -s "$df" ] || ! dtc -I dtb -O dts -o "$df.dts" "$df" 2>/dev/null; then s1ok=0; fail 2.18 "cannot decompile $dp for the sound check"; continue; fi
+		res=$(python3 -I - "$df.dts" <<'PY'
+import re, sys
+stack, props, paths = [], {}, []
+for line in open(sys.argv[1]):
+    t = line.strip()
+    if t.endswith("{"):
+        stack.append(t[:-1].strip().split(": ")[-1].lstrip("/")); paths.append("/".join(stack)); props[paths[-1]] = {}
+    elif t == "};":
+        stack.pop()
+    elif "=" in t and stack:
+        k, _, v = t.partition("="); props[paths[-1] if False else "/".join(stack)][k.strip()] = v.strip().rstrip(";").strip()
+def enabled(p):
+    st = props[p].get("status")
+    return st is None or st.strip('"') in ("okay", "ok")
+bad = []
+for p in props:
+    name = p.rsplit("/", 1)[-1]
+    comp = props[p].get("compatible", "")
+    if (p == "sound" or p.endswith("/sound") and p.count("/") == 0) or name.startswith("soundwire@6b10000") or "sdw20217020400" in comp or "wsa884" in comp or name.startswith("wsa884"):
+        if enabled(p):
+            bad.append(p)
+print(" ".join(bad) if bad else "OK")
+PY
+)
+		[ "$res" = OK ] || { s1ok=0; fail 2.18 "S1: $dp enables: $res"; }
+	done
+	[ "$s1ok" = 1 ] && pass 2.18 "S1: no DTB of any device entry enables /sound, &swr0 (soundwire@6b10000) or a WSA884x speaker node"
 fi
 free=$(mdir -i "$esp_img" ::/ 2>/dev/null | awk '/bytes free/{gsub(/[^0-9]/,""); print}')
 if [ -n "${free:-}" ] && [ "$free" -ge 8388608 ]; then pass 2.10 "embedded ESP has $((free / 1048576)) MiB free for /EFI/sp11-logs"; else fail 2.10 "embedded ESP free space too small (${free:-?} bytes)"; fi
@@ -317,12 +356,12 @@ fi
 if [ "$builder" = kiwi ]; then
 	# D19: DTB variants next to the packaged one. Same SoC and board (root compatible), different from the
 	# packaged DTB, hashes as in the build record and as in out/dtb-variants (the kernel worker's output).
-	for v in parity edponly nobl; do
+	for v in m5 m5gpu parity edponly nobl; do
 		vf=x1p64100-microsoft-denali-$v.dtb
 		vd=$W/$vf
 		x "/boot/dtb/qcom/$vf" "$vd"
 		if [ ! -s "$vd" ]; then
-			if [ "$v" = parity ]; then fail 3.6 "variant DTB /boot/dtb/qcom/$vf missing on the ISO"; else skip 3.6 "variant $v is not on the ISO (unreferenced in M4, optional)"; fi
+			if [ "$v" = m5 ] || [ "$v" = m5gpu ]; then fail 3.6 "variant DTB /boot/dtb/qcom/$vf missing on the ISO"; else skip 3.6 "variant $v is not on the ISO (unreferenced in M5, optional)"; fi
 			continue
 		fi
 		dtc -I dtb -O dts -o "$vd.dts" "$vd" 2>"$vd.err" && pass 3.6 "variant $v decompiles with dtc" || fail 3.6 "variant $v: dtc failed: $(head -n2 "$vd.err")"

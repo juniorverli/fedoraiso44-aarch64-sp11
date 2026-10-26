@@ -21,16 +21,15 @@ import time
 
 import pexpect
 
-ENTRIES = [   # M4 (D20) menu order; the VM entry must stay last (selected by counting Down keys)
+ENTRIES = [   # M5 (D21) menu order; the VM entry must stay last (selected by counting Down keys)
     "SP11 debug",
-    "SP11 debug, M3 command line",
-    "SP11 debug, no early DSP",
-    "SP11 debug + DRM trace",
+    "SP11 debug, GPU on",
+    "SP11 debug, GPU on + DRM trace",
     "SP11 debug nomodeset",
     "SP11 debug, stop in initramfs",
     "VM test (no devicetree)",
 ]
-LEGACY_ENTRIES = ENTRIES[:1] + ENTRIES[3:]   # ISOs before M3 (kiwi d18 and earlier): five entries
+LEGACY_ENTRIES = [ENTRIES[0], "SP11 debug + DRM trace"] + ENTRIES[3:]   # ISOs before M3 (kiwi d18 and earlier): five entries
 FATAL = [
     (rb"Kernel panic - not syncing", "kernel panic"),
     (rb"[Ee]mergency mode", "emergency mode"),

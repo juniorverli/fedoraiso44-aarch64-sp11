@@ -125,6 +125,11 @@ while [ "$(used)" -gt "$cap" ]; do
 done
 date -u +%FT%TZ >"$bd/COMPLETE"
 sync
-umount "$MNT" 2>/dev/null
+for _i in 1 2 3 4 5; do
+	grep -q " $MNT " /proc/mounts 2>/dev/null || break
+	umount "$MNT" 2>/dev/null || sleep 1
+done
+grep -q " $MNT " /proc/mounts 2>/dev/null && say "WARNING: $MNT still mounted after 5 umount attempts"
+sync
 say "wrote $reason capture to $dev:/EFI/sp11-logs/initrd-$BOOT_ID"
 exit 0
