@@ -19,8 +19,28 @@ kver="${1:-$KERNEL_KVER}"
 base_dtb=$(kernel_toml dtb); outdir="$SP11_OUT/dtb-variants/$kver/qcom"
 mkdir -p "$outdir"
 
+# variant_checks NAME DTS BASE-DTS DTB: source-level diff of DTS against BASE-DTS (labels kept, phandle numbers
+# ignored) and the S1 effective-status check of the DTB; prints the path of a JSON file with both.
+variant_checks() {
+  local name=$1 dts=$2 base=$3 dtb=$4 out="$SP11_OUT/build/dtb-variant-$name.checks.json" tree="$SP11_OUT/linux/m3"
+  "$KERNEL_REPO/scripts/kernel-container.sh" run bash -c "
+    set -e; cd /tmp/home
+    pp() { gcc -E -nostdinc -I $KERNEL_REPO/kernel/dtb-variants -I $tree/arch/arm64/boot/dts/qcom -I $tree/arch/arm64/boot/dts -I $tree/arch/arm64/boot/dts/include -I $tree/include -undef -D__DTS__ -x assembler-with-cpp -o \$1.i \$2; dtc -I dts -O dts -qq -o \$1.dts \$1.i 2>/dev/null; grep -v '^[[:space:]]*phandle = ' \$1.dts > \$1.np; }
+    pp base $base; pp var $dts
+    diff base.np var.np > diff.txt || true
+    dtc -I dtb -O dts -q $dtb > eff.dts 2>/dev/null
+    python3 -I $KERNEL_REPO/scripts/kernel-dtb-safety.py eff.dts --also=gpu@3d00000 --also=gmu@3d6a000 --also=zap-shader > safety.json || true
+    python3 -I - <<PY
+import json
+print(json.dumps({'diff_vs_base': {'base': '$base'.split('/')[-1], 'lines': [l.rstrip() for l in open('diff.txt')]},
+                  's1_effective_status': json.load(open('safety.json'))}, indent=1))
+PY
+  " > "$out"
+  echo "$out"
+}
+
 build() {   # name tree-id patches-description overlay-or-empty [evidence-json-file]
-  local dtv=skipped name=$1 id=$2 patches=$3 overlay=$4 evidence=${5:-} src="$SP11_OUT/linux/$2" built dtbfile sum
+  local dtv=skipped extra="" name=$1 id=$2 patches=$3 overlay=$4 evidence=${5:-} src="$SP11_OUT/linux/$2" built dtbfile sum
   if [[ -n $overlay ]]; then
     # --check = CHECK_DTBS=y (dt-validate against the 7.3 bindings); warnings name the DTB file
     "$KERNEL_REPO/scripts/kernel-dev.sh" --check "$id" variant "$overlay" 2>&1 | tee "$SP11_OUT/build/dtb-variant-$name.log" | grep -E 'kernel-dev:|DTC|rror' || true
@@ -31,8 +51,9 @@ build() {   # name tree-id patches-description overlay-or-empty [evidence-json-f
     built="$SP11_OUT/build/dev-$id/arch/arm64/boot/dts/$base_dtb"
   fi
   cp -f "$built" "$outdir/$name.dtb"
+  if [[ -n ${DIFF_BASE:-} ]]; then extra=$(variant_checks "$name" "$overlay" "$DIFF_BASE" "$outdir/$name.dtb"); fi
   sum=$(sha256sum "$outdir/$name.dtb" | cut -d' ' -f1)
-  SERIES_REV=$KERNEL_SERIES_REV EVIDENCE=$evidence DT_VALIDATE=$dtv python3 -I - "$outdir/$name.json" "$name" "$kver" "$id" "$(git -C "$src" rev-parse HEAD)" "$patches" \
+  SERIES_REV=$KERNEL_SERIES_REV EVIDENCE=$evidence DT_VALIDATE=$dtv EXTRA=$extra python3 -I - "$outdir/$name.json" "$name" "$kver" "$id" "$(git -C "$src" rev-parse HEAD)" "$patches" \
       "${overlay:+$(sha256sum "$overlay" | cut -d' ' -f1)}" "${overlay:+${overlay#$KERNEL_REPO/}}" "$sum" \
       "$(git -C "$src" log --reverse --format=%s v7.3..HEAD | paste -sd'|')" <<'PY'
 import json, os, sys
@@ -40,7 +61,8 @@ out, name, kver, tree, commit, patches, ovsha, ovpath, sha, subjects = sys.argv[
 json.dump({"name": name, "kver": kver, "base": "v7.3 c03c1a14507dfaf8b856c2608f9ac216021fc222",
            "series_rev": int(os.environ["SERIES_REV"]), "kernel_tree": f"out/linux/{tree}", "source_commit": commit,
            "patches_applied": patches.split(","), "patch_subjects": subjects.split("|"),
-           "dt_validate_warning_lines": os.environ["DT_VALIDATE"], "overlay": ovpath or None, "evidence": json.load(open(os.environ["EVIDENCE"])) if os.environ.get("EVIDENCE") else None, "overlay_sha256": ovsha or None,
+           "dt_validate_warning_lines": os.environ["DT_VALIDATE"],
+           "checks": json.load(open(os.environ["EXTRA"])) if os.environ.get("EXTRA") else None, "overlay": ovpath or None, "evidence": json.load(open(os.environ["EVIDENCE"])) if os.environ.get("EVIDENCE") else None, "overlay_sha256": ovsha or None,
            "dtb": f"qcom/{name}.dtb", "sha256": sha}, open(out, "w"), indent=2)
 open(out, "a").write("\n")
 PY
@@ -65,3 +87,9 @@ cat > "$ev" <<JSON
  "also_checked_against": "previous project patch 0019 (same two MPIDRs); system_pd change = its 0018+0025 net result"}
 JSON
 build x1p64100-microsoft-denali-parity m3 "$P1,$P2,$P3" "$KERNEL_REPO/kernel/dtb-variants/x1p64100-microsoft-denali-parity.dts" "$ev"
+
+# M5 (D21): parity + speakers off (S1) [+ GPU off]. Diff and S1 check against the parity DTS.
+P=$KERNEL_REPO/kernel/dtb-variants
+DIFF_BASE=$P/x1p64100-microsoft-denali-parity.dts
+build x1p64100-microsoft-denali-m5    m3 "$P1,$P2,$P3" "$P/x1p64100-microsoft-denali-m5.dts"
+build x1p64100-microsoft-denali-m5gpu m3 "$P1,$P2,$P3" "$P/x1p64100-microsoft-denali-m5gpu.dts"

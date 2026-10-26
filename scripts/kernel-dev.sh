@@ -74,9 +74,12 @@ if ((inner)); then
     variant)
       [[ -f $arg ]] || die "variant needs a DTS file"
       v=$(basename "$arg" .dts); vd="$src/arch/arm64/boot/dts/qcom/$v.dts"
-      cp "$arg" "$vd"; trap 'rm -f "$vd"' EXIT
+      # sibling variant files may be #included (m5 includes parity): copy the whole directory of $arg
+      vfiles=("$(dirname "$arg")"/*.dts)
+      for f in "${vfiles[@]}"; do cp "$f" "$src/arch/arm64/boot/dts/qcom/"; done
+      trap 'for f in "${vfiles[@]}"; do rm -f "$src/arch/arm64/boot/dts/qcom/$(basename "$f")"; done' EXIT
       # -@ like the packaged base DTB (kbuild adds it because x1p64100-microsoft-denali.dtb feeds an el2 overlay)
-      "${m[@]}" "DTC_FLAGS_$v=-@" $( ((check)) && echo CHECK_DTBS=y ) "qcom/$v.dtb"; rm -f "$vd" ;;
+      "${m[@]}" "DTC_FLAGS_$v=-@" $( ((check)) && echo CHECK_DTBS=y ) "qcom/$v.dtb" ;;
     *) die "unknown mode $mode" ;;
   esac
   end=$(date +%s)

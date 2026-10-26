@@ -1,0 +1,15 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * M5 device DTB (D21), GPU kept: parity + speakers off (S1), GPU as in parity.
+ * Comparison entry for x1p64100-microsoft-denali-m5.dts (GPU off). See that file for the reasoning.
+ * Built by scripts/kernel-dtb-variants.sh; not a patch, not part of the RPM.
+ */
+#include "x1p64100-microsoft-denali-parity.dts"
+
+&{/sound} {
+	status = "disabled";
+};
+
+&swr0 {
+	status = "disabled";
+};

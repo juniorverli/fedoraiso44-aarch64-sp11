@@ -1,0 +1,24 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * M5 device DTB (D21): parity + speakers off (S1) + GPU off.
+ *
+ * S1: the upstream Denali DT enables /sound with both WSA8845 speakers (x1-microsoft-denali.dtsi
+ * sound node and &swr0). No M5 device DTB may have them enabled. Disabling the sound card and
+ * the soundwire controller that carries the speakers is the safety measure; either alone is enough.
+ * GPU: M4 reached "Session 1 of user liveuser" and then rebooted; the first GPU open (msm_open)
+ * and the audio start are the suspects. This variant removes the GPU.
+ * Built by scripts/kernel-dtb-variants.sh; not a patch, not part of the RPM.
+ */
+#include "x1p64100-microsoft-denali-parity.dts"
+
+&{/sound} {
+	status = "disabled";
+};
+
+&swr0 {
+	status = "disabled";
+};
+
+&gpu {
+	status = "disabled";
+};
