@@ -140,3 +140,16 @@ Append-only. Each entry: number, date, decision, reason, consequence. A later en
   4. `qcom_q6v5_pas` and the staged ADSP/CDSP firmware pairs (`qcadsp8380.mbn`, `adsp_dtb.mbn`, `qccdsp8380.mbn`, `cdsp_dtb.mbn`) in the initramfs. This supersedes F1 for M4. One entry blacklists PAS in the initramfs (`rd.driver.blacklist=qcom_q6v5_pas`) to compare.
 - **Kept:** the display wiring from Dale Whinham's LCD-tested patch 0003, not the previous project's GPIO4/always-on variant; BTF; verbose boot; FAT32 ESP with GRUB direct.
 - **Exit:** device logs from M3 or M4 decide which of these changes are needed. Anything a log does not justify is removed again before the installed-system work.
+
+## D21 (2026-10-26): M5, sound off on every device entry (S1) and GPU isolation
+
+- **Observation (operator, M4):**
+  - The boot reaches userspace (`User Manager for UID 1000`, `Session 1 of user liveuser`).
+  - Then the machine reboots.
+  - Earlier, `FAT-fs (sda2): Volume was not properly unmounted` is printed. `sda2` is the stick's ESP, left dirty by forced power-offs while the collector had it mounted.
+- **Safety finding (S1):** the upstream Denali DT enables the sound card with both WSA8845 speaker amplifiers (`sources/linux/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi:309`, `&swr0` at `:1079`). M3 and M4 shipped it unchanged, and M4 even starts the ADSP in the initramfs. That breaks S1, so every device DTB from M5 on disables `/sound` and `&swr0`. L0 fails if any device entry's DTB has either enabled.
+- **Decision (M5, DT and image only, same kernel `7.3.0-65.sp11.3`):**
+  1. Default entry DTB `m5`: parity + sound off + GPU off (`&gpu { status = "disabled"; }`). GNOME on the LCD uses msm KMS with llvmpipe rendering.
+  2. Entry DTB `m5gpu`: parity + sound off, GPU on. This isolates the GPU first open (zap shader, GMU, speed bin) as the reboot cause.
+  3. The collector unmounts the ESP after every write, so it is never left dirty. It reads only the GPU speed-bin NVMEM cell (`qfprom` `0x119`, 2 bytes, bits 7–14; `hamoa.dtsi:8790`) and records whether any ALSA card exists.
+- **GPU safety:** until the fuse is read on the device (gpu dossier Q1), accelerated GPU runs only in the `m5gpu` diagnostic entry.
