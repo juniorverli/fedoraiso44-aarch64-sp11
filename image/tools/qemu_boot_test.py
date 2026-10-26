@@ -111,6 +111,9 @@ def main():
                     help="test of the dracut failure capture: edit the VM entry in GRUB so that root=live:CDLABEL= is wrong; implies "
                          "--esp-fallback; passes when /EFI/sp11-logs/initrd-<boot-id>/ is complete on the ESP")
     ap.add_argument("--legacy-menu", action="store_true", help="the ISO has the five-entry menu of before M3")
+    ap.add_argument("--until-session", action="store_true",
+                    help="do not stop at the first complete collector directory: wait until the logind session triggers "
+                         "(sp11-log-collector-session-*.path) have written session-<name>-* files; implies --esp-fallback")
     ap.add_argument("--no-display-files", action="store_true", help="do not require the D19 display files (ISOs older than M3)")
     ap.add_argument("--work", required=True)
     ap.add_argument("--report", required=True)
@@ -128,7 +131,7 @@ def main():
     if a.legacy_menu:
         ENTRIES = LEGACY_ENTRIES
     os.makedirs(a.work, exist_ok=True)
-    if a.initrd_fail:
+    if a.initrd_fail or a.until_session:
         a.esp_fallback = True
     early = a.early or a.esp_fallback
     decoy_md5 = None
@@ -279,6 +282,13 @@ def main():
                 if bd:
                     btf = read_log(a.logs, bd, "btf.txt") or ""
                     gdm = read_log(a.logs, bd, "gdm-status.txt") or ""
+                    if a.until_session:
+                        names = [f.lstrip('/').split('/')[-1] for f in mtools_listing(a.logs, bd)]
+                        if any(n.startswith("session-first-") for n in names) and any(n.startswith("session-user-") for n in names):
+                            bootdir = bd
+                            print(f"[{int(now - start)}s] both logind session snapshots are in the log directory", flush=True)
+                            break
+                        continue
                     if early and "btf: present" in btf:
                         bootdir = bd
                         print(f"[{int(now - start)}s] collector logs complete, BTF present (early stop)", flush=True)
@@ -393,6 +403,13 @@ def main():
         want_target = "esp" if a.esp_fallback else "logs"
         check(f"collector wrote to the {'embedded ESP (/EFI/sp11-logs, label BOOT)' if a.esp_fallback else 'SP11LOGS disk'}",
               f"target: {want_target}" in status, status.strip().replace("\n", " | "))
+        if a.until_session:
+            check("the logind session triggers wrote session-first-* and session-user-* files",
+                  any(f.lstrip('/').split('/')[-1].startswith("session-first-") for f in files) and any(f.lstrip('/').split('/')[-1].startswith("session-user-") for f in files),
+                  ", ".join(sorted(f.lstrip('/').split('/')[-1] for f in files if "session-" in f)))
+            for tag in ("first", "user"):
+                lg = read_log(a.logs, bd, f"session-{tag}-loginctl.txt") or ""
+                check(f"session-{tag}-loginctl.txt shows a session", "SESSION" in lg or "/run/systemd/sessions" in lg, lg.strip().splitlines()[0][:120] if lg.strip() else "empty")
         if not a.no_display_files:
             lf = {x.lstrip('/').split('/')[-1].removesuffix('.gz') for x in files}
             need = ["entry.txt", "devices_deferred.txt", "device_component.txt", "drm-class-ls.txt", "lsmod.txt", "fb-state.txt",

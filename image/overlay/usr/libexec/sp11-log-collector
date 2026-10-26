@@ -133,7 +133,7 @@ find_target() {
 	dev=$(on_boot_disk "$LOGS_LABEL")
 	if [ -n "$dev" ] && mount_fat "$dev" && touch "$MNT/.sp11-w" 2>/dev/null; then
 		rm -f "$MNT/.sp11-w"
-		TARGET_KIND=logs
+		TARGET_KIND=logs LAST_KIND=logs
 		TARGET_DIR=$MNT
 		return 0
 	fi
@@ -142,7 +142,7 @@ find_target() {
 	dev=$(on_boot_disk "$ESP_LABEL")
 	if [ -n "$dev" ] && mount_fat "$dev" && mkdir -p "$MNT/EFI/sp11-logs" && touch "$MNT/EFI/sp11-logs/.w" 2>/dev/null; then
 		rm -f "$MNT/EFI/sp11-logs/.w"
-		TARGET_KIND=esp
+		TARGET_KIND=esp LAST_KIND=esp
 		TARGET_DIR=$MNT/EFI/sp11-logs
 		return 0
 	fi
@@ -335,7 +335,7 @@ snapshot() {
 		echo "cycle: $CYCLE"
 		echo "date_utc: $(date -u +%FT%TZ)"
 		echo "uptime: $(cut -d' ' -f1 /proc/uptime)"
-		echo "target: $TARGET_KIND"
+		echo "target: ${LAST_KIND:-none} (the mount lasts only for each write)"
 	} >"$OUT/STATUS.new"
 
 	# --- kernel, boot
