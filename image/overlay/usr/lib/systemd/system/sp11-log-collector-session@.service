@@ -1,8 +1,9 @@
 [Unit]
 Description=SP11 log collector: display snapshot at the first %i session of systemd-logind
 # M5 (D21): the M4 boot rebooted at the start of the first user session, so the state at that moment is written.
-# Started by sp11-log-collector-session-<name>.path; one snapshot, then the path unit that started it is stopped
-# (a directory that stays non-empty would otherwise trigger this service again and again).
+# Started by sp11-log-collector-session-<name>.path; one snapshot. The path unit that started it is stopped BEFORE the
+# snapshot (ExecStartPre), whatever the outcome: a directory that stays non-empty would otherwise trigger this service
+# again and again (seen in QEMU: a slow run hit the start timeout, failed, and was restarted by the path unit).
 DefaultDependencies=no
 After=local-fs.target systemd-journald.service systemd-udevd.service
 Conflicts=shutdown.target
@@ -11,6 +12,6 @@ Before=shutdown.target
 [Service]
 Type=oneshot
 ExecStart=/usr/libexec/sp11-log-collector session %i
-ExecStartPost=-/usr/bin/systemctl --no-block stop sp11-log-collector-session-%i.path
-TimeoutStartSec=120
+ExecStartPre=-/usr/bin/systemctl --no-block stop sp11-log-collector-session-%i.path
+TimeoutStartSec=600
 Nice=10

@@ -524,6 +524,14 @@ session_snapshot() {
 	mkdir -p "$OUT"
 	shsnap "session-$reason-loginctl.txt" 'loginctl list-sessions --no-pager 2>&1; echo; for s in $(loginctl list-sessions --no-legend 2>/dev/null | awk "{print \$1}"); do loginctl show-session $s 2>&1; echo; done; ls -l /run/systemd/sessions 2>&1'
 	shsnap "session-$reason-journal.txt" 'journalctl -b --no-pager -n 600 -o short-monotonic 2>&1'
+	# the cheap part first: who has a session, and the journal tail, published at once; then the display set
+	{
+		echo "boot_id: $BOOT_ID"
+		echo "session snapshot: $reason (logind)"
+		echo "date_utc: $(date -u +%FT%TZ)"
+		echo "uptime: $(cut -d' ' -f1 /proc/uptime)"
+	} >"$OUT/STATUS.session-$reason"
+	publish && say "session $reason: logind state written to $LAST_KIND"
 	early_snapshot "session $reason"
 }
 
