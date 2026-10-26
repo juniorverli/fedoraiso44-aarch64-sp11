@@ -328,6 +328,27 @@ def main():
             check("fake Windows disk is byte-identical after the run (md5sum before = after, risk S4)", after == decoy_md5,
                   f"md5 {after}" + ("" if after == decoy_md5 else f" (before {decoy_md5})"))
 
+    def esp_clean_check():
+        # M5 (D21): the ESP of the stick must not be left dirty (collector and hook mount it only per write). fsck.fat -n
+        # reads only; it prints "Dirty bit is set" and exits 1 when the volume was not unmounted cleanly.
+        if not a.esp_fallback:
+            return
+        img, _, off = a.logs.partition("@@")
+        out = os.path.join(a.work, "esp-after.img")
+        with open(img, "rb") as f, open(out, "wb") as o:
+            f.seek(int(off))
+            left = 64 * 1024 * 1024
+            while left:
+                c = f.read(min(left, 1 << 20))
+                if not c:
+                    break
+                o.write(c)
+                left -= len(c)
+        r = subprocess.run(["fsck.fat", "-n", out], capture_output=True, text=True)
+        txt = (r.stdout + r.stderr).strip().replace("\n", " | ")
+        check("the ESP of the stick is clean after the run (fsck.fat -n: no dirty bit)", r.returncode == 0 and "irty" not in txt, txt[:300])
+        os.unlink(out)
+
     check("GRUB menu shows all entries", state["menu"])
     if a.initrd_fail:
         serial = open(serial_log, "rb").read()
@@ -355,6 +376,7 @@ def main():
             check("initramfs journal in the capture is not empty", len(jr) > 1000, f"{len(jr)} bytes")
         check("no real-root <boot-id>/ was written (the system never got past the initramfs)", find_bootdir(a.logs) is None)
         decoy_check()
+        esp_clean_check()
         res["ok"] = all(c["ok"] for c in res["checks"])
         json.dump(res, open(a.report, "w"), indent=1)
         print("L1 (initramfs failure capture)", "PASS" if res["ok"] else "FAIL", flush=True)
@@ -410,6 +432,7 @@ def main():
     if state["stall"]:
         check("console kept printing", False, f"silent for {a.stall_min} min")
     decoy_check()
+    esp_clean_check()
     res["state"] = state
     res["ok"] = all(c["ok"] for c in res["checks"])
     json.dump(res, open(a.report, "w"), indent=1)

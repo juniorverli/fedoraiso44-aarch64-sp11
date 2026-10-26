@@ -236,38 +236,16 @@ if [ "$builder" = kiwi ]; then
 fi
 if [ "$builder" = kiwi ]; then
 	# S1 (D21): no device entry may load a DTB that enables the sound card or the WSA8845 speaker amplifiers. Every DTB a
-	# devicetree line of a device entry points to is decompiled with dtc: /sound, the soundwire controller &swr0
-	# (soundwire@6b10000) and every node with compatible sdw20217020400 (WSA884x) must be disabled or absent.
+	# devicetree line of a device entry points to is decompiled with dtc and judged by the kernel worker's script.
 	s1ok=1
 	for dp in $(awk '/^\tdevicetree /{print $2}' "$cfg_esp" | sort -u); do
 		dp=${dp#'($root)'}
 		df=$W/s1-$(basename "$dp"); x "$dp" "$df"
 		if [ ! -s "$df" ] || ! dtc -I dtb -O dts -o "$df.dts" "$df" 2>/dev/null; then s1ok=0; fail 2.18 "cannot decompile $dp for the sound check"; continue; fi
-		res=$(python3 -I - "$df.dts" <<'PY'
-import re, sys
-stack, props, paths = [], {}, []
-for line in open(sys.argv[1]):
-    t = line.strip()
-    if t.endswith("{"):
-        stack.append(t[:-1].strip().split(": ")[-1].lstrip("/")); paths.append("/".join(stack)); props[paths[-1]] = {}
-    elif t == "};":
-        stack.pop()
-    elif "=" in t and stack:
-        k, _, v = t.partition("="); props[paths[-1] if False else "/".join(stack)][k.strip()] = v.strip().rstrip(";").strip()
-def enabled(p):
-    st = props[p].get("status")
-    return st is None or st.strip('"') in ("okay", "ok")
-bad = []
-for p in props:
-    name = p.rsplit("/", 1)[-1]
-    comp = props[p].get("compatible", "")
-    if (p == "sound" or p.endswith("/sound") and p.count("/") == 0) or name.startswith("soundwire@6b10000") or "sdw20217020400" in comp or "wsa884" in comp or name.startswith("wsa884"):
-        if enabled(p):
-            bad.append(p)
-print(" ".join(bad) if bad else "OK")
-PY
-)
-		[ "$res" = OK ] || { s1ok=0; fail 2.18 "S1: $dp enables: $res"; }
+		# the kernel worker's scripts/kernel-dtb-safety.py: effective status (a node is enabled only if every ancestor is),
+		# watching the WSA8845 SoundWire ID, wsa884* and the x1e80100 sound card; it also needs the nodes to be present
+		python3 -I "$REPO/scripts/kernel-dtb-safety.py" "$df.dts" >"$df.s1.json" 2>&1 && res=OK || res="effectively enabled or no watched node: $(tr -d '\n ' <"$df.s1.json" | cut -c1-300)"
+		[ "$res" = OK ] || { s1ok=0; fail 2.18 "S1: $dp: $res"; }
 	done
 	[ "$s1ok" = 1 ] && pass 2.18 "S1: no DTB of any device entry enables /sound, &swr0 (soundwire@6b10000) or a WSA884x speaker node"
 fi
@@ -602,6 +580,18 @@ if [ "$builder" = kiwi ]; then
 	# D19: the display-lcd DPCD tool is in the image, byte-identical to the worker's file, and the unit starts early
 	[ -x "$ROOT/usr/libexec/sp11-collect-dpcd.py" ] && cmp -s "$ROOT/usr/libexec/sp11-collect-dpcd.py" "$REPO/hardware/display-lcd/tools/collect-dpcd.py" && python3 -I -c "import ast,sys; ast.parse(open(sys.argv[1]).read())" "$ROOT/usr/libexec/sp11-collect-dpcd.py" && pass 8.8 "collect-dpcd.py is in the image, executable, equal to hardware/display-lcd/tools/collect-dpcd.py" || fail 8.8 "collect-dpcd.py missing, not executable or different from the display-lcd tool"
 	grep -q '^DefaultDependencies=no' "$svc" && pass 8.9 "collector unit starts without default dependencies (early)" || fail 8.9 "collector unit has default dependencies"
+	# M5 (D21): session triggers, mount only per write, only the GPU speed-bin cell of the qfprom
+	ok=1
+	for u in sp11-log-collector-session-first.path sp11-log-collector-session-user.path; do
+		[ "$(readlink "$ROOT/etc/systemd/system/multi-user.target.wants/$u")" = "/usr/lib/systemd/system/$u" ] && [ -f "$ROOT/usr/lib/systemd/system/$u" ] || { ok=0; fail 8.14 "$u missing or not enabled"; }
+	done
+	[ -f "$ROOT/usr/lib/systemd/system/sp11-log-collector-session@.service" ] && grep -q 'session %i' "$ROOT/usr/lib/systemd/system/sp11-log-collector-session@.service" || { ok=0; fail 8.14 "sp11-log-collector-session@.service missing"; }
+	grep -q 'sp11-log-collector-session-first.path' "$ROOT/usr/lib/systemd/system-preset/80-sp11.preset" && grep -q 'session-user.path' "$ROOT/usr/lib/systemd/system-preset/80-sp11.preset" || { ok=0; fail 8.14 "session path units not in the preset (preset-all would disable them)"; }
+	[ "$ok" = 1 ] && pass 8.14 "logind session triggers (path units for the first session and the first numbered user session) are installed, enabled and preset"
+	ck=$ROOT/usr/libexec/sp11-log-collector
+	if grep -q '^release_target()' "$ck" && grep -q 'release_target' "$ck" && awk '/^publish\(\)/,/^}/' "$ck" | grep -q 'release_target'; then pass 8.15 "collector: publish() mounts for the write and releases (sync, umount, verify) after it"; else fail 8.15 "collector does not release the target after each publish"; fi
+	if [ "$(grep -c 'nvmem"' "$ck")" -le 2 ] && grep -q 'dd if="$dev/nvmem" bs=1 skip=$((0x119)) count=2' "$ck" && [ "$(grep -c 'dd if="$dev/nvmem"' "$ck")" = 1 ]; then pass 8.16 "collector reads exactly 2 bytes at 0x119 of the qfprom (GPU speed bin), nothing else (S5)"; else fail 8.16 "qfprom read is not limited to 2 bytes at 0x119"; fi
+	grep -q '/proc/asound/cards' "$ck" && grep -q 'aplay -l' "$ck" && pass 8.17 "collector records /proc/asound/cards and aplay -l" || fail 8.17 "collector lacks the sound evidence"
 	# S4: the collector and the initramfs hook write only to a partition of the boot medium's disk
 	ck=$ROOT/usr/libexec/sp11-log-collector; ih=$ROOT/usr/lib/dracut/modules.d/95sp11-initrd-log/sp11-initrd-log.sh
 	for f in "$ck" "$ih"; do
