@@ -1,0 +1,8 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * M6: M3 display DT + Wi-Fi 0001 + USB-C 0001, with the M5 overrides.
+ * The component patches are applied to the dev source tree before this DTS
+ * includes the board: 10 CPUs, no system SS3, speakers off (S1), GPU off.
+ * DT-only; the packaged kernel and series_rev stay at M3 / revision 3.
+ */
+#include "x1p64100-microsoft-denali-m5.dts"

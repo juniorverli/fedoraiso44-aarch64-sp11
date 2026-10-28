@@ -1,0 +1,10 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * M6 with the GPU enabled for later GPU work. Speakers remain off (S1).
+ * Build artifact only: no boot menu entry is requested for this variant.
+ */
+#include "x1p64100-microsoft-denali-m6.dts"
+
+&gpu {
+	status = "okay";
+};
