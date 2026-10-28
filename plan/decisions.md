@@ -182,3 +182,10 @@ Append-only. Each entry: number, date, decision, reason, consequence. A later en
   - USB-C power information comes from `ucsi_glink` (`ucsi-source-psy-*`), which stays.
   - L0 fails if `qcom_battmgr` could load, or if any image file writes a `charge_control_*` attribute.
 - **Revisit:** only if SAM charging status turns out incomplete on the device, and then never with writable thresholds.
+
+## D24 (2026-10-28): remaining workers move to Codex
+
+- **Decision (operator):** every worker that was running on Claude Sonnet moves to Codex `gpt-6.1-sol`, reasoning effort xhigh: bluetooth, ec-sam, image, kernel and any new worker.
+  - Codex sandbox rules from `agents/README.md` apply: no git writes; the orchestrator reviews and commits on `worker/<id>`.
+  - Interrupted Sonnet sessions leave their uncommitted files in the worktree, and the Codex session continues from them.
+  - Cross-checks of Codex-produced values run on Claude (protocol §5.1).
