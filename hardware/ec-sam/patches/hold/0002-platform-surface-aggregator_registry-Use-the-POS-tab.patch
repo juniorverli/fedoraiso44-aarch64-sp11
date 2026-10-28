@@ -1,0 +1,45 @@
+From e6652f89c5a3dfe0045e4eadfb9f5a61c98cf452 Mon Sep 17 00:00:00 2001
+From: juniorverli <25966843+juniorverli@users.noreply.github.com>
+Date: Wed, 28 Oct 2026 18:42:12 +0000
+Subject: [PATCH 2/4] platform/surface: aggregator_registry: Use the POS tablet
+ switch on Surface Pro 11
+
+The ACPI tables of the Surface Pro 11 declare two Surface hot-plug
+devices, both created from the same driver, with different feature
+words returned by _DSM function 6: the KIP instance (\_SB.SHPS) returns
+0x080E and the SAM instance (\_SB.WSID.SHPS) returns 0x060C. The laptop
+and slate indicator (\_SB.SLT, MSHW0005) is fed by the SAM instance,
+which reads the device posture (POS, target category 0x26), while the
+KIP instance only follows the cover state and is barred from the
+indicator.
+
+Register the POS tablet switch as on the other models that report their
+posture through POS, instead of the KIP one.
+
+Local status: held pending local posture/resume evidence and cross-check.
+An independent upstream report proposes the same switch:
+https://lkml.iu.edu/2609.2/08840.html
+The feature-word interpretation above remains an inherited REA lead.
+
+Assisted-by: Claude Sonnet 5.5
+Assisted-by: Codex gpt-6.1-sol
+---
+ drivers/platform/surface/surface_aggregator_registry.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
+index 990587985..df6b57055 100644
+--- a/drivers/platform/surface/surface_aggregator_registry.c
++++ b/drivers/platform/surface/surface_aggregator_registry.c
+@@ -415,7 +415,7 @@ static const struct software_node *ssam_node_group_sp11[] = {
+ 	&ssam_node_hid_kip_keyboard,
+ 	&ssam_node_hid_kip_touchpad,
+ 	&ssam_node_hid_kip_fwupd,
+-	&ssam_node_kip_tablet_switch,
++	&ssam_node_pos_tablet_switch,
+ 	NULL,
+ };
+ 
+-- 
+2.43.0
+

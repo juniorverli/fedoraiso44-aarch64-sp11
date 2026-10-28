@@ -1,0 +1,36 @@
+From 7386cc44a2a15c68b923214778b6a231c327c63c Mon Sep 17 00:00:00 2001
+From: juniorverli <25966843+juniorverli@users.noreply.github.com>
+Date: Wed, 28 Oct 2026 18:42:13 +0000
+Subject: [PATCH 3/4] platform/surface: aggregator_registry: Add the fan speed
+ function on Surface Pro 11
+
+The Surface Pro 11 ACPI tables declare FAN0 (PNP0C0B) with a dependency
+on SSH. Register the existing SSAM fan-speed client as a candidate for
+this unit. surface_fan reads category 0x05, target 1, instance 1, command
+0x01; it exposes RPM through hwmon and has no fan-control write method.
+
+The command is verified in the Linux driver. A valid RPM response on this
+unit and the independent cross-check are still required before release.
+No platform-profile client or thermal-policy control is added.
+
+Assisted-by: Claude Sonnet 5.5
+Assisted-by: Codex gpt-6.1-sol
+---
+ drivers/platform/surface/surface_aggregator_registry.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
+index a098cd5a6..990587985 100644
+--- a/drivers/platform/surface/surface_aggregator_registry.c
++++ b/drivers/platform/surface/surface_aggregator_registry.c
+@@ -411,6 +411,7 @@ static const struct software_node *ssam_node_group_sp11[] = {
+ 	&ssam_node_bat_ac,
+ 	&ssam_node_bat_main,
+ 	&ssam_node_tmp_sensors,
++	&ssam_node_fan_speed,
+ 	&ssam_node_hid_kip_keyboard,
+ 	&ssam_node_hid_kip_touchpad,
+ 	&ssam_node_hid_kip_fwupd,
+-- 
+2.43.0
+

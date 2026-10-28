@@ -1,19 +1,19 @@
 id = "ec-sam"
-name = "Surface Aggregator Module (EC): Type Cover keyboard/touchpad, battery, AC, buttons, lid, tablet mode, fan"
+name = "Surface Aggregator Module: Type Cover, battery, AC, posture, buttons, lid and fan"
 phase = 2
-status = "survey"
+status = "designed"
 depends_on = ["soc-boot"]
-updated = "2026-10-23"
+updated = "2026-10-28"
 
 [windows]
-hardware_ids = ["ACPI\\VEN_MSHW&DEV_0084 (serial hub)", "ACPI\\VEN_MSHW&DEV_0153 (KIP hot plug)", "ACPI\\VEN_MSHW&DEV_0040 (buttons)", "ACPI\\VEN_MSHW&DEV_0005 (laptop/slate)", "ACPI\\VEN_PNP&DEV_0C0D (lid)", "ACPI\\VEN_PNP&DEV_0C0B (fan)", "ACPI\\VEN_ACPI&DEV_000E&SUBSYS_MSHW0217 (wake alarm)", "ACPI\\VEN_MSHW&DEV_0299", "HID\\Target_KIP&Category_HID", "UEFI\\RES_{632cbe1c-c56f-4c43-b309-87e5da648d16} (SAM)"]
+hardware_ids = ["ACPI\\VEN_MSHW&DEV_0084", "ACPI\\VEN_MSHW&DEV_0153", "ACPI\\VEN_MSHW&DEV_0040", "ACPI\\VEN_MSHW&DEV_0005", "ACPI\\VEN_PNP&DEV_0C0D", "ACPI\\VEN_PNP&DEV_0C0B", "ACPI\\VEN_ACPI&DEV_000E&SUBSYS_MSHW0217", "ACPI\\VEN_MSHW&DEV_0299", "HID\\Target_KIP&Category_HID", "{BFD21D0B-D701-435B-AF19-4A20677898D3}\\SurfaceBattery"]
 packages = ["surfaceserialhubdriver", "surfacesam", "surfacehidminidriver", "surfacehotplug", "surfacebattery", "surfacebutton", "surfacepowerstate", "surfacetimealarmacpifilter", "surfaceacpiplatformextensiondriver", "surfacesystemmanagementframeworkdriver", "surfacesmfclient", "surfaceihvcpusmfclient", "surface.smf.117.0.*", "surfacetypecoverv7fwupdate", "surfacetypecoverv7fprudedriver", "surfacecfuoverhid"]
 
 [linux]
-drivers = ["platform/surface/aggregator (microsoft,surface-sam)", "surface_aggregator_registry (group sp11)", "surface_aggregator_hub", "surface_hid", "surface_battery", "surface_charger", "surface_aggregator_tablet_switch", "gpio-keys (lid)"]
-dt = ["x1-microsoft-denali.dtsi &uart2 embedded-controller, gpio-keys"]
+drivers = ["surface_aggregator", "surface_aggregator_registry", "surface_aggregator_hub", "surface_hid", "surface_hid_core", "hid-generic", "hid-multitouch", "surface_battery", "surface_charger", "surface_aggregator_tabletsw", "surface_fan (candidate 0003)", "gpio-keys (lid; power/volume candidate held)"]
+dt = ["x1-microsoft-denali.dtsi: uart2 embedded-controller and gpio-keys"]
 native = "partial"
-gaps = ["volume buttons (MSHW0040) not described", "sp11 group lists penstash: present on this unit?", "keyboard backlight control", "Type Cover fingerprint reader (UDE driver) unknown", "fan/perf profile over SAM"]
+gaps = ["unsupported SAM HID sensor and attached-cover pen-stash endpoints: local patch 0001, other-cover compatibility untested", "early keyboard requires full dracut chain including surface_aggregator_hub and hid_generic; actual next-image inventory and device test required", "D23: blacklist qcom_battmgr and omit it from initramfs now; SAM BAT1/ADP1 and independent UCSI remain", "plugged-in SAM and UPower status/capacity/energy/AC/charging evidence pending for each connector", "actual keyboard/touchpad operation and posture transitions unconfirmed; POS candidate 0002 held", "fan RPM candidate 0003 needs device response", "power/volume DT candidate 0004 held: electrical parameters and orientation require reproduction/cross-check", "independent protocol cross-check pending; keyboard backlight and wake alarm deferred"]
 
 [firmware]
-needs = ["qcom/x1e80100/qupv3fw.elf (if the UART engine is unprogrammed)"]
+needs = []
