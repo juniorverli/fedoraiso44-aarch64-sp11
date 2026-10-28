@@ -1,0 +1,117 @@
+From 02743ba2e2e032bd13ab59ac063622b0cb1785ab Mon Sep 17 00:00:00 2001
+From: juniorverli <25966843+juniorverli@users.noreply.github.com>
+Date: Wed, 28 Oct 2026 18:42:31 +0000
+Subject: [PATCH 4/4] arm64: dts: qcom: x1-microsoft-denali: Add the power and
+ volume buttons
+
+The Surface Button device (MSHW0040) of the ACPI tables has three
+GPIO connection pairs, each an interrupt and an input of the same pin:
+
+- power: TLMM GPIO 19, no pull, edge both, shared and wake;
+- volume up: PMIC index 1 (SPMI SID 1, PM8550) GPIO 6, pull up;
+- volume down: PMIC index 1 (SPMI SID 1, PM8550) GPIO 8, pull up.
+
+The Windows driver reports a button as pressed when its pin reads low.
+The PMIC GPIO numbers come from the pin table of the Windows PMIC GPIO
+driver: peripheral 0x8d and 0x8f of SID 1, and the GPIO peripherals of
+the PMIC start at 0x88 for GPIO 1.
+
+Describe them as gpio-keys next to the lid switch. Only the power button
+is a wake source, as in the ACPI tables. The PMK8550 power key node of
+hamoa-pmics.dtsi stays; whether the button is also wired to it is not
+known.
+
+Local status: held, not approved for integration. The pin mapping and
+polarity claims above are inherited leads. Volume orientation, power-source
+selection (1.8 V), and the 15 ms debounce need source reproduction and an
+independent cross-check. A clean DT schema build does not verify wiring.
+
+Assisted-by: Claude Sonnet 5.5
+Assisted-by: Codex gpt-6.1-sol
+---
+ .../boot/dts/qcom/x1-microsoft-denali.dtsi    | 48 ++++++++++++++++++-
+ 1 file changed, 47 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi b/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi
+index e3a53b893..0e297b51a 100644
+--- a/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi
++++ b/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi
+@@ -20,7 +20,10 @@ aliases {
+ 	gpio-keys {
+ 		compatible = "gpio-keys";
+ 
+-		pinctrl-0 = <&hall_int_n_default>;
++		pinctrl-0 = <&hall_int_n_default>,
++			    <&pwr_btn_n_default>,
++			    <&vol_up_n_default>,
++			    <&vol_down_n_default>;
+ 		pinctrl-names = "default";
+ 
+ 		switch-lid {
+@@ -30,6 +33,27 @@ switch-lid {
+ 			wakeup-source;
+ 			wakeup-event-action = <EV_ACT_DEASSERTED>;
+ 		};
++
++		key-power {
++			gpios = <&tlmm 19 GPIO_ACTIVE_LOW>;
++			linux,code = <KEY_POWER>;
++			debounce-interval = <15>;
++			wakeup-source;
++		};
++
++		key-vol-up {
++			gpios = <&pm8550_gpios 6 GPIO_ACTIVE_LOW>;
++			linux,code = <KEY_VOLUMEUP>;
++			debounce-interval = <15>;
++			linux,can-disable;
++		};
++
++		key-vol-down {
++			gpios = <&pm8550_gpios 8 GPIO_ACTIVE_LOW>;
++			linux,code = <KEY_VOLUMEDOWN>;
++			debounce-interval = <15>;
++			linux,can-disable;
++		};
+ 	};
+ 
+ 	pmic-glink {
+@@ -984,6 +1008,22 @@ &pcie6a_port0 {
+ };
+ 
+ &pm8550_gpios {
++	vol_up_n_default: vol-up-n-state {
++		pins = "gpio6";
++		function = "normal";
++		power-source = <1>; /* 1.8V */
++		bias-pull-up;
++		input-enable;
++	};
++
++	vol_down_n_default: vol-down-n-state {
++		pins = "gpio8";
++		function = "normal";
++		power-source = <1>; /* 1.8V */
++		bias-pull-up;
++		input-enable;
++	};
++
+ 	rtmr0_default: rtmr0-reset-n-active-state {
+ 		pins = "gpio10";
+ 		function = "normal";
+@@ -1124,6 +1164,12 @@ nvme_reg_en: nvme-reg-en-state {
+ 		bias-disable;
+ 	};
+ 
++	pwr_btn_n_default: pwr-btn-n-state {
++		pins = "gpio19";
++		function = "gpio";
++		bias-disable;
++	};
++
+ 	edp_reg_en: edp-reg-en-state {
+ 		pins = "gpio70";
+ 		function = "gpio";
+-- 
+2.43.0
+
