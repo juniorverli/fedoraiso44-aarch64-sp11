@@ -1,134 +1,101 @@
 # Touch and pen test plan
 
-Current status: **designed**. All device steps below are future work for an
-orchestrator-approved test image. This session ran only software checks.
-Completed: the 11-patch application and BTF link builds, new-file `W=1`,
-binding/example validation with YAML lint, and validation of the disabled
-board draft against HID, regulator and TLMM schemas. Exact results and hashes
-are in [build evidence](evidence/2026-10-24-spi-hid-v6.md#resumed-session-w1-and-dt-validation).
-Strict checkpatch, cross-check and the functional gaps remain image gates.
+Status: **designed**. No device test ran. Earlier BTF/W=1 and DT results apply
+to the unchanged v6 baseline and old disabled draft only. The current v7
+baseline and revised RFCs remain unbuilt. [Session-2 evidence](evidence/2026-10-28-quad-firmware-sequencing.md)
+and [validation](evidence/2026-10-28-validation.md) distinguish completed
+checks from future gates.
 
-## Software gates before an image
+## Next boot: controller state only
 
-1. Sources owner pins spi-hid v6 and the public HID-over-SPI specification;
-   orchestrator obtains an independent other-runtime cross-check of all
-   addresses, GPIOs, delays, opcodes, flags and DT translations.
-2. Keep patches 0001–0011 unchanged as the upstream baseline. Resolve
-   checkpatch findings without inventing author sign-offs. Treat 0012 as
-   an unsigned RFC containing disabled nodes, excluded from release integration.
-3. Implement and build-test quad reads and writes with single-lane opcodes
-   across the transport, controller/GENI personality and board pinctrl.
-   Do not try to force single-lane mode by deleting the DT bus-width properties.
-4. Resolve reset/power timing, second GpioInt and wake/panel policy; validate
-   the final board DT. Determine whether protocol 0 really occurs before
-   selecting a firmware-loading fix. Never infer this from the driver alone.
-5. Reproduce the compatibility build from the project root:
+Use the exact image-worker request and read-only commands in
+[README Requests](README.md#8-requests). Stage `collect-read-only.sh`, include
+temporary RFC 0014, and use `touch-pen-state.dts` with the working LCD base.
+There must be no enabled HID child, touch-supply consumer or QUP1
+firmware-name. The normal SPI probe records clocked RO registers before
+protocol dispatch; collection only reads its journal record and existing
+sysfs/debugfs files. No module loading, bind/unbind, raw MMIO, GPIO requests,
+runtime-PM control writes or firmware uploads are collector operations.
 
-   ```sh
-   bash hardware/touch-pen/build-test.sh > out/build/touch-pen/rebuild.log 2>&1
-   ```
+Expected evidence:
 
-   The script takes the shared kernel lock, uses Fedora 44, `-j4`, and checks
-   both BTF config symbols and `.BTF` in vmlinux and all three SPI-HID modules.
-   It then recompiles the new driver objects with `W=1`, including trace code.
-   It builds a small ARM64 test configuration, not Fedora release RPMs.
-6. Reproduce the binding and disabled-board checks with Fedora packages:
+- Live DT status and platform binding explain whether SE2 probed at all.
+- `touch-pen-diag` shows protocol, raw FW revision, interface-disable,
+  clock-status and HW parameters before initialization/firmware loading.
+- The full surrounding normal probe messages explain rejection/deferral.
+- GPIO40–43/48–51/64 include actual mux/direction/level/pull/drive where debugfs
+  exposes them. GPIO49/50 are observed before explicitly selecting their mux.
+- Installed firmware package/hash/protocol metadata is distinguished from
+  loaded engine state. A disabled DT or absent message means not sampled.
 
-   ```sh
-   flock out/.kernel-build.lock docker run --rm -i \
-     --mount "type=bind,src=$(realpath out/linux/touch-pen),dst=/src,readonly" \
-     --mount "type=bind,src=$(realpath out/build/touch-pen),dst=/build" \
-     --env TP_CHECK_UID="$(id -u)" --env TP_CHECK_GID="$(id -g)" \
-     --workdir /src sp11-kernel-fc44:latest bash -s <<'CHECK'
-   set -euo pipefail
-   dnf -y install dt-schema which yamllint
-   setpriv --reuid="$TP_CHECK_UID" --regid="$TP_CHECK_GID" --clear-groups \
-     env KBUILD_BUILD_USER=touch-pen bash -s <<'DT'
-   set -euo pipefail
-   schema=Documentation/devicetree/bindings/input/hid-over-spi.yaml
-   dt-doc-validate "$schema"
-   yamllint -f parsable -c Documentation/devicetree/bindings/.yamllint "$schema"
-   make O=/build/kbuild ARCH=arm64 -j4 dt_binding_check \
-     DT_SCHEMA_FILES=input/hid-over-spi.yaml
-   make O=/build/kbuild ARCH=arm64 -j4 CHECK_DTBS=y \
-     DT_SCHEMA_FILES='input/hid-over-spi.yaml:regulator/fixed-regulator.yaml:pinctrl/qcom,x1e80100-tlmm.yaml' \
-     qcom/x1p64100-microsoft-denali.dtb
-   DT
-   CHECK
-   ```
+Preserve normal full private collector output and export only sanitized
+component evidence. Interpret outcomes using `quad-design.md`; protocol 0
+alone does not prove empty IRAM, and protocol 1 alone does not prove quad support.
 
-   Packages are installed only inside the disposable container; the kernel
-   source mount is read-only and generation runs as the host user. Inspect
-   validation diagnostics as well as exit codes: Kbuild can print schema or
-   lint failures without failing `make`. The current disabled draft is clean;
-   repeat these checks on the final enabled design and any controller binding.
-7. Kernel owner merges the config requirements and runs the full Fedora
-   aarch64 config/RPM build. Image owner passes L0/L1 before any device boot.
+## Software gates before touch integration
 
-## Initial device evidence (future; read-only diagnostics)
+1. Sources pins v7, the posted Romulus spi-mem transport RFC, the Microsoft
+   specification and exact controller/GPI research inputs. Identify the supported GENI QSPI transfer contract and,
+   if the engine needs programming, a compatible authorized payload/load path.
+2. Implement quad host/GPI support and port the posted spi-mem phases onto v7, preserving
+   CS. Quad reads require four placeholder bytes for eight clocks. Verify
+   failure when required lanes or GPI channels are absent; do not fall back
+   to one-lane FIFO or overwrite a different programmed protocol.
+3. Apply/review RFCs 0015, 0013, then 0012. The MSHW0484 match supplies eb/e2;
+   v7 G6 defaults to 0b/02.
+   The extra GPIO49/50 mux is evidenced,
+   but electrical settings need independent decoding. Check that GPIO51
+   remains the input IRQ. Keep wake-resource guesses out of the first image.
+4. Run the project `scripts/kernel-dev.sh` commands and fragment from README.
+   Build host/GPI/transport with both BTF symbols; verify `.BTF` in vmlinux and
+   applicable modules. Run binding checks and DT schema validation on the
+   final enabled board, not just a disabled draft. Inspect diagnostics as well
+   as process exit codes.
+5. Run full `checkpatch --strict` against the assembled tree. Resolve the
+   unchanged upstream baseline findings and unsigned RFCs with the authors;
+   this worker does not add a Signed-off-by. Commission Claude cross-check
+   under protocol §5.1 before integration. Kernel/image owners run the final
+   Fedora build and image gates before the operator's next touch boot.
 
-After the transport/controller gaps are fixed and the final image is approved:
+The old `build-test.sh` remains a historical minimal compatibility reproducer,
+not the required project dev/Fedora integration gate.
+
+## First working-touch boot
+
+Read-only initial inspection (as root where needed):
 
 ```sh
 uname -r
 test -s /sys/kernel/btf/vmlinux
-journalctl -k -b | rg -i 'geni|spi|hid|touch|digitizer|firmware|invalid proto'
+journalctl -k -b --no-pager | grep -iE 'geni|spi|hid|touch|digitizer|firmware|invalid proto'
 ls /sys/bus/spi/devices
 libinput list-devices
 ```
 
-Expected: the engine initializes, HID enumerates, and input devices appear;
-no `Invalid proto 0`, unsupported mode-bit warnings, descriptor timeout loops,
-or repeated unsolicited resets. Runtime SPI bus numbers are dynamic: identify
-the device using its OF path/MMIO address rather than assuming `spi10.0`.
-If protocol 0 occurs, preserve the complete surrounding resource/clock/probe
-messages. Do not use devmem or load arbitrary firmware as a diagnostic shortcut.
-For the identified SPI device, capture its `bus_error_count`,
-`regulator_error_count` and `device_initiated_reset_count` sysfs attributes
-before input testing and after each power-transition group. Record startup
-resets separately; normal use must not produce growing errors or reset storms.
+Expected: controller and HID enumeration, no unsupported-mode warnings,
+descriptor timeout loops or recurring unsolicited resets. Runtime SPI bus
+numbers are dynamic; identify SE2 by its OF path/MMIO address. Record the
+kernel journal before/after input and power tests. v7 drops
+the v6 error-counter sysfs attributes, so do not request those paths as if
+they exist. Separate startup resets from recurring errors in the log.
 
-## Touch
+Select the touchscreen event node with `evtest`. Check ten contacts, slot and
+tracking lifetimes, corners, orientation and lifting all fingers. In GNOME
+check taps, dragging, scrolling and rotation. Record actual axis ranges and
+maximum contacts, rather than deriving them from a Windows collection name.
 
-Use `evtest` interactively to select the touch event node:
+Pen is optional for this milestone. If exposed, record actual pressure/tilt,
+hover, barrel button and eraser capabilities in evtest and a drawing app;
+report unsupported features without guessing. No firmware-update reports,
+CFU tools, touch flashing or pen flashing are part of this plan.
 
-```sh
-sudo evtest
-```
+## Recovery and power
 
-Expected: multitouch slot/tracking events, accurate coordinates at all four
-corners, and ten simultaneous contacts with stable tracking. Test GNOME taps,
-drags, scrolling and orientation. Log the observed maximum contact count and
-axis ranges; no range is assumed from the ACPI tables. Check that lifting all
-fingers clears all contacts and that palm rejection while using the pen is usable.
+Once ordinary touch works, test ten display blank/unblank cycles and ten
+suspend/resume cycles, checking a gesture after each and recording kernel
+errors/resets. These counts are proposed acceptance policy, not hardware values.
+Expected: no reset storm, lost input, spurious contacts or power-reference
+imbalance. Check pen recovery only if it is present. Test wake only after
+its route/policy is established; the current proposal does not enable it.
 
-## Pen
-
-Select the pen event node in `evtest`, then test in a drawing application.
-Expected: position and hover, smooth `ABS_PRESSURE` from light to firm normal
-writing force, `ABS_TILT_X/Y` where advertised, pen tip/contact, barrel button,
-eraser/tool changes. Record the capabilities actually advertised by the report
-descriptor; do not assume a pressure maximum or pen feature from the package name.
-Record an absent feature required by the dossier's acceptance criteria as an
-unmet criterion. Touch and pen working in `evtest` alone does not establish
-GNOME orientation, palm rejection or application pressure behavior.
-No firmware-update feature reports, CFU tools, or pen/touch flashing are part
-of these tests (S3).
-
-## Power and regression
-
-Once normal input works, repeat display blank/unblank and system suspend/resume
-under the agreed panel/wake policy. Expected: input recovers without a reset
-storm, spurious touches, lost pen, or wake-loop; no power-reference imbalance.
-Run at least ten display blank/unblank cycles and ten suspend/resume cycles,
-recording successful recoveries and elapsed time. These counts are a proposed
-acceptance policy, not a value read from the hardware. At each recovery check
-both a touch gesture and a pen pressure stroke. Test touch-to-wake only after
-its route and policy have been approved, and record the selected wake source.
-The public v6 panel-follower path disables wake capability, so explicitly record
-whether touch-to-wake is expected for the chosen design. Do not claim that a
-panel follower is already wired by the disabled draft.
-
-Acceptance is the dossier's three criteria plus stable recovery across repeated
-power transitions. Store only sanitized, relevant device logs and descriptor
-facts in `evidence/`; no serials, MACs, firmware images or raw decompilation.
+Only the orchestrator can set pass after reviewing actual evidence.

@@ -1,0 +1,13 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/* Controller-only diagnostic variant; use with RFC 0014, no touch child. */
+#include "x1p64100-microsoft-denali.dts"
+
+&qupv3_1 {
+	/delete-property/ firmware-name;
+};
+
+&spi10 {
+	/* Preserve extra data pins' inherited state for the collector. */
+	pinctrl-0 = <&qup_spi10_data_clk>, <&qup_spi10_cs>;
+	status = "okay";
+};

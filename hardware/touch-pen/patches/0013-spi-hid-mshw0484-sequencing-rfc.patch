@@ -1,0 +1,88 @@
+Subject: [PATCH RFC] HID: spi-hid: describe MSHW0484 protocol and power timing
+
+The captured MSHW0484 SSDT selects read/write opcodes eb/e2, holds reset
+low for 300 ms in _RST and asserts reset 10 ms before removing power in
+_PS3. The v7 generic G6 match uses 0b/02, a 100 ms reset and immediate
+power-off. Give this hardware ID separate protocol and timing data.
+
+Make power_down establish reset and check the GPIO result before
+waiting. This covers suspend, fatal recovery and remove, including
+callers that do not check their preceding assert_reset result. Keep the
+supply enabled if reset cannot be asserted.
+
+The disabled board draft provides the conditional 500 ms _PS0 cold-start
+wait through its fixed regulator; the existing additional 10 ms stays.
+_INI's different 10 ms wait does not justify shortening _PS0.
+
+Evidence: sources/windows/live-inventory/acpi/ssdt.dsl:1625-1659 and
+:1726-1752. SHA-256:
+95ee103a7ad5d9b55cc84ff09065171d638b6de9d1aafcde6efc69ce6a824f1b.
+
+This RFC applies after unchanged spi-hid v7. It is not built or
+independently cross-checked and does not implement quad transfers or
+enable the device.
+
+Assisted-by: Codex gpt-6.1-sol
+---
+diff --git a/drivers/hid/spi-hid/spi-hid-of.c b/drivers/hid/spi-hid/spi-hid-of.c
+--- a/drivers/hid/spi-hid/spi-hid-of.c
++++ b/drivers/hid/spi-hid/spi-hid-of.c
+@@ -37,6 +37,7 @@
+ 	struct spi_hid_conf conf;
+ 	u32 post_power_on_delay_ms;
+ 	u32 minimal_reset_delay_ms;
++	u32 pre_power_off_delay_ms;
+ };
+ 
+ /* Config structure is filled with match data and Device Tree resources */
+@@ -62,6 +63,20 @@
+ 	.minimal_reset_delay_ms = 100,
+ };
+ 
++/* Cold power-on wait is provided by the board's fixed regulator. */
++static const struct spi_hid_of_data microsoft_mshw0484_data = {
++	.conf = {
++		.input_report_header_address = 0x1000,
++		.input_report_body_address = 0x1004,
++		.output_report_address = 0x2000,
++		.read_opcode = 0xeb,
++		.write_opcode = 0xe2,
++	},
++	.post_power_on_delay_ms = 10,
++	.minimal_reset_delay_ms = 300,
++	.pre_power_off_delay_ms = 10,
++};
++
+ static int spi_hid_of_populate_config(struct spi_hid_of_config *conf,
+ 				      struct device *dev)
+ {
+@@ -88,6 +103,14 @@
+ 
+ 	if (!conf->supply_enabled)
+ 		return 0;
++
++	if (conf->data.pre_power_off_delay_ms) {
++		error = gpiod_set_value_cansleep(conf->reset_gpio, 1);
++		if (error)
++			return error;
++
++		fsleep(1000 * conf->data.pre_power_off_delay_ms);
++	}
+ 
+ 	error = regulator_disable(conf->supply);
+ 	if (error == 0)
+@@ -180,12 +203,14 @@
+ }
+ 
+ static const struct of_device_id spi_hid_of_match[] = {
++	{ .compatible = "microsoft,mshw0484", .data = &microsoft_mshw0484_data },
+ 	{ .compatible = "microsoft,g6-touch-digitizer", .data = &microsoft_g6_data },
+ 	{ }
+ };
+ MODULE_DEVICE_TABLE(of, spi_hid_of_match);
+ 
+ static const struct spi_device_id spi_hid_of_id_table[] = {
++	{ .name = "mshw0484", .driver_data = (kernel_ulong_t)&microsoft_mshw0484_data },
+ 	{ .name = "g6-touch-digitizer", .driver_data = (kernel_ulong_t)&microsoft_g6_data },
+ 	{ }
+ };

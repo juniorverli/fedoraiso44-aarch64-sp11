@@ -1,0 +1,25 @@
+Subject: [PATCH RFC] dt-bindings: input: hid-over-spi: identify MSHW0484
+
+MSHW0484 on the Denali LCD board uses a distinct opcode pair and
+reset/shutdown timing. Describe its hardware ID independently of the
+generic G6 compatible. The captured Windows inventory identifies ACPI
+MSHW0484 revision 1; association with SSDT GTCH is documented as an
+inference.
+
+This is an unbuilt binding proposal on spi-hid v7 for the disabled board
+draft and MSHW0484 protocol/sequencing RFC. Independent cross-check
+remains outstanding.
+
+Assisted-by: Codex gpt-6.1-sol
+---
+diff --git a/Documentation/devicetree/bindings/input/hid-over-spi.yaml b/Documentation/devicetree/bindings/input/hid-over-spi.yaml
+--- a/Documentation/devicetree/bindings/input/hid-over-spi.yaml
++++ b/Documentation/devicetree/bindings/input/hid-over-spi.yaml
+@@ -27,6 +27,7 @@
+   compatible:
+     enum:
+       - microsoft,g6-touch-digitizer
++      - microsoft,mshw0484
+ 
+   reg:
+     maxItems: 1
