@@ -1,0 +1,49 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: juniorverli <25966843+juniorverli@users.noreply.github.com>
+Date: Wed, 28 Oct 2026 18:49:16 +0000
+Subject: [PATCH] arm64: dts: qcom: x1-microsoft-denali: wire PCIe4 PERST#,
+ WAKE# and pinctrl
+
+The Wi-Fi root port declared neither its PERST# nor its WAKE# line, and
+the pcie4_default pin state (CLKREQ# and PERST# pads) had no consumer.
+Linux therefore never asserted PERST# around the WCN7850 power-up done
+by pwrseq-qcom-wcn. The link still trained on the first test boot only
+because the firmware left PERST# deasserted, so the endpoint was powered
+with PERST# already high and no reset could be issued on recovery or
+resume.
+
+The Windows firmware describes the same pins: \_SB.QPPX (QCOM0C96) lists
+one GpioIo per root complex, and the entry for \_SB.PCI4 is TLMM 146,
+the PERST# pad that pcie4_default muxes as GPIO. WAKE# is TLMM 148 as on
+the Qualcomm CRD and the Surface Laptop 7, which carries the same
+WCN7850 wiring.
+
+Assisted-by: Claude Sonnet 5.5
+---
+ arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi b/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi
+index e3a53b893..2bf64df91 100644
+--- a/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi
++++ b/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi
+@@ -935,6 +935,9 @@ &mdss_dp3_phy {
+ };
+ 
+ &pcie4 {
++	pinctrl-0 = <&pcie4_default>;
++	pinctrl-names = "default";
++
+ 	status = "okay";
+ };
+ 
+@@ -946,6 +949,9 @@ &pcie4_phy {
+ };
+ 
+ &pcie4_port0 {
++	reset-gpios = <&tlmm 146 GPIO_ACTIVE_LOW>;
++	wake-gpios = <&tlmm 148 GPIO_ACTIVE_LOW>;
++
+ 	wifi@0 {
+ 		compatible = "pci17cb,1107";
+ 		reg = <0x10000 0x0 0x0 0x0 0x0>;
