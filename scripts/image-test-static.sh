@@ -590,7 +590,27 @@ if [ "$builder" = kiwi ]; then
 	[ "$ok" = 1 ] && pass 8.14 "logind session triggers (path units for the first session and the first numbered user session) are installed, enabled and preset"
 	ck=$ROOT/usr/libexec/sp11-log-collector
 	if grep -q '^release_target()' "$ck" && grep -q 'release_target' "$ck" && awk '/^publish\(\)/,/^}/' "$ck" | grep -q 'release_target'; then pass 8.15 "collector: publish() mounts for the write and releases (sync, umount, verify) after it"; else fail 8.15 "collector does not release the target after each publish"; fi
-	if [ "$(grep -c 'nvmem"' "$ck")" -le 2 ] && grep -q 'dd if="$dev/nvmem" bs=1 skip=$((0x119)) count=2' "$ck" && [ "$(grep -c 'dd if="$dev/nvmem"' "$ck")" = 1 ]; then pass 8.16 "collector reads exactly 2 bytes at 0x119 of the qfprom (GPU speed bin), nothing else (S5)"; else fail 8.16 "qfprom read is not limited to 2 bytes at 0x119"; fi
+	# the speed-bin read: one aligned 4-byte window at 0x118 (the nvmem core rejects unaligned reads), the 2-byte cell cut out of it
+	if [ "$(grep -c 'dd if="$dev/nvmem"' "$ck")" = 1 ] && grep -q 'dd if="$dev/nvmem" bs=4 skip=$((0x118 / 4)) count=1' "$ck"; then pass 8.16 "collector reads the GPU speed bin with one aligned 4-byte read at 0x118 of the qfprom, nothing else (S5)"; else fail 8.16 "qfprom read is not the single aligned 4-byte window at 0x118"; fi
+	# M5 device log: debugfs reads only from an allow-list. The collector's own function is run against paths: every
+	# msm dpu/drm object debugfs file (crtc-*, plane-*, encoder-*, connector, dp_debug) must be refused, the known-safe ones allowed.
+	dbgt=$W/debugfs-allow-test.sh
+	{ echo 'shopt -s extglob'; sed -n '/^debugfs_allowed() {/,/^}/p' "$ck"; cat <<'EOT'
+bad=0
+for p in /sys/kernel/debug/dri/0/crtc-0/state /sys/kernel/debug/dri/0/crtc-1/state /sys/kernel/debug/dri/0/plane-3/state /sys/kernel/debug/dri/0/encoder-0/state \
+	/sys/kernel/debug/dri/0/DP-1/dp_debug /sys/kernel/debug/dri/0/eDP-1/dp_debug /sys/kernel/debug/dri/0/dpu_ctl.1 /sys/kernel/debug/dri/0/crtc-0/crc/data \
+	/sys/kernel/debug/dri/0/gem /sys/kernel/debug/dri/128/state /sys/kernel/debug/dri/0/../0/crtc-0/state /sys/kernel/debug/dri/0/state/crtc-0 /sys/kernel/debug/msm/foo; do
+	debugfs_allowed "$p" && { echo "WRONGLY ALLOWED: $p"; bad=1; }
+done
+for p in /sys/kernel/debug/dri/0/state /sys/kernel/debug/dri/0/name /sys/kernel/debug/clk/clk_summary /sys/kernel/debug/devices_deferred /sys/kernel/debug/pinctrl/foo-pinctrl/pins; do
+	debugfs_allowed "$p" || { echo "WRONGLY REFUSED: $p"; bad=1; }
+done
+debugfs_allowed /sys/class/drm/card0/status || { echo "sysfs path must not be this function's business"; bad=1; }
+exit $bad
+EOT
+	} >"$dbgt"
+	dres=$(bash "$dbgt" 2>&1) && pass 8.18 "debugfs allow-list: crtc-*, plane-*, encoder-*, connector and dp_debug files are refused, the known-safe files allowed" || fail 8.18 "debugfs allow-list: $dres"
+	grep -q 'if ! debugfs_allowed "\$f"' "$ck" && ! grep -q -E 'exec cat|cat /sys/kernel/debug/dri/\*|crtc-' <(grep -v '^[[:space:]]*#' "$ck") && pass 8.19 "collector: dump_tree is gated by the allow-list, no direct read of dri/*/crtc-*" || fail 8.19 "collector: dump_tree is not gated or reads crtc-* directly"
 	grep -q '/proc/asound/cards' "$ck" && grep -q 'aplay -l' "$ck" && pass 8.17 "collector records /proc/asound/cards and aplay -l" || fail 8.17 "collector lacks the sound evidence"
 	# S4: the collector and the initramfs hook write only to a partition of the boot medium's disk
 	ck=$ROOT/usr/libexec/sp11-log-collector; ih=$ROOT/usr/lib/dracut/modules.d/95sp11-initrd-log/sp11-initrd-log.sh
