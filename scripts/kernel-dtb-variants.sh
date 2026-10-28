@@ -2,6 +2,7 @@
 # Build the diagnostic DTB variants next to the RPM kernel (DT-only, seconds, no RPM).
 #
 #   scripts/kernel-dtb-variants.sh [KVER]
+#   scripts/kernel-dtb-m6.sh [KVER]   build only M6/M6GPU (requires the M5 reference DTBs)
 #
 # KVER defaults to the version of the RPMs this repo builds (kernel/base.toml: tag, spec release, series_rev),
 # e.g. 7.3.0-65.sp11.3.fc44.aarch64. The variants are DT-only: rebuilt, never patched in the RPM.
@@ -11,6 +12,9 @@
 #                                       kernel/dtb-variants/<name>.dts, record cites the MADT  tree out/linux/m3
 #   x1p64100-microsoft-denali-edponly   0001-0003, mdss_dp0/dp1 disabled (H5), from
 #                                       kernel/dtb-variants/<name>.dts                  tree out/linux/m3
+#   x1p64100-microsoft-denali-m5[gpu]   parity + speakers off [+ GPU off] (D21)        tree out/linux/m3
+#   x1p64100-microsoft-denali-m6[gpu]   M5 + Wi-Fi 0001 + USB-C 0001; GPU variant
+#                                       staged only, no menu entry                    snapshot out/linux/m6
 # The trees are kernel worktrees (branches w/m3nobl = v7.3 + series[0:2], w/m3 = v7.3 + series).
 # Owner: kernel worker.
 set -euo pipefail
@@ -93,3 +97,6 @@ P=$KERNEL_REPO/kernel/dtb-variants
 DIFF_BASE=$P/x1p64100-microsoft-denali-parity.dts
 build x1p64100-microsoft-denali-m5    m3 "$P1,$P2,$P3" "$P/x1p64100-microsoft-denali-m5.dts"
 build x1p64100-microsoft-denali-m5gpu m3 "$P1,$P2,$P3" "$P/x1p64100-microsoft-denali-m5gpu.dts"
+
+# M6: M3 + Wi-Fi/USB-C patches, M5 safety/parity overrides; GPU variant has no menu entry.
+"$KERNEL_REPO/scripts/kernel-dtb-m6.sh" "$kver"

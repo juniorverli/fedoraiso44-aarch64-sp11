@@ -89,7 +89,7 @@ The RPM release carries the series revision through Fedora's `buildid`: `65.sp11
 
 ### DTB variants (diagnostic, DT-only)
 
-`scripts/kernel-dtb-variants.sh [KVER]` builds both with `scripts/kernel-dev.sh` in dev kernel trees (seconds) into `out/dtb-variants/<kver>/qcom/`, each with a `.json` record (source commit, patches applied, overlay sha256, sha256). The directory follows the RPM kver (`7.3.0-65.sp11.3.fc44.aarch64`). The image worker ships them as extra DTBs.
+`scripts/kernel-dtb-variants.sh [KVER]` builds the diagnostic variants with `scripts/kernel-dev.sh` in dev kernel trees into `out/dtb-variants/<kver>/qcom/`, each with a `.json` record (source commit, patches applied, overlay sha256, sha256). The directory follows the RPM kver (`7.3.0-65.sp11.3.fc44.aarch64`). The image worker ships them as extra DTBs.
 
 | File | Content |
 |:--|:--|
@@ -116,6 +116,9 @@ Against the packaged DTB (`/lib/modules/<kver>/dtb/qcom/x1p64100-microsoft-denal
 ## Requests
 
 - soc-boot (via orchestrator): Q1 is answered by the MADT: MPIDR `0x10300` (UID 7) and `0x20300` (UID 11) are disabled. A real patch for `hardware/soc-boot/patches/` would delete `cpu7`, `cpu11`, `cpu_pd7`, `cpu_pd11` and their `cpu-map` entries; `kernel/dtb-variants/x1p64100-microsoft-denali-parity.dts` shows the working form.
+- soc-boot (via orchestrator, revision 4 prerequisite): also carry the parity deletion of `domain-idle-states` from `&system_pd` (no system SS3; retain CL4/CL5) in the component patch. Kernel will integrate it once delivered; no patch is invented in the component owner's folder.
+- audio-speakers (via orchestrator, revision 4 prerequisite): deliver a board DT patch disabling both `/sound` and `&swr0`, matching the M5/M6 overrides, so the **packaged** DTB also enforces S1. Keep it disabled until speaker protection is evidenced; validate with `scripts/kernel-dtb-safety.py`.
+- image (via orchestrator): ship `x1p64100-microsoft-denali-m6.dtb` and its JSON for the next default device entry at the unchanged M3 kver. `x1p64100-microsoft-denali-m6gpu.dtb` is staged for later GPU work and gets **no menu entry now**. No device test was performed by kernel; batch any read-only evidence collection in the image collector.
 
 ## M5 DTB variants (D21)
 
@@ -129,3 +132,32 @@ Both build on `x1p64100-microsoft-denali-parity.dts` (included by the file) with
 - Source diff against the parity DTS (`gcc -E` + `dtc -I dts -O dts`, phandle lines dropped), stored in each JSON under `checks.diff_vs_base`: only `status = "disabled"` lines (m5: swr0, gpu, `/sound`; m5gpu: swr0, `/sound`). `dt-validate` (`CHECK_DTBS=y`): 0 warning lines for both.
 - S1 check (`scripts/kernel-dtb-safety.py`, in each JSON under `checks.s1_effective_status`): the DTB is decompiled with `dtc -I dtb -O dts`, the node tree is walked, and a node counts as enabled only if it and every ancestor has `status` absent or `okay`. Nodes watched: `compatible` containing `wsa884`, `sdw20217020400` (how the two WSA8845 speakers enumerate on SoundWire; the strings `wsa884` and `x1e80100-sndcard` do not appear in their `compatible`) or `x1e80100-sndcard`. Result in both: `/sound` own status disabled; `speaker@0,0` and `speaker@0,1` have no status of their own and are effectively disabled through `soundwire@6b10000` (`&swr0`, disabled); 3 nodes watched, none enabled. `scripts/kernel-dtb-variants.sh` records this for every M5 build.
 - GMU and `gpu` (7.3 sources in `sources/linux/drivers/gpu/drm/msm/`): no driver binds the GMU node. The only `qcom,adreno-gmu*` string in the driver is `a6xx_gpu.c:2715` (`of_device_is_compatible(node, "qcom,adreno-gmu-wrapper")`), and the platform driver `adreno_driver` (`adreno/adreno_device.c:408`) matches the GPU compatibles only. The GMU is reached through the GPU node's `qcom,gmu = <&gmu>` (`hamoa.dtsi:4007`): `a6xx_gpu.c:2711` takes the phandle (`BUG_ON(!node)` if absent), `a6xx_gmu_init()` (`adreno/a6xx_gmu.c:2282`) calls `of_find_device_by_node()` on it. That lookup runs only from `adreno_load_gpu()`, which `msm_open()` calls (`msm_drv.c:271`, "load gpu on open"). With `&gpu` disabled, no GPU platform device exists, so nothing reaches the GMU. The GMU needs no disabling: it stays enabled as an inert platform device (effective status in the DTB: enabled, no driver). Disabling it too would only remove the `gmu@3d6a000` platform device and its power-domain/clock consumers.
+
+## M6 DTB variants (2026-10-28)
+
+DT-only, still `7.3.0-65.sp11.3.fc44.aarch64`, `series_rev = 3`. No RPM build or config change. The top-level `m6.dts` includes the M5 overrides: 10 CPUs, no system SS3, `/sound` and `&swr0` disabled (S1), GPU disabled. `m6gpu.dts` includes M6 and enables only the GPU, for later work with no menu entry now.
+
+`scripts/kernel-dtb-m6.sh` builds just these variants; `scripts/kernel-dtb-variants.sh` also invokes it after M5. It exports the pinned v7.3 commit into disposable `out/linux/m6/` without git writes, applies display-lcd 0001–0003, then Wi-Fi 0001 and USB-C 0001. The build uses `scripts/kernel-dev.sh --check m6 variant ...`, which takes `out/.kernel-build.lock` and keeps both BTF config symbols enabled. The packaged `kernel/series`, config and revision remain unchanged.
+
+Checks and logs live in `out/build/dtb-m6-checks/`; DTBs and JSON records live in `out/dtb-variants/7.3.0-65.sp11.3.fc44.aarch64/qcom/`. Records include all five patch hashes, included DTS hashes, the normalized `dtc` diff against M5/M5GPU, explicit `dt-validate` results, effective speaker/GPU status and DTB sha256. Source recompilation must be byte-identical to both the reference and new DTBs before accepting the labeled diff (generated numeric phandles can shift). The diff gate permits only Wi-Fi's PCIe4 pinctrl/PERST#/WAKE# and USB-C's second retimer reset state; the S1 gate requires `/sound`, `&swr0` and both speakers disabled.
+
+| File (JSON record with the same stem) | sha256 |
+|:--|:--|
+| `x1p64100-microsoft-denali-m6.dtb` | `290d7f4957673822ad04c66a47724f1c21ca333948e24802b5cb42226c590ab6` |
+| `x1p64100-microsoft-denali-m6gpu.dtb` | `59d023175a79be4e177b18d5106544326dec03f6428537896984d5d91fdc3bc4` |
+
+Both built successfully (41 s / 11 s, excluding the shared-lock wait). `CHECK_DTBS=y` and explicit `dt-validate` passed with no diagnostics; `kernel-dtb-safety.py` returned 0 for both (three watched nodes, none enabled). The complete normalized diffs contain only the two component patches. BTF and BTF modules remain enabled in the dev config. These artifacts have not been run on the device.
+
+## Planned series revision 4 (not built)
+
+This is a future release plan only. Do not bump `kernel/base.toml`, modify `kernel/series` or `kernel/config/sp11.config`, or start an RPM build as part of M6.
+
+1. Retain display-lcd 0001–0003; append `hardware/wifi/patches/0001-arm64-dts-qcom-denali-wire-pcie4-perst-wake.patch` and `hardware/usb-typec/patches/0001-arm64-dts-qcom-x1-microsoft-denali-add-the-second-re.patch` to `kernel/series`.
+2. Integrate the audio-speakers S1 patch requested above so the packaged board DTB disables `/sound` and `&swr0`, rather than depending on an extra diagnostic DTB. Delivery and cross-check by the owner are prerequisites.
+3. Once soc-boot delivers its patch, integrate the 10-CPU topology (remove CPU7/11, their CPU-map entries and PSCI domains) and no-system-SS3 change. Keep cluster CL4/CL5. Use the existing parity variant as the comparison reference.
+4. Add `CONFIG_ATH12K_DEBUG=y` to `kernel/config/sp11.config` (Wi-Fi K2; symbol: `sources/linux/drivers/net/wireless/ath/ath12k/Kconfig`). **A config change invalidates the whole ccache**; budget for a full compilation even with the persistent cache and `CCACHE_NOHASHDIR=1`. Keep `CONFIG_DEBUG_INFO_BTF=y` and `CONFIG_DEBUG_INFO_BTF_MODULES=y`.
+5. After the component patches arrive and the series order is final, set `series_rev = 4` and recompute `series_sha256` together. Expected kver: `7.3.0-65.sp11.4.fc44.aarch64`. Check patch application/checkpatch (without signoff), config survival, DT validation and S1 on the packaged DTB, then perform the authorized release build under the build lock and run `scripts/kernel-check` (including kernel/module BTF). The image default must continue to disable the GPU per D22.
+
+## Log
+
+- 2026-10-28: built and statically validated M6/M6GPU DT-only artifacts and JSON records; no RPM, series, revision or config change. Prepared the unbuilt revision 4 plan; component integration requests remain in Requests. Kernel is a service worker with no `component.toml`; hardware component status files are owned by their workers. Changes left uncommitted for the orchestrator (D24).
