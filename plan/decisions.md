@@ -168,3 +168,17 @@ Append-only. Each entry: number, date, decision, reason, consequence. A later en
   - Speakers stay off (S1).
   - Charging and thermal limits are never raised (S6).
   - Every device test reboots the operator's PC, so workers batch their device-evidence requests into the image collector.
+
+## D23 (2026-10-28): one battery, from SAM; `qcom_battmgr` not loaded (S6)
+
+- **Evidence:**
+  - M5 device logs show two batteries reporting the same cell: SAM `BAT1`/`ADP1` and pmic-glink `qcom-battmgr-*`.
+  - Windows disables the ADSP battery manager: ACPI `PMBM` `_STA = 0` (usb-typec evidence `hardware/usb-typec/evidence/2026-10-28-windows-and-charging.md`) and uses the SAM battery.
+  - `qcom-battmgr-bat` reports bogus fields (cycle count 0, manufacture year 2014).
+  - It also exposes **writable** `charge_control_start/end_threshold`, which the driver cannot check against the firmware's own limit. A desktop toggle could raise it (S6).
+- **Decision:**
+  - The image blacklists `qcom_battmgr` with a `modprobe.d` file and keeps it out of the initramfs.
+  - Battery and AC come from SAM (`surface_battery`, `surface_charger`).
+  - USB-C power information comes from `ucsi_glink` (`ucsi-source-psy-*`), which stays.
+  - L0 fails if `qcom_battmgr` could load, or if any image file writes a `charge_control_*` attribute.
+- **Revisit:** only if SAM charging status turns out incomplete on the device, and then never with writable thresholds.
