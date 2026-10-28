@@ -3,7 +3,7 @@
  * Software-only draft. Keep all devices disabled until cross-check and the
  * timing, quad-SPI transport, wake-resource and GENI questions are resolved.
  * Grades and citations: evidence/2026-10-24-acpi.md and
- * evidence/2026-10-24-geni-and-dt.md. No supply voltage is established.
+ * evidence/2026-10-28-quad-firmware-sequencing.md. No supply voltage is known.
  */
 
 / {
@@ -20,10 +20,12 @@
 };
 
 &spi10 {
+	pinctrl-0 = <&qup_spi10_data_clk>, <&qup_spi10_data23>,
+		    <&qup_spi10_cs>;
 	status = "disabled";
 
 	touchscreen: hid@0 {
-		compatible = "microsoft,g6-touch-digitizer", "hid-over-spi";
+		compatible = "microsoft,mshw0484";
 		reg = <0>;
 		spi-max-frequency = <40000000>;
 		spi-rx-bus-width = <4>;
@@ -33,16 +35,17 @@
 		vdd-supply = <&touch_vdd>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&touch_irq_default>, <&touch_reset_default>;
-		input-report-header-address = <0x1000>;
-		input-report-body-address = <0x1004>;
-		output-report-address = <0x2000>;
-		read-opcode = /bits/ 8 <0xeb>;
-		write-opcode = /bits/ 8 <0xe2>;
 		status = "disabled";
 	};
 };
 
 &tlmm {
+	qup_spi10_data23: qup-spi10-data23-state {
+		pins = "gpio49", "gpio50";
+		function = "qup1_se2";
+		/* Pull/drive translation still needs independent cross-check. */
+	};
+
 	touch_irq_default: touch-irq-default-state {
 		pins = "gpio51";
 		function = "gpio";

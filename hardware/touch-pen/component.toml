@@ -3,7 +3,7 @@ name = "Touchscreen and pen: MSHW0484 HID over SPI (Surface Touch G6)"
 phase = 2
 status = "designed"
 depends_on = ["soc-boot"]
-updated = "2026-10-24"
+updated = "2026-10-28"
 
 [windows]
 hardware_ids = ["ACPI\\VEN_MSHW&DEV_0484&REV_0001", "HID\\VEN_MSHW&DEV_0484&REV_0001&Col01..Col0A", "ACPI\\VEN_QCOM&DEV_0C0E&SUBSYS_MSHW0489 (SPI)"]
@@ -13,7 +13,7 @@ packages = ["hidspi_km (inbox)", "qcspi8380", "surfacedigitizerwotextnpackage", 
 drivers = ["spi-geni-qcom", "spi-hid", "spi-hid-of", "spi-hid-acpi"]
 dt = ["arch/arm64/boot/dts/qcom/x1p64100-microsoft-denali.dts (disabled draft only)"]
 native = "none"
-gaps = ["unchanged spi-hid v6 builds with BTF and new-file W=1 on v7.3, but lacks required quad-SPI transfers", "v7.3 spi-geni-qcom lacks quad mode and board quad pinmux is unknown", "GENI protocol 0 is rejected without requesting firmware; personality/state decision requested, actual device state unknown", "schema-valid disabled DT draft needs 300 ms reset and 10 ms shutdown sequencing support", "second ACPI GpioInt 0x0440 and panel/wake policy unresolved despite Windows WoT policy extension", "independent cross-check, central source pins and strict checkpatch clearance pending"]
+gaps = ["GENI SE2 needs QSPI/GPI and split-width SPI-HID transfers; next-20261028 has no upstream GENI dual/quad implementation", "Windows QSPI policy identifies GPIO49/50 mux2; electrical settings and independent Claude cross-check pending", "current SE protocol is not sampled; old protocol-0 report is second-hand, and Fedora qupv3fw.elf has no protocol-9 segment", "unbuilt spi-hid v7 and unsigned MSHW0484 eb/e2 binding, 300 ms reset and 10 ms shutdown RFCs plus revised disabled DT are not built or finally validated", "controller-only diagnostic RFC and exact read-only collector ready for kernel/image owners; no SPI-HID integration yet", "baseline strict checkpatch, source pins, wake-resource semantics and device acceptance remain open"]
 
 [firmware]
-needs = ["compatible GENI/QSPI firmware TBD; no firmware-name is requested by the disabled DT, and qupv3fw.elf is not a proven requirement"]
+needs = ["required QSPI personality/payload TBD after clocked SE-state capture; Fedora qupv3fw.elf contains ordinary SPI but no protocol 9; diagnostic variant adds no firmware load"]

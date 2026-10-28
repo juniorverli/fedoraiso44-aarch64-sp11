@@ -1,0 +1,38 @@
+Subject: [PATCH RFC] spi: geni-qcom: log pre-initialization engine state
+
+Collect the existing protocol, firmware revision, interface-disable,
+clock-status and hardware-parameter registers immediately after the
+existing runtime-PM acquire, before protocol dispatch or any firmware
+load. This temporary diagnostic allows the image collector to read the
+journal without direct MMIO access or triggering a second probe.
+
+Only read-only status registers already defined by the GENI header are
+sampled. No transfer, firmware request, protocol predicate or register
+write is added. A disabled DT controller will not produce this message:
+the kernel/image owners must arrange the next controller-only diagnostic
+boot. Do not enable the HID child or add firmware-name to obtain this
+evidence.
+
+This RFC is unbuilt and excluded from the integration series. Remove the
+instrumentation after the boot evidence is captured.
+
+Assisted-by: Codex gpt-6.1-sol
+---
+diff --git a/drivers/spi/spi-geni-qcom.c b/drivers/spi/spi-geni-qcom.c
+--- a/drivers/spi/spi-geni-qcom.c
++++ b/drivers/spi/spi-geni-qcom.c
+@@ -640,6 +640,14 @@
+ 	}
+ 
+ 	proto = geni_se_read_proto(se);
++	dev_info(mas->dev,
++		 "touch-pen-diag: proto=%u fw=%#010x if_disable=%#x clk=%#x hw0=%#x hw1=%#x hw2=%#x\n",
++		 proto, readl(se->base + GENI_FW_REVISION_RO),
++		 readl(se->base + GENI_IF_DISABLE_RO),
++		 readl(se->base + GENI_CLK_CTRL_RO),
++		 readl(se->base + SE_HW_PARAM_0),
++		 readl(se->base + SE_HW_PARAM_1),
++		 readl(se->base + SE_HW_PARAM_2));
+ 
+ 	if (spi->target) {
+ 		if (proto != GENI_SE_SPI_SLAVE) {
