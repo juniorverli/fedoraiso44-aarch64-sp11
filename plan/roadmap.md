@@ -53,3 +53,18 @@ All five phase 1 workers start at once. They read the same inputs and write disj
 2. Operator writes it in DD mode, boots, uses the machine for the test plan of each component in scope, powers off.
 3. Operator copies `/EFI/sp11-logs/` from the stick into `out/device-logs/<date>/`.
 4. Orchestrator files the logs as evidence into each affected component and starts the workers to triage.
+
+## Priority after M5 (D22, 2026-10-28)
+
+The operator set this order once the LCD reached GNOME Wayland with the GPU off:
+
+1. touch-pen
+2. wifi
+3. bluetooth
+4. ec-sam (Type Cover keyboard and touchpad, battery, AC)
+5. usb-typec (ports, charging)
+6. LCD brightness and 120 Hz (closes M3)
+7. gpu (M4)
+8. audio, cameras, sensors and NPU, as in the phases above
+
+dsp-subsystems (ADSP, pmic-glink) runs alongside items 4–5 because battery, charging and UCSI depend on it. The default boot entry keeps the GPU off until item 7.

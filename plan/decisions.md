@@ -153,3 +153,18 @@ Append-only. Each entry: number, date, decision, reason, consequence. A later en
   2. Entry DTB `m5gpu`: parity + sound off, GPU on. This isolates the GPU first open (zap shader, GMU, speed bin) as the reboot cause.
   3. The collector unmounts the ESP after every write, so it is never left dirty. It reads only the GPU speed-bin NVMEM cell (`qfprom` `0x119`, 2 bytes, bits 7–14; `hamoa.dtsi:8790`) and records whether any ALSA card exists.
 - **GPU safety:** until the fuse is read on the device (gpu dossier Q1), accelerated GPU runs only in the `m5gpu` diagnostic entry.
+
+## D22 (2026-10-28): priority after the LCD reached GNOME
+
+- **Decision (operator):** in the M5 boot (GPU off), the LCD reaches GNOME Wayland. Touch and Bluetooth do not work.
+  - Work order: touch, Wi-Fi, Bluetooth, keyboard (ec-sam), battery and charging (ec-sam, usb-typec, with dsp-subsystems underneath), USB-C, then GPU.
+  - This replaces "first delivery LCD + GPU". GPU acceleration moves after the usable-tablet set.
+- **Runtimes (operator):**
+  - touch-pen keeps Codex `gpt-6.1-sol` xhigh.
+  - The others run as Claude Sonnet 5.5, effort high.
+  - Cross-checks still use the other runtime (protocol §5.1).
+- **Constraints:**
+  - The default entry keeps the GPU off.
+  - Speakers stay off (S1).
+  - Charging and thermal limits are never raised (S6).
+  - Every device test reboots the operator's PC, so workers batch their device-evidence requests into the image collector.
