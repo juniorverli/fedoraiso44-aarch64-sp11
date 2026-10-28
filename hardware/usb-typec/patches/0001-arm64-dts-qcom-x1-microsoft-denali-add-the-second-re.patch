@@ -1,0 +1,52 @@
+From 4a9148aac33b0741e5874aa3c42c43452790e24c Mon Sep 17 00:00:00 2001
+From: juniorverli <25966843+juniorverli@users.noreply.github.com>
+Date: Wed, 28 Oct 2026 18:46:02 +0000
+Subject: [PATCH] arm64: dts: qcom: x1-microsoft-denali: add the second retimer
+ reset pinctrl
+
+The first PS8830 retimer has a pinctrl state for its reset line
+(rtmr0_default), the second one has none, although it drives TLMM 176
+as reset. The Windows ACPI of this unit lists the same pad (GPIO 176,
+output only) in the Type-C device resources, next to the supplies on
+TLMM 186 and 188 that already have states.
+
+Add the missing state the same way x1-crd and the other X1 boards have
+it, so the pad is muxed as a GPIO with the same drive strength and bias
+as its siblings instead of relying on the GPIO request alone.
+
+Assisted-by: Claude Sonnet 5.5
+---
+ arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi b/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi
+index e3a53b893..a2c157e7e 100644
+--- a/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi
++++ b/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi
+@@ -812,6 +812,9 @@ typec-mux@8 {
+ 
+ 		clocks = <&rpmhcc RPMH_RF_CLK4>;
+ 
++		pinctrl-0 = <&rtmr1_default>;
++		pinctrl-names = "default";
++
+ 		vdd-supply = <&vreg_rtmr1_1p15>;
+ 		vdd33-supply = <&vreg_rtmr1_3p3>;
+ 		vdd33-cap-supply = <&vreg_rtmr1_3p3>;
+@@ -1211,6 +1214,13 @@ rtmr1_1p15_reg_en: rtmr1-1p15-reg-en-state {
+ 		bias-disable;
+ 	};
+ 
++	rtmr1_default: rtmr1-reset-n-active-state {
++		pins = "gpio176";
++		function = "gpio";
++		drive-strength = <2>;
++		bias-disable;
++	};
++
+ 	wcn_sw_en: wcn-sw-en-state {
+ 		pins = "gpio214";
+ 		function = "gpio";
+-- 
+2.43.0
+

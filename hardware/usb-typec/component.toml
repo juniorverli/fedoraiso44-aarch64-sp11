@@ -1,19 +1,20 @@
 id = "usb-typec"
 name = "Two USB-C ports: DWC3, PS8830 retimers, pmic-glink UCSI, DisplayPort Alt Mode, charging"
 phase = 2
-status = "survey"
+status = "testing"
 depends_on = ["soc-boot", "dsp-subsystems"]
-updated = "2026-10-23"
+updated = "2026-10-28"
 
 [windows]
 hardware_ids = ["ACPI\\VEN_QCOM&DEV_0C8B", "ACPI\\VEN_QCOM&DEV_0C8C", "ACPI\\VEN_QCOM&DEV_0D08 (multiport xHCI)", "ACPI\\VEN_QCOM&DEV_0CA4 (Type-C)", "ACPI\\VEN_USB&DEV_C000 (UCSI)", "UEFI\\RES_{05575d61-...} / {59b50971-...} (retimers)"]
-packages = ["qcusbcucsi8380", "surfaceucmucsihidclient", "qcxhcifilter8380", "qcusbfnssfilter8380", "surfaceretimer0", "surfaceretimer1", "surfaceude"]
+packages = ["qcusbcucsi8380", "surfaceucmucsihidclient", "qcxhcifilter8380", "qcusbfnssfilter8380", "qcursext", "surfaceretimer0", "surfaceretimer1", "surfaceude"]
 
 [linux]
-drivers = ["usb/dwc3/dwc3-qcom", "phy-qcom-qmp-combo", "phy-qcom-eusb2 + smb2360 repeater", "typec/mux/ps883x", "soc/qcom/pmic_glink_altmode", "typec/ucsi/ucsi_glink", "drm/msm/dp (DP0/DP1)"]
+drivers = ["usb/dwc3/dwc3-qcom", "phy-qcom-qmp-combo", "phy-qcom-eusb2 + smb2360 repeater", "typec/mux/ps883x", "soc/qcom/pmic_glink_altmode", "typec/ucsi/ucsi_glink", "power/supply/qcom_battmgr", "drm/msm/dp (DP0/DP1)"]
 dt = ["x1-microsoft-denali.dtsi pmic-glink connectors, &i2c3/&i2c7 typec-mux@8, &usb_1_ss0/1, &mdss_dp0/1"]
 native = "partial"
-gaps = ["retimer 1 reset line has no pinctrl state", "multiport controller QCOM0D08 purpose on this chassis", "dr_mode host only (no gadget)"]
+gaps = ["SuperSpeed does not train on port 1 (reverse plug, M5: enclosure at 480M); normal orientation and port 0 untested (test-plan T1-T5, failure points F1-F4)", "retimer is reset at the end of probe and switched on only by the ADSP notification; a device present at boot may stay high-speed", "retimer 1 reset line has no pinctrl state (patch 0001, optional hygiene)", "qcom_battmgr exposes a second battery with bogus fields and writable charge thresholds (S6); decision pending with ec-sam and the orchestrator", "USB-C DP Alt Mode and PD charging untested", "multiport controller QCOM0D08 (right side) not enabled; purpose TBD", "dr_mode host only (no gadget)", "GPIO 175 (retimer 1 1.8 V enable) absent from the Windows resource list, TBD"]
 
 [firmware]
 needs = []
+
