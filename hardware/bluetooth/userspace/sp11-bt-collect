@@ -1,0 +1,29 @@
+#!/usr/bin/bash
+# Read-only collector, safe to call repeatedly from the image collector hook.
+set -uo pipefail
+export LC_ALL=C
+
+mask() {
+    sed -E \
+        -e 's/([[:xdigit:]]{2}:){5}[[:xdigit:]]{2}/[BDADDR MASKED]/g' \
+        -e 's/dev_([[:xdigit:]]{2}_){5}[[:xdigit:]]{2}/dev_MASKED/g' \
+        -e 's/^([[:space:]]*(Name|Alias):).*/\1 [MASKED]/'
+}
+collect() {
+    printf '\n$'
+    printf ' %s' "$@"
+    printf '\n'
+    timeout -k 1 8 "$@" </dev/null 2>&1 | mask
+    printf 'collector command exit: %s\n' "${PIPESTATUS[0]}"
+}
+
+collect btmgmt --timeout 6 info
+collect btmgmt --timeout 6 --index 0 info
+collect btmgmt --timeout 6 config
+collect btmgmt --timeout 6 --index 0 config
+collect bluetoothctl --timeout 6 show
+collect rfkill --output ID,TYPE,SOFT,HARD
+collect systemctl show bluetooth.service sp11-bt-address.service \
+    -p Id -p ActiveState -p SubState -p Result -p ExecMainStatus
+collect journalctl -b --no-pager --no-hostname -o cat \
+    -u bluetooth.service -u sp11-bt-address.service
