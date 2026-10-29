@@ -299,7 +299,45 @@ M8 release RPM hashes were verified before removing its reproducible RPM BUILD t
 
 Before release, `scripts/kernel-dev.sh --check m9 dtbs` completed in **46 s**; all **75** development fragment symbols hold. Explicit `dt-validate` gives zero diagnostic lines. Compiled-DTB S1/GPU/touch/Wi-Fi/USB-C gates pass, and comparison with the preserved RPM-extracted M8 DTB finds exactly the CMA `alloc-ranges` addition. Two negative fixtures (CMA above 4 GiB and CMA enlarged to 256 MiB) are rejected. Evidence: `out/build/dtb-m9-checks/preflight-*`, `preflight.*` and `negative/`.
 
-Release build and DTB variants: pending in this session.
+### M9 release artifacts
+
+`scripts/kernel-build.sh -j 6` rpmbuild: rc 0, UTC `2026-10-29T22:37:24+00:00` to `2026-10-29T23:50:14+00:00`, **4370 s (72 min 50 s)**. The worker session ended before the post-build steps; they were completed afterwards by running the archive/collect block of `scripts/kernel-build.sh` step 6 and `scripts/kernel-check` under the shared build lock (check: 142 s, **PASS**, record `built_utc` 2026-10-29T23:54:23Z). The sp11.5 RPMs and records were archived to `out/rpms/archive/7.3.0-65.sp11.5/`, as M8 did for M7. All 15 delivered RPM copies match the record's SHA-256 values.
+
+- BTF: `vmlinux` `.BTF` size `0x76c5c4`; **5934/5934** modules have BTF, zero missing, zero bad magic. All **73** fragment symbols hold in the shipped config, including both BTF settings. `CHECK_DTBS=y`: rc 0, zero warning lines; `dt-validate` zero diagnostics.
+- Packaged LCD DTB SHA-256 `784de3eb644bc6a169cbe0c6da51cef0f984984493a44e6fbfd00b18cd792709`. S1 effective status (speakers, soundwire, sound card), GPU off, Wi-Fi/USB-C wiring and touch wiring pass. CMA node `/reserved-memory/linux,cma`: 128 MiB, reusable, allocation range 0x80000000 to 0x100000000 (below 4 GiB), dynamic placement.
+- `ath12k` carries the Surface broken-rfkill table and the machine-compatible match call (module SHA-256 `2edc4bcd0215c38f7a3ebc8c7d7df0bf44cae75c8970c2b175511fb3706f56c5`). `ps883x` and `pmic_glink_altmode` carry the new state diagnostic strings (module SHA-256 `40f849863b8cd5a622ef64c745c8ee58104ee4ebd0f7209948c407af536e3f82` and `98ba7d000fe8ee57d35e73068734959a1a83ad35288d2a3a277b0eb61ef5900d`). Touch modules are present as in M8; the retired RFC 0014 logger is absent.
+- Resource accounting: peak cgroup **9508179968 bytes**; peak anonymous **3354456064 bytes**. ccache hit rate **99.64%** (2239 direct + 24285 preprocessed hits, 95 misses).
+- Config SHA-256: fragment `4a34894d4e50150bede28a45c937c2a63fd9fa96724f2291c022a2a8d857ee98`; shipped `ee7943f72297bb7cee3dd6b167c4017ff3891fe630503b355621050fb70b7906`.
+- Release record: [`out/rpms/kernel-7.3.0-65.sp11.6.fc44.aarch64.json`](../out/rpms/kernel-7.3.0-65.sp11.6.fc44.aarch64.json), SHA-256 `988dee251c7b3240d25595cbf64d07529d6aada939db257150c228960425ff2b`. Logs: `out/build/kernel/rpmbuild.log`, `m9-driver.log`, `m9-post.log`.
+
+| RPM (revision 6, aarch64) | SHA-256 |
+|:--|:--|
+| `kernel-7.3.0-65.sp11.6.fc44.aarch64.rpm` | `cd61d31ff42ad5fe1c20c13073d1f2f6abc07d8603b776ae5792552e61ad9f86` |
+| `kernel-core-7.3.0-65.sp11.6.fc44.aarch64.rpm` | `e5365c2a4d4eb01c0cb85082d51fc05dd321585b7b48a4399715fc3bd3212f1e` |
+| `kernel-debuginfo-7.3.0-65.sp11.6.fc44.aarch64.rpm` | `fdfdc9bb3f1561f9f51a46ce84da7feb77300f371f2aad024bd7925e48d2c380` |
+| `kernel-debuginfo-common-aarch64-7.3.0-65.sp11.6.fc44.aarch64.rpm` | `5d7186eac04579b5ec791d6bd447e21c3e9e0d011623d9c36039459ecc67b8c8` |
+| `kernel-devel-7.3.0-65.sp11.6.fc44.aarch64.rpm` | `8c8aa14a71a21353ab012566d3b3f262831a92a2b95d2b0fde201a41956b7856` |
+| `kernel-devel-matched-7.3.0-65.sp11.6.fc44.aarch64.rpm` | `d896aedc022740e9c66705d37cba037c75be2440208d6398aa162bb02a9102a1` |
+| `kernel-kmap-internal-7.3.0-65.sp11.6.fc44.aarch64.rpm` | `a3e63cd3c50f882681b67839bba7c1b525920f19a8bb4aeb768651aad7fdc71a` |
+| `kernel-modules-7.3.0-65.sp11.6.fc44.aarch64.rpm` | `95c151d8e953d247003c7b5f3d0fdba1cdf6f8f05a73080e90f77fbeaa6b6824` |
+| `kernel-modules-core-7.3.0-65.sp11.6.fc44.aarch64.rpm` | `0b1f4ed2962f7d652c8591b79eb0d47e06cd548d4b8b4a0f643507e76d2d8d6d` |
+| `kernel-modules-extra-7.3.0-65.sp11.6.fc44.aarch64.rpm` | `2ec0fd9207f2b8a06b4f9f0833f4932427d49a49915e5dc91466f67f96d646c0` |
+| `kernel-modules-extra-matched-7.3.0-65.sp11.6.fc44.aarch64.rpm` | `6c3dbb80f4c9c1b0e1d0934714d6248a467d3c9e57578c46af71cfea1ab15b01` |
+| `kernel-modules-internal-7.3.0-65.sp11.6.fc44.aarch64.rpm` | `c1a406c4305e993833c2201b91f73dda9e9c6eef49dcdbb2f117f57ff3a2034d` |
+| `kernel-uki-dtbloader-7.3.0-65.sp11.6.fc44.aarch64.rpm` | `310a357e276a40c512c6a7fa68f7ab078db556ba2ef035526dc9834525e77459` |
+| `kernel-uki-virt-7.3.0-65.sp11.6.fc44.aarch64.rpm` | `310dcb9de551363892ded3f67603ae70f41528ec7742a757dbfe11d890ee530e` |
+| `kernel-uki-virt-addons-7.3.0-65.sp11.6.fc44.aarch64.rpm` | `b486d19d16b807667e755d1a35d8a25a0a1674a3ba4882f1a669d1818805dfc3` |
+
+### M9 DTB variants
+
+`scripts/kernel-dtb-variants.sh` (dispatching to `scripts/kernel-dtb-m9.sh`) ran under the shared lock after the release check; output `out/dtb-variants/7.3.0-65.sp11.6.fc44.aarch64/qcom/`, logs in `out/build/dtb-m9-checks/` and `out/build/kernel/m9-dtb.log`. Complete run **155 s** (wall clock). Both variants pass `CHECK_DTBS=y`, `dt-validate` (zero diagnostics) and the script's S1, GPU-off, wiring, parity and touch checks. `m9-notouch` differs from `m9` only in the touchscreen status property.
+
+| DTB | Build time | SHA-256 |
+|:--|--:|:--|
+| `x1p64100-microsoft-denali-m9.dtb` | 45 s | `4130f2988a593847a0cd490bccd90ee65e16f74a5f3adf019cfd24dda5aec65a` |
+| `x1p64100-microsoft-denali-m9-notouch.dtb` | 12 s | `5704f68668538f6dd3e6fc37f67e8e9830f771124c57475c0ebca81d8c750519` |
+
+JSON record SHA-256: `x1p64100-microsoft-denali-m9.json` `5e8452a4c95c7878d00211f24c4c030d526f82b32d245f720403d84c523f6c6b`; `x1p64100-microsoft-denali-m9-notouch.json` `0edb7a9a707dbcc20d914cde7d4d6044eb5dc562cd31e54aadbb9114035426d3`. No device boot was performed.
 
 ## Log
 
