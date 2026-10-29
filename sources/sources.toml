@@ -28,3 +28,12 @@ rea = "~/tools/rea/node_modules/.bin/rea, version 6.7.0-surface.xtensa.1 (local 
 ghidra = "~/tools/ghidra_12.1.4_PUBLIC"
 jdk = "~/tools/jdk-21.0.12.1+1"
 rea_mcp_registered_for_this_repo = false
+
+[iptsd]
+version = "3.1.0"
+archive_url = "https://github.com/linux-surface/iptsd/archive/refs/tags/v3.1.0.tar.gz"
+archive_sha256 = "af0aab95387a5107dfa8ac1ef90a29289f6b9d06e1a59121c9e5e732b27a266c"
+upstream_commit = "a83bc1232f7096f8b33b50fdbda249cd640de670"
+spec_url = "https://raw.githubusercontent.com/linux-surface/iptsd/a83bc1232f7096f8b33b50fdbda249cd640de670/iptsd.spec"
+spec_sha256 = "4231cb05325ce733eff4228ed8b8b00ac74238f01e02813a9ee2cd8b6ab0acf7"
+provenance = "hardware/touch-pen/evidence/2026-10-29-iptsd-fedora.md; local Fedora-native RPM required; hashes re-verified by orchestrator 2026-10-29"
