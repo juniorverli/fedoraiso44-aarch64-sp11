@@ -9,3 +9,38 @@ truncate -s 16M "$W/logs.img"; mkfs.vfat -n SP11LOGS "$W/logs.img" >/dev/null
 truncate -s 1M "$W/fake.iso"
 PATH="$W/bin:$PATH" python3 -I /sp11/image/tools/qemu_boot_test.py --iso "$W/fake.iso" --logs "$W/logs.img" \
 	--work "$W/work" --report "$W/report.json" --timeout-min 2 --stall-min 1 --poll-sec 3 --no-display-files
+
+# Regression: early session STATUS can replace the full snapshot's target field.
+# Prove the actual destination using independent GPT/FAT fixtures.
+truncate -s 80M "$W/boot.img"
+sgdisk -o -n 2:2048:+64M -t 2:ef00 "$W/boot.img" >"$W/gpt-fixture.txt"
+mkfs.fat -C -F 32 -s 1 -n BOOT "$W/esp.img" 65536 >/dev/null
+dd if="$W/esp.img" of="$W/boot.img" bs=1M seek=1 conv=notrunc status=none
+python3 -I - "$W/boot.img" "$W/logs.img" "$W/esp.img" <<'PY'
+import importlib.util
+import sys
+spec = importlib.util.spec_from_file_location('qemu_target_test', '/sp11/image/tools/qemu_boot_test.py')
+q = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(q)
+boot, logs, esp = sys.argv[1:]
+image = boot + '@@1048576'
+q.LOGROOT = 'EFI/sp11-logs'
+for name, source, boot_image, status, want in (
+    ('early session STATUS', image, boot, 'cycle: 0 (early/fast display snapshot, session first)\n', True),
+    ('full STATUS', image, boot, 'target: esp\n', True),
+    ('wrong disk', image, logs, '', False),
+    ('wrong GPT offset', boot + '@@0', boot, '', False),
+    ('contradictory target', image, boot, 'target: logs\n', False),
+):
+    got, detail = q.verify_log_target(source, boot_image, True, status)
+    assert got is want, (name, detail)
+    print('PASS target fixture:', name)
+q.LOGROOT = 'other-directory'
+assert not q.verify_log_target(image, boot, True, '')[0]
+print('PASS target fixture: wrong ESP log directory')
+q.LOGROOT = ''
+assert q.verify_log_target(logs, boot, False, 'target: logs\n')[0]
+assert not q.verify_log_target(esp, boot, False, 'target: logs\n')[0]
+assert not q.verify_log_target(image, boot, False, 'target: logs\n')[0]
+print('PASS target fixtures: SP11LOGS label accepted, wrong label and offset rejected')
+PY

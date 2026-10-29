@@ -61,15 +61,23 @@ if [ "$(rpm --eval "%{lua:print(rpm.vercmp('$newest_vr', '$min'))}")" -le 0 ]; t
 fi
 log "kernel $kver_full (newer than $min, the only kernel NEVRA at the top level of out/rpms)"
 
-# M6 prerequisite: refuse before starting kiwi when the kernel worker has not published its DTB.
-m6src=$OUT/dtb-variants/$kver_full/qcom/x1p64100-microsoft-denali-m6
-[ -s "$m6src.dtb" ] && [ -s "$m6src.json" ] || {
-	log "REFUSED: M6 DTB and JSON not yet published by the kernel worker"; exit 6;
+# M7 requires revision-4 RPMs and both atomically published DTB/JSON pairs.
+[ "$kver_full" = 7.3.0-65.sp11.4.fc44.aarch64 ] || {
+	log "REFUSED: M7 requires kernel 7.3.0-65.sp11.4.fc44.aarch64, found $kver_full"; exit 6;
 }
-
-[ "$(sha256sum "$m6src.dtb" | cut -d' ' -f1)" = "$(jq -r .sha256 "$m6src.json")" ] || {
-	log "REFUSED: M6 DTB hash does not match the kernel worker JSON"; exit 6;
-}
+patch_series_sha=$( . "$REPO/scripts/kernel-common.sh"; kernel_series_hash )
+for v in m7 m7-touchdiag; do
+	vsrc=$OUT/dtb-variants/$kver_full/qcom/x1p64100-microsoft-denali-$v
+	[ -s "$vsrc.dtb" ] && [ -s "$vsrc.json" ] || {
+		log "REFUSED: $v DTB and JSON not yet published by the kernel worker"; exit 6;
+	}
+	[ "$(sha256sum "$vsrc.dtb" | cut -d' ' -f1)" = "$(jq -r .sha256 "$vsrc.json")" ] &&
+	[ "$(jq -r .kver "$vsrc.json")" = "$kver_full" ] &&
+	[ "$(jq -r .series_rev "$vsrc.json")" = 4 ] &&
+	[ "$(jq -r .series_hash_sha256 "$vsrc.json")" = "$patch_series_sha" ] || {
+		log "REFUSED: $v DTB hash/release/series differs from the kernel worker JSON"; exit 6;
+	}
+done
 
 # ---- 1. Fedora's description at the pinned commit
 pin=$(tr -d '[:space:]' <"$REPO/image/kiwi/DESCRIPTION_COMMIT")
@@ -99,6 +107,8 @@ chmod 0755 "$desc/root/usr/libexec/sp11-log-collector"
 # collector as root against every /dev/drm_dp_aux*
 cp "$REPO/hardware/display-lcd/tools/collect-dpcd.py" "$desc/root/usr/libexec/sp11-collect-dpcd.py"
 chmod 0755 "$desc/root/usr/libexec/sp11-collect-dpcd.py"
+# Touch owner section 8: stage the stdout-only helper unchanged.
+install -m 0755 "$REPO/hardware/touch-pen/collect-read-only.sh" "$desc/root/usr/libexec/sp11-touch-pen-collect"
 # Component collector requests (R-I1 and Wi-Fi I1/I2), copied unchanged from the merged dossiers.
 mkdir -p "$desc/root/etc/sp11-log-collector.d"
 for c in dsp-subsystems wifi; do
@@ -151,10 +161,10 @@ mkdir -p "$dtbtmp/boot/dtb/qcom"
 rpm2cpio "$kcore" | cpio -i --quiet --to-stdout "./lib/modules/$kver/dtb/qcom/x1p64100-microsoft-denali.dtb" \
 	>"$dtbtmp/boot/dtb/qcom/x1p64100-microsoft-denali.dtb"
 [ -s "$dtbtmp/boot/dtb/qcom/x1p64100-microsoft-denali.dtb" ] || { log "DTB not in $kcore"; exit 1; }
-# M6: the kernel worker variant next to the packaged DTB. The build fails without
+# M7: the kernel worker variants next to the packaged DTB. The build fails without
 # it; with --smoke a copy of the packaged DTB stands in (recorded, never for the device).
 variants_smoke_copy=0
-for v in m6; do
+for v in m7 m7-touchdiag; do
 	vf=x1p64100-microsoft-denali-$v.dtb
 	vsrc=$OUT/dtb-variants/$kver/qcom/$vf
 	if [ -s "$vsrc" ]; then
@@ -258,9 +268,9 @@ mcopy -i "$chk/bi/eltorito_img1_uefi.img" ::EFI/BOOT/grub.cfg "$chk/esp-grub.cfg
 for f in "$chk"/_* "$chk/esp-grub.cfg"; do
 	if grep -v '^[[:space:]]*#' "$f" | grep -w -E 'quiet|rhgb|splash' >/dev/null; then log "FAIL: quiet/rhgb/splash in $f"; exit 1; fi
 done
-n=$(grep -c "^menuentry '" "$chk/_boot_grub2_grub.cfg"); [ "$n" = 7 ] || { log "FAIL: $n menu entries, expected 7 (M6)"; exit 1; }
-for e in debug usbdbg nodsp wifi-unblock nomodeset initramfs vmtest; do grep -q "sp11.entry=$e\$" "$chk/_boot_grub2_grub.cfg" || { log "FAIL: no entry with sp11.entry=$e"; exit 1; }; done
-for f in x1p64100-microsoft-denali-m6; do
+n=$(grep -c "^menuentry '" "$chk/_boot_grub2_grub.cfg"); [ "$n" = 8 ] || { log "FAIL: $n menu entries, expected 8 (M7)"; exit 1; }
+for e in debug usbdbg nodsp wifi-unblock nomodeset initramfs touchdiag vmtest; do grep -q "sp11.entry=$e\$" "$chk/_boot_grub2_grub.cfg" || { log "FAIL: no entry with sp11.entry=$e"; exit 1; }; done
+for f in x1p64100-microsoft-denali-m7 x1p64100-microsoft-denali-m7-touchdiag; do
 	xorriso -indev "$iso" -find "/boot/dtb/qcom/$f.dtb" -type f 2>/dev/null | grep -q . || { log "FAIL: /boot/dtb/qcom/$f.dtb not on the ISO"; exit 1; }
 done
 
@@ -303,12 +313,15 @@ for m in re.finditer(r"menuentry '([^']*)'.*?\{(.*?)\n\}", cfg, re.S):
 series = f"{repo}/kernel/series"
 manifest = f"{repo}/firmware/manifest.toml"
 patches = sorted(os.listdir(f"{repo}/image/kiwi/patches"))
+series_paths = [''.join(line.split('#', 1)[0].split()) for line in read(series).splitlines()]
+patch_series = ''.join(f"{p} {sha256(f'{repo}/{p}')}\n" for p in series_paths if p)
 record = {
     "name": name, "kind": kind, "builder": "kiwi", "smoke": kind == "kiwi-smoke", "build_id": bid,
     "iso_sha256": sha, "iso_size": os.path.getsize(f"{out}/iso/{name}.iso"),
     "build_seconds": int(elapsed),
     "kernel_nevra": read(f"{out}/image-work/kernel-nevra.txt").strip(),
     "kernel_series_sha256": sha256(series) if os.path.exists(series) else None,
+    "kernel_patch_series_sha256": hashlib.sha256(patch_series.encode()).hexdigest(),
     "firmware_manifest_sha256": sha256(manifest) if os.path.exists(manifest) else None,
     "firmware_installed": [{"sha256": a, "path": b} for a, b in fw],
     "firmware_installed_listing_sha256": hashlib.sha256("\n".join(" ".join(x) for x in fw).encode()).hexdigest(),
@@ -319,13 +332,15 @@ record = {
     "dtb_variant_records": {f: json.load(open(f"{work}/dtb-records/{f}")) for f in sorted(os.listdir(f"{work}/dtb-records"))} if os.path.isdir(f"{work}/dtb-records") else {},
     "kernel_cmdline_reasons": "image/README.md, GRUB 2 and the kernel command line",
     "grub_entries": entries,
-    "milestone": "M6",
+    "milestone": "M7",
     "module_policy": {"qcom_battmgr": "blacklist + install false + dracut omit_drivers (D23)",
-                      "ucsi_glink": "retained early", "ath12k.debug_mask": "0x30; parameter unconditional; output needs ATH12K_DEBUG"},
+                      "ucsi_glink": "retained early", "ath12k.debug_mask": "0x30; CONFIG_ATH12K_DEBUG=y; output checked by L0"},
     "diagnostic_args_reason": {"usbdbg": "USB-C test-plan C + DSP R-I2, combined to contain trace volume",
+                               "touchdiag": "touch-pen section 8: controller-only SE2 diagnostic; debug arguments",
                                "nodsp": "DSP R-I3: PAS deferred until switch-root",
                                "wifi-unblock": "Wi-Fi I2: opt-in transient rfkill/NM probe"},
     "collector_sources": {c: sha256(f"{repo}/hardware/{c}/collector/{c}.sh") for c in ("dsp-subsystems", "wifi")},
+    "touch_collector_sha256": sha256(f"{repo}/hardware/touch-pen/collect-read-only.sh"),
     "component_inputs": json.load(open(f"{repo}/image/component-inputs/sources.json")),
     "kiwi_description": {"url": "https://pagure.io/fedora-kiwi-descriptions.git", "branch": "f44", "pinned_commit": pin,
                          "branch_head_at_build": head, "profile": "Workstation-Live", "kiwi_file": "Fedora.kiwi",

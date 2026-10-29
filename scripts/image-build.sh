@@ -63,9 +63,13 @@ if [ "$inside" = 0 ]; then
 	if [ "$builder" = kiwi ]; then
 		ls "$out"/rpms/kernel-core-*.rpm >/dev/null 2>&1 || { echo "image-build: no kernel-core RPM in $out/rpms/" >&2; exit 1; }
 		[ -d "$out/firmware-root/lib/firmware" ] || { echo "image-build: $out/firmware-root missing; run scripts/firmware-stage.sh" >&2; exit 1; }
-		[ -s "$out/dtb-variants/7.3.0-65.sp11.3.fc44.aarch64/qcom/x1p64100-microsoft-denali-m6.dtb" ] || {
-			echo "image-build: REFUSED: kernel worker has not published the M6 DTB" >&2; exit 6;
-		}
+		for v in m7 m7-touchdiag; do
+			for ext in dtb json; do
+				[ -s "$out/dtb-variants/7.3.0-65.sp11.4.fc44.aarch64/qcom/x1p64100-microsoft-denali-$v.$ext" ] || {
+					echo "image-build: REFUSED: kernel worker has not published the M7 $v $ext" >&2; exit 6;
+				}
+			done
+		done
 		kargs=()
 		[ "$smoke" = 1 ] && kargs+=(--smoke)
 		[ -n "$name" ] && kargs+=("$name")

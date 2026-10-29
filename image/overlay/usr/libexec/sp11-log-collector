@@ -374,6 +374,9 @@ snapshot() {
 		echo "target: ${LAST_KIND:-none} (the mount lasts only for each write)"
 	} >"$OUT/STATUS.new"
 
+	# Touch-pen section 8: debugfs setup above precedes this stdout-only capture.
+	shsnap touch-pen.txt 'bash /usr/libexec/sp11-touch-pen-collect'
+
 	# --- kernel, boot
 	display_set
 	snap uname.txt uname -a

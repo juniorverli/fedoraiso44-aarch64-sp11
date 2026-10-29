@@ -21,16 +21,17 @@ import time
 
 import pexpect
 
-ENTRIES = [   # M6 menu order; VM entry last (selected by counting Down keys)
+ENTRIES = [   # M7 menu order; VM entry last (selected by counting Down keys)
     "SP11 debug",
     "SP11 debug, USB + DSP trace",
     "SP11 debug, no early DSP",
     "SP11 debug, Wi-Fi unblock probe",
     "SP11 debug nomodeset",
     "SP11 debug, stop in initramfs",
+    "SP11 debug, touch SE2 diagnostic",
     "VM test (no devicetree)",
 ]
-LEGACY_ENTRIES = ["SP11 debug", "SP11 debug + DRM trace"] + ENTRIES[-3:]
+LEGACY_ENTRIES = ["SP11 debug", "SP11 debug + DRM trace", "SP11 debug nomodeset", "SP11 debug, stop in initramfs", "VM test (no devicetree)"]
 FATAL = [
     (rb"Kernel panic - not syncing", "kernel panic"),
     (rb"[Ee]mergency mode", "emergency mode"),
@@ -95,6 +96,37 @@ def find_bootdir(img):
             if mtools_cat(img, f"{e}/COMPLETE") is not None:
                 return e
     return None
+
+
+def verify_log_target(image_ref, boot_image, esp_fallback, status):
+    """Prove the capture's physical destination independently of STATUS ordering.
+
+    A session collector starts with CYCLE=0 and may replace STATUS with its
+    early snapshot after the main collector has published COMPLETE. Early
+    STATUS has no target field. The mtools source still identifies the disk
+    and partition from which the completed capture was actually read.
+    """
+    expected = "esp" if esp_fallback else "logs"
+    metadata = re.search(r"^target: (\w+)", status, re.M)
+    if metadata and metadata[1] != expected:
+        return False, f"STATUS names unexpected target {metadata[1]}"
+    image, separator, offset = image_ref.partition("@@")
+    if esp_fallback:
+        if (not separator or not offset.isdecimal() or LOGROOT != "EFI/sp11-logs"
+                or os.path.realpath(image) != os.path.realpath(boot_image)):
+            return False, "capture source is not the boot copy's ESP log directory"
+        partition = sh("sgdisk", "-i", "2", boot_image)
+        start = re.search(r"First sector: (\d+)", partition.stdout)
+        if (partition.returncode or not start or int(offset) != int(start[1]) * 512
+                or "C12A7328-F81F-11D2-BA4B-00A0C93EC93B" not in partition.stdout):
+            return False, "capture offset/type does not match GPT partition 2 of the boot copy"
+        label = sh("blkid", "-p", "-O", offset, "-s", "LABEL", "-o", "value", image)
+        ok = label.returncode == 0 and label.stdout.strip() == "BOOT"
+        return ok, "capture read from boot copy GPT partition 2, FAT label BOOT, /EFI/sp11-logs"
+    if separator or LOGROOT:
+        return False, "SP11LOGS capture source unexpectedly uses a partition offset/subdirectory"
+    label = sh("blkid", "-p", "-s", "LABEL", "-o", "value", image)
+    return label.returncode == 0 and label.stdout.strip() == "SP11LOGS", "capture read from FAT image labelled SP11LOGS"
 
 
 def main():
@@ -401,9 +433,9 @@ def main():
         btf = read_log(a.logs, bd, "btf.txt") or ""
         check("/sys/kernel/btf/vmlinux exists (btf.txt)", "btf: present" in btf, btf.strip().splitlines()[0] if btf else "btf.txt missing")
         status = read_log(a.logs, bd, "STATUS") or ""
-        want_target = "esp" if a.esp_fallback else "logs"
+        target_ok, target_detail = verify_log_target(a.logs, iso_path, a.esp_fallback, status)
         check(f"collector wrote to the {'embedded ESP (/EFI/sp11-logs, label BOOT)' if a.esp_fallback else 'SP11LOGS disk'}",
-              f"target: {want_target}" in status, status.strip().replace("\n", " | "))
+              target_ok, target_detail)
         if a.until_session:
             check("the logind session triggers wrote session-first-* and session-user-* files",
                   any(f.lstrip('/').split('/')[-1].startswith("session-first-") for f in files) and any(f.lstrip('/').split('/')[-1].startswith("session-user-") for f in files),
@@ -418,6 +450,12 @@ def main():
                     "regulator_summary.txt", "cmdline.txt"]
             miss = [n for n in need if n not in lf]
             check("D19 display files are in the log directory", not miss, ("missing: " + ", ".join(miss)) if miss else f"{len(need)} files")
+            touch = read_log(a.logs, bd, "touch-pen.txt") or ""
+            check("M7 touch helper captured kernel, DT, pinctrl and firmware sections",
+                  all(section in touch for section in ("7.3.0-65.sp11.4.fc44.aarch64",
+                      "=== live DT and platform driver state ===",
+                      "=== pinctrl ownership and configuration ===",
+                      "=== installed firmware package and file")))
             ent = read_log(a.logs, bd, "entry.txt") or ""
             check("entry.txt names the booted entry (sp11.entry=vmtest)", "sp11.entry=vmtest" in ent, ent.strip().splitlines()[0] if ent.strip() else "empty")
         gdm = read_log(a.logs, bd, "gdm-status.txt") or ""

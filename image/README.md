@@ -50,7 +50,7 @@ Kernel command line, common to all entries:
 | `rd.live.image root=live:CDLABEL=<label>` | Fedora live boot |
 | `console=tty0` | Panel console |
 
-Entries for M6 (D22–D23), in order. Every device entry uses `…-denali-m6.dtb` (speakers and GPU off) and `clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr` in addition to the common verbose/live arguments:
+Entries for M7 (D22–D24), in order. Device entries use `…-denali-m7.dtb`, except `touchdiag` uses `…-denali-m7-touchdiag.dtb` (both keep speakers and GPU off) and `clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr` in addition to the common verbose/live arguments:
 
 | Entry | `sp11.entry` | Additional arguments / purpose |
 |:--|:--|:--|
@@ -60,11 +60,12 @@ Entries for M6 (D22–D23), in order. Every device entry uses `…-denali-m6.dtb
 | `SP11 debug, Wi-Fi unblock probe` | `wifi-unblock` | `sp11.wifi_unblock=1`; transient rfkill and NetworkManager probe |
 | `SP11 debug nomodeset` | `nomodeset` | `nomodeset` |
 | `SP11 debug, stop in initramfs` | `initramfs` | `rd.break=pre-mount` |
+| `SP11 debug, touch SE2 diagnostic` | `touchdiag` | Same arguments as `debug`; only SE2 enabled, no HID child or touch supply |
 | `VM test (no devicetree)` | `vmtest` | No DTB or clock/rootdelay overrides; `console=ttyAMA0,115200` |
 
 `usbdbg` adds `pmic_glink_altmode.dyndbg=+p ps883x.dyndbg=+p phy_qcom_qmp_combo.dyndbg=+p ucsi_glink.dyndbg=+p typec_ucsi.dyndbg=+p dwc3.dyndbg=+p dwc3_qcom.dyndbg=+p qcom_pd_mapper.dyndbg=+p pdr_interface.dyndbg=+p trace_event=:mod:qcom_glink trace_buf_size=8M`. DSP tracing is confined to this diagnostic entry to bound console/trace volume (implementation choice permitted by the M6 task). D23 makes the requested `qcom_battmgr.dyndbg=+p` redundant, so it is omitted. The other diagnostic arguments retain the component workers' requested spelling. No GPU-on entry exists (D22).
 
-The collector writes the selected `sp11.entry` to `entry.txt`. Every selectable device DTB passes L0 2.18 (S1). M6 is published by the kernel worker; its JSON and SHA-256 enter the build record. The packaged DTB remains on the ISO for package comparison, and is never selected by the menu.
+The collector writes the selected `sp11.entry` to `entry.txt`. Every selectable device DTB passes L0 2.18 (S1). Both M7 variants are published by the kernel worker; their JSON and SHA-256 enter the build record. The packaged DTB remains on the ISO for package comparison, and is never selected by the menu.
 
 ### Secure Boot
 
@@ -611,9 +612,64 @@ QEMU evidence: the menu showed all seven entries, `vmtest` booted, GDM was activ
 Additional checks: Bluetooth's 14 Fedora mock tests passed (including boot-sibling selection, read-only mount options and cleanup); the QEMU driver self-test passed; menu negative fixtures reject a missing D23 flag, a GPU-enabled DTB and default Wi-Fi unblocking. These mock tests do not establish real controller/FAT provisioning behavior. The Windows reader is statically checked and still awaits execution by the operator. All changes remain uncommitted under D24.
 
 
+### M7 preparation (2026-10-29)
+
+M7 uses `kernel-core-7.3.0-65.sp11.4.fc44.aarch64` (series revision 4). The kernel dossier records nine integrated patches: the retained display patches, Wi-Fi and second USB-C retimer wiring, two ec-sam registry fixes, RFC 0014 GENI pre-initialization diagnostics, and packaged speaker disable. `CONFIG_ATH12K_DEBUG=y` adds Wi-Fi debug output; both BTF options stay enabled. SAM hold patches and spi-hid stay excluded.
+
+The builder requires that exact release and both DTB/JSON pairs under `out/dtb-variants/7.3.0-65.sp11.4.fc44.aarch64/qcom/`. It checks each DTB hash, release, revision and ordered patch-content digest before composing. The build record retains `kernel_series_sha256` for the series file itself and adds `kernel_patch_series_sha256` for the kernel worker's ordered path/content digest. These are different hashes by design.
+
+| DTB | SHA-256 |
+|:--|:--|
+| `x1p64100-microsoft-denali-m7.dtb` | `290d7f4957673822ad04c66a47724f1c21ca333948e24802b5cb42226c590ab6` |
+| `x1p64100-microsoft-denali-m7-touchdiag.dtb` | `3b97decd8bde2831e725b22ed80c038cdf5bf043ea81f438de9aa46850bb3554` |
+
+The normal variant is byte-identical to the M6 default but is consumed under its M7 name and record. The diagnostic differs only in SE2 `status` (enabled); it has no HID child, touch supply or consumer and requests no QUP wrapper firmware. The added menu entry follows the six M6 device entries, with identical `debug` arguments except its `sp11.entry` marker. VM test remains last. The packaged DTB is retained for RPM comparison and is unreferenced by the menu.
+
+The unchanged touch owner's `hardware/touch-pen/collect-read-only.sh` is installed as `/usr/libexec/sp11-touch-pen-collect`, mode 0755, with its hash in the build record. After debugfs setup, each full collector snapshot runs exactly `shsnap touch-pen.txt 'bash /usr/libexec/sp11-touch-pen-collect'`. It only reads and prints; absent DT/controller state is not a zero-valued hardware sample. M6's D23 battery policy, Bluetooth address helper and provisioning procedure, SAM tools/early modules, debugfs allow-list, radio probe gate and USB/DSP diagnostic arguments are retained.
+
+L0 now requires the M7 release/milestone (4.9), actual ath12k debug output functions and printk format in the installed module (4.10), and RFC 0014's message in the installed GENI module (4.11). Both variants must match their published and embedded JSON (3.9–3.11, 3.14) and pass the kernel owner's wiring/parity/controller-only checker (3.13), including an exact SE2-only diff. S1 still checks every selectable device DTB (2.18). The installed touch helper, executable mode, hash and exact collector invocation are checked (8.27); QEMU also requires its kernel/DT/pinctrl/firmware capture sections.
+
+Before composing: both published DTBs passed hash/S1/wiring/touch exclusion checks; the menu passed its positive case and rejected wrong diagnostic DTB, diagnostic argument drift, missing battery blacklist, GPU DTB and default Wi-Fi unblocking. The QEMU driver self-test selected the eighth entry successfully. An initial preflight attempt stopped before composing because it compared the series-file hash to the patch-content digest; that comparison was corrected without changing kernel inputs or producing an ISO.
+
+### M7 ISO (2026-10-29)
+
+| Item | Value |
+|:--|:--|
+| ISO | `out/iso/sp11-fedora44-aarch64-kiwi-m7-20261029T090813Z.iso` |
+| Record / checksum | `out/iso/sp11-fedora44-aarch64-kiwi-m7-20261029T090813Z.json` / `.iso.sha256` |
+| Size | 2,802,188,288 bytes |
+| SHA-256 | `fa8aaf016afb9eb83265a0498a6c18cd7d1c5be90469427a13aa4ae5f3b93015` |
+| Kernel | `kernel-core-7.3.0-65.sp11.4.fc44.aarch64`; both BTF options and ATH12K_DEBUG enabled |
+| Build | One fresh kiwi compose, 1576 seconds, 1971 packages; build id `20261029T090903Z` |
+| ESP | 64 MiB FAT32, direct Fedora GRUB (D17–D18) |
+| L0 | **176 passed, 0 failed, 0 skipped**; report `out/iso/sp11-fedora44-aarch64-kiwi-m7-20261029T090813Z.l0.txt` |
+| QEMU | **PASS, 19/19 checks**, `--until-session --decoy`, 1900 seconds to session captures; reports `out/iso/sp11-fedora44-aarch64-kiwi-m7-20261029T090813Z.l1.txt` / `.l1.json` |
+
+Menu read from the built ISO. All seven device entries retain the common verbose/live arguments and `clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr`, with the `nodsp` replacement noted below:
+
+| # | Title | `sp11.entry` | DTB | Extra |
+|:--|:--|:--|:--|:--|
+| 1 | `SP11 debug` (default) | `debug` | m7 | none |
+| 2 | `SP11 debug, USB + DSP trace` | `usbdbg` | m7 | USB/DSP trace arguments listed above |
+| 3 | `SP11 debug, no early DSP` | `nodsp` | m7 | rd blacklist is `qcom_battmgr,qcom_q6v5_pas` |
+| 4 | `SP11 debug, Wi-Fi unblock probe` | `wifi-unblock` | m7 | `sp11.wifi_unblock=1` |
+| 5 | `SP11 debug nomodeset` | `nomodeset` | m7 | `nomodeset` |
+| 6 | `SP11 debug, stop in initramfs` | `initramfs` | m7 | `rd.break=pre-mount` |
+| 7 | `SP11 debug, touch SE2 diagnostic` | `touchdiag` | m7-touchdiag | Same arguments as `debug` except entry marker |
+| 8 | `VM test (no devicetree)` | `vmtest` | none | Common verbose/live arguments and `console=ttyAMA0,115200`; no device overrides |
+
+M6 policy and component payloads are retained, including all seven prior entries' argument tails and every pinned Bluetooth/SAM input hash. The fresh Fedora transaction updated 14 non-kernel package versions (Broadcom board firmware/overlays, Firefox, GDB, rabbitmq, Pillow and Unbound) and removed `libbabeltrace`, in addition to replacing the five kernel RPMs. The package count changed from 1972 to 1971. The full NEVRA list is in the build record; the exact comparison is `out/image-work/m7-package-delta.json`. No package-selection or firmware-staging policy was changed for these repository updates.
+
+The first M7 QEMU run reached both sessions in 1414 seconds and passed 18/19 assertions, including touch output, clean ESP (108 files, 22317/129022 clusters) and unchanged decoy. The destination assertion failed because a session collector starts with `CYCLE=0` and can replace `STATUS` with its early snapshot after the main collector writes `COMPLETE`; early `STATUS` has no `target:` field. The complete capture and both session snapshots were physically present on the boot copy's ESP, and GDM was active. That run is preserved as `out/iso/sp11-fedora44-aarch64-kiwi-m7-20261029T090813Z.l1-status-metadata.{txt,json}` and `out/image-work/l1-sp11-fedora44-aarch64-kiwi-m7-20261029T090813Z-status-metadata/`.
+
+The QEMU verifier now checks the actual capture source: the boot copy's identity, GPT partition 2's EFI type and byte offset, FAT label `BOOT`, and `/EFI/sp11-logs`. For the dedicated log image it checks the `SP11LOGS` label and no partition offset/subdirectory. A contradictory explicit `target:` still fails. The regression matrix in `image/tools/qemu_driver_selftest.sh` accepted early/full status and rejected another disk, wrong offset, contradictory target, wrong log directory, partition-offset SP11LOGS input and wrong label; the fake-QEMU driver run also passed. This changes only host-side validation; the single ISO is unchanged. The fresh QEMU run of that same ISO passed all 19 checks in 1900 seconds to session captures, with no fatal message or console stall.
+
+
+Final QEMU evidence: all eight menu entries displayed; the VM entry booted the M7 kernel; BTF, the full collector capture, touch helper sections and both logind session snapshots were present on the boot copy's GPT ESP. GDM started. The read-only `fsck.fat -n` check found no dirty bit (107 files, 22508/129022 clusters); decoy MD5 before/after was `1f302d2e52d77eee6fd0469bbd583e5e`. This is the requested session-scoped run; the full failed-unit allow-list audit and device behavior were not tested. The ISO checksum remained unchanged after both QEMU runs. No image/QEMU process or task container remains. Changes are uncommitted under D24.
+
 ## Requests
 
-- orchestrator/operator (M6): review and commit this uncommitted work, provision `BOOT:/EFI/sp11/bt-address` after DD-writing, and batch functional evidence in the next already-planned GPU-off/speakers-off boot. To cover ec-sam R3 in that same boot, choose `SP11 debug, stop in initramfs`, confirm the attached keyboard can type the read-only command below, then use `exit` to continue booting. After login collect `/usr/libexec/sp11-bt-collect` and the two ec-sam capability/power collectors listed above; charging/thermal policy remains unchanged.
+- orchestrator/operator (M7): review and commit this uncommitted work, provision `BOOT:/EFI/sp11/bt-address` after DD-writing, and batch functional evidence in the next already-planned GPU-off/speakers-off boot. The next diagnostic boot uses `touchdiag` as requested below. ec-sam R3's initramfs keyboard check remains pending for an already-planned initramfs boot: confirm the attached keyboard can type the read-only command below, then use `exit` to continue. After login collect `/usr/libexec/sp11-bt-collect` and the two ec-sam capability/power collectors listed above; charging/thermal policy remains unchanged.
 
   ```bash
   awk '$1 ~ /^(surface_aggregator|surface_aggregator_registry|surface_aggregator_hub|surface_hid|surface_hid_core|hid|hid_generic)$/ {print $1, "refs=" $3}' /proc/modules
@@ -621,13 +677,17 @@ Additional checks: Bluetooth's 14 Fedora mock tests passed (including boot-sibli
 
   Built-in modules are absent from `/proc/modules`; L0 has already checked their built-in equivalents. Keep addresses, serials and the full journal private. No extra reboot is requested solely for this evidence.
 
+- orchestrator/operator (touch diagnostic): for the next planned diagnostic boot, select `SP11 debug, touch SE2 diagnostic`. The automatic full snapshot records `touch-pen.txt` alongside the complete private journal. If interactive collection is needed, run exactly `sudo bash /usr/libexec/sp11-touch-pen-collect`; it writes stdout only. Preserve private output outside git and give sanitized evidence to touch-pen/kernel before removing RFC 0014. No standalone extra reboot is requested.
+
 - installer path (R9, future): the installed system must boot `grubaa64.efi` directly. Anaconda installs shim and points the UEFI boot entry at it, and this firmware does not run shim. The installer step (kickstart `%post` of the installed system, or an Anaconda addon / `efibootmgr` call after install) must (a) create the boot entry for `\\EFI\\fedora\\grubaa64.efi` with `efibootmgr -c -d <disk> -p <esp partition> -L Fedora -l '\\EFI\\fedora\\grubaa64.efi'`, and (b) copy `grubaa64.efi` to `EFI/BOOT/BOOTAA64.EFI` on the installed ESP, for firmware that only reads the fallback path. Both must leave `EFI/fedora/shimaa64.efi` in place. Not implemented: this image has no installer step yet; verify on the device (R9).
 - kernel: install `x1p64100-microsoft-denali.dtb` under `/lib/modules/<kver>/dtb/qcom/` in `kernel-core`; build `kernel-modules-core`/`kernel-modules` with `CONFIG_SQUASHFS_ZSTD=y`, `CONFIG_VFAT_FS=m` (or `y`; the collector mounts the FAT log partition), `CONFIG_USB_STORAGE`, `CONFIG_VIRTIO_GPU`, xHCI and virtio drivers for the L1 `VM test` entry (the Fedora config has them; keep them).
-- kernel (Wi-Fi K2): `CONFIG_ATH12K_DEBUG=y` is still needed for `debug_mask=0x30` to emit messages; the parameter itself exists in the current RPMs. Keep M6 DTB publication and its JSON atomic before image build.
+- kernel (Wi-Fi K2): addressed by M7 revision 4; L0 checks `CONFIG_ATH12K_DEBUG=y` and the shipped debug output functions/format as well as `debug_mask=0x30`. Keep future DTB/JSON publication atomic.
 - firmware: none open; request 1-4 are done (see "Kickstart origin" and "Initramfs and firmware").
 - orchestrator: dossiers of `dsp-subsystems` (pd-mapper, qrtr) and `gpu` can cite this file for the answers above.
 
 ## Log
+
+- 2026-10-29: built one M7 ISO (`sp11-fedora44-aarch64-kiwi-m7-20261029T090813Z`, kiwi 1576 s): revision-4 kernel, published m7/m7-touchdiag DTBs and exact touch collector; M6 policy/helpers retained. L0 176/176; final QEMU `--until-session --decoy` 19/19 in 1900 s to captures, clean ESP and unchanged decoy. Preserved the first run's STATUS-metadata false failure; added physical capture-target verification and GPT/FAT regression fixtures, then reran the same ISO successfully. No device test, git writes or task process left running; orchestrator review/commit and planned touchdiag evidence are next.
 
 - 2026-10-29: completed the M6 replacement from a fresh kiwi compose: all DRM state reads refused, explicit D23 initramfs policy and every-device-entry blacklists, pinned main Bluetooth/ec-sam payloads, operator-only post-DD address provisioning. ISO `sp11-fedora44-aarch64-kiwi-m6-20261028T233509Z`: L0 161/161, QEMU `--until-session --decoy` 18/18 (menu, VM boot/GDM, sessions, clean ESP, unchanged decoy), Bluetooth mocks 14/14. Invalid earlier ISO retained; all work uncommitted and no task process left running.
 

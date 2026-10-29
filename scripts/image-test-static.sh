@@ -182,9 +182,9 @@ else
 fi
 titles=$(grep -o "^menuentry '[^']*'" "$cfg_esp" | sed "s/menuentry '//;s/'\$//")
 if [ "$builder" = kiwi ]; then
-	# M6: seven entries; combined diagnostics, no GPU-on entry
-	expect=$'SP11 debug\nSP11 debug, USB + DSP trace\nSP11 debug, no early DSP\nSP11 debug, Wi-Fi unblock probe\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)'
-	nentries=7
+	# M7: M6 menu plus controller-only touch diagnostic, no GPU-on entry
+	expect=$'SP11 debug\nSP11 debug, USB + DSP trace\nSP11 debug, no early DSP\nSP11 debug, Wi-Fi unblock probe\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nSP11 debug, touch SE2 diagnostic\nVM test (no devicetree)'
+	nentries=8
 else
 	expect=$'SP11 debug\nSP11 debug + DRM trace\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)'
 	nentries=5
@@ -206,7 +206,7 @@ ids_ok=1
 awk '/^menuentry /{t=$0} /^[[:space:]]+linux /{print t "\t" $0}' "$cfg_esp" >"$W/linux-lines.txt"
 while IFS=$'\t' read -r t l; do
 	id=$(echo "$t" | sed -n "s/.*--id sp11-\([a-z0-9-]*\).*/\1/p")
-	case $id in debug | usbdbg | nodsp | wifi-unblock | nomodeset | initramfs | vmtest) ;; *) ids_ok=0; fail 2.12 "unknown entry id '$id' ($t)" ;; esac
+	case $id in debug | usbdbg | nodsp | wifi-unblock | nomodeset | initramfs | touchdiag | vmtest) ;; *) ids_ok=0; fail 2.12 "unknown entry id '$id' ($t)" ;; esac
 	want=$id
 	case $l in *" sp11.entry=$want"*) ;; *) ids_ok=0; fail 2.12 "entry '$t' lacks sp11.entry=$want" ;; esac
 	case $l in *console=ttyAMA0*) [ "$id" = vmtest ] || { ids_ok=0; fail 2.12 "serial console on a device entry: $t"; } ;; *) [ "$id" != vmtest ] || { ids_ok=0; fail 2.12 "VM entry lacks the serial console"; } ;; esac
@@ -217,10 +217,10 @@ vm=$(awk '/^menuentry .VM test/{f=1} f&&/^[[:space:]]+devicetree /{print "x"}' "
 [ -z "$vm" ] && pass 2.8 "VM test entry has no devicetree" || fail 2.8 "VM test entry has a devicetree line"
 [ "$(grep -c "^menuentry '" "$cfg_esp")" = "$nentries" ] && [ "$(grep '^set default' "$cfg_esp")" = "set default=0" ] && pass 2.9 "VM test entry is not the default"
 if [ "$builder" = kiwi ]; then
-	if python3 -I "$REPO/image/tools/check-m6-menu.py" "$cfg_esp" >"$W/m6-menu.txt" 2>&1; then
-		pass 2.17 "M6 menu: m6 DTB, preserved default arguments, USB/DSP trace combined, no early DSP and opt-in Wi-Fi probe isolated"
+	if python3 -I "$REPO/image/tools/check-m7-menu.py" "$cfg_esp" >"$W/m7-menu.txt" 2>&1; then
+		pass 2.17 "M7 menu: correct DTBs, touchdiag has debug arguments, M6 diagnostics preserved"
 	else
-		fail 2.17 "M6 menu: $(cat "$W/m6-menu.txt")"
+		fail 2.17 "M7 menu: $(cat "$W/m7-menu.txt")"
 	fi
 fi
 if [ "$builder" = kiwi ]; then
@@ -323,19 +323,22 @@ fi
 if [ "$builder" = kiwi ]; then
 	# D19: DTB variants next to the packaged one. Same SoC and board (root compatible), different from the
 	# packaged DTB, hashes as in the build record and as in out/dtb-variants (the kernel worker's output).
-	for v in m6; do
+	for v in m7 m7-touchdiag; do
 		vf=x1p64100-microsoft-denali-$v.dtb
 		vd=$W/$vf
 		x "/boot/dtb/qcom/$vf" "$vd"
 		if [ ! -s "$vd" ]; then
-			if [ "$v" = m6 ]; then fail 3.6 "variant DTB /boot/dtb/qcom/$vf missing on the ISO"; else skip 3.6 "variant $v is not on the ISO (unreferenced in M5, optional)"; fi
+			fail 3.6 "variant DTB /boot/dtb/qcom/$vf missing on the ISO"
 			continue
 		fi
 		dtc -I dtb -O dts -o "$vd.dts" "$vd" 2>"$vd.err" && pass 3.6 "variant $v decompiles with dtc" || fail 3.6 "variant $v: dtc failed: $(head -n2 "$vd.err")"
-		if [ "$v" = m6 ]; then
-			gpu_status=$(fdtget "$vd" /soc@0/gpu@3d00000 status 2>/dev/null)
-			[ "$gpu_status" = disabled ] && pass 3.12 "D22: M6 GPU node disabled" || fail 3.12 "D22: M6 GPU status '$gpu_status'"
-		fi
+		gpu_status=$(fdtget "$vd" /soc@0/gpu@3d00000 status 2>/dev/null)
+		[ "$gpu_status" = disabled ] && pass 3.12 "D22: $v GPU node disabled" || fail 3.12 "D22: $v GPU status '$gpu_status'"
+		check_args=(--variant "$v")
+		[ "$v" = m7-touchdiag ] && check_args+=(--baseline "$W/x1p64100-microsoft-denali-m7.dtb")
+		if python3 -I "$REPO/scripts/kernel-m7-check.py" "$vd" "${check_args[@]}" >"$W/$v-wiring.json" 2>"$W/$v-wiring.err"; then
+			pass 3.13 "$v: S1, parity, wiring, no HID/supply; touchdiag differs only in SE2 status"
+		else fail 3.13 "$v: $(cat "$W/$v-wiring.err")"; fi
 		rc=$(fdtget "$vd" / compatible 2>/dev/null)
 		case " $rc " in *" microsoft,denali-lcd "*) pass 3.7 "variant $v root compatible has microsoft,denali-lcd" ;; *) fail 3.7 "variant $v root compatible is '$rc'" ;; esac
 		vsha=$(sha256sum "$vd" | cut -d' ' -f1)
@@ -346,9 +349,16 @@ if [ "$builder" = kiwi ]; then
 		fi
 		[ "$vsha" = "$(jq_ ".dtb_files[\"$vf\"] // empty")" ] && pass 3.9 "variant $v SHA-256 equals the build record" || fail 3.9 "variant $v SHA-256 $vsha differs from the build record ($(jq_ ".dtb_files[\"$vf\"] // \"none\""))"
 		rsha=$(jq_ ".dtb_variant_records[\"$vf.json\"].sha256 // empty")
-		if [ -n "$rsha" ]; then [ "$vsha" = "$rsha" ] && pass 3.11 "variant $v SHA-256 equals the kernel worker's JSON record" || fail 3.11 "variant $v SHA-256 differs from the kernel worker's JSON record ($rsha)"; else skip 3.11 "no JSON record of the kernel worker for variant $v in the build record"; fi
+		if [ -n "$rsha" ]; then [ "$vsha" = "$rsha" ] && pass 3.11 "variant $v SHA-256 equals the kernel worker's JSON record" || fail 3.11 "variant $v SHA-256 differs from the kernel worker's JSON record ($rsha)"; else fail 3.11 "no JSON record of the kernel worker for variant $v in the build record"; fi
+		vr=$OUT/dtb-variants/$kver/qcom/${vf%.dtb}.json
+		if [ -f "$vr" ] && [ "$vsha" = "$(jq -r .sha256 "$vr")" ] &&
+		   [ "$(jq -r .kver "$vr")" = "$kver" ] && [ "$(jq -r .series_rev "$vr")" = 4 ] &&
+		   [ "$(jq -r .series_hash_sha256 "$vr")" = "$(jq_ .kernel_patch_series_sha256)" ] &&
+		   jq -e --arg f "$vf.json" --slurpfile source "$vr" '.dtb_variant_records[$f] == $source[0]' "$rec" >/dev/null; then
+			pass 3.14 "variant $v matches published JSON hash/release/series and embedded record"
+		else fail 3.14 "variant $v published JSON absent or differs in hash/release/series/record"; fi
 		src=$(ls "$OUT"/dtb-variants/"$kver"/qcom/$vf 2>/dev/null | head -n1)
-		if [ -n "$src" ]; then cmp -s "$src" "$vd" && pass 3.10 "variant $v equals out/dtb-variants/$kver/qcom/$vf" || fail 3.10 "variant $v differs from $src"; else skip 3.10 "no out/dtb-variants/$kver/qcom/$vf to compare with"; fi
+		if [ -n "$src" ]; then cmp -s "$src" "$vd" && pass 3.10 "variant $v equals out/dtb-variants/$kver/qcom/$vf" || fail 3.10 "variant $v differs from $src"; else fail 3.10 "no out/dtb-variants/$kver/qcom/$vf to compare with"; fi
 	done
 fi
 
@@ -357,6 +367,11 @@ got_nevra=$(rpm --root "$ROOT" -q kernel-core --qf '%{name}-%{version}-%{release
 [ -n "$want_nevra" ] && [ "$got_nevra" = "$want_nevra" ] && pass 4.1 "kernel-core in the image is $got_nevra = build record" || fail 4.1 "kernel-core '$got_nevra' != record '$want_nevra'"
 if [ "$smoke" = false ]; then
 	ls "$OUT"/rpms/kernel-core-*.rpm >/dev/null 2>&1 && { rpm -qp --qf '%{name}-%{version}-%{release}.%{arch}\n' "$OUT"/rpms/kernel-core-*.rpm | grep -qx "$got_nevra" && pass 4.2 "kernel-core is the RPM of out/rpms" || fail 4.2 "kernel-core is not in out/rpms"; }
+fi
+if [ "$builder" = kiwi ] && [ "$smoke" = false ]; then
+	if [ "$kver" = 7.3.0-65.sp11.4.fc44.aarch64 ] && [ "$got_nevra" = kernel-core-7.3.0-65.sp11.4.fc44.aarch64 ] && [ "$(jq_ .milestone)" = M7 ]; then
+		pass 4.9 "M7: required revision-4 kernel release and milestone"
+	else fail 4.9 "M7 requires revision-4 kernel and milestone (found $kver / $got_nevra)"; fi
 fi
 cmp -s "$kimg" "$ROOT/lib/modules/$kver/vmlinuz" && pass 4.3 "ISO kernel image equals lib/modules/$kver/vmlinuz" || fail 4.3 "ISO kernel image differs from the package"
 kimg_ver=$(python3 -I - "$kimg" <<'PY'
@@ -408,6 +423,27 @@ if [ -n "$ko" ]; then
 	if [ "$($dec "$ko" 2>/dev/null | grep -a -c '\.BTF')" -gt 0 ]; then pass 4.8 "$(basename "$ko") has a .BTF section"; else fail 4.8 "$(basename "$ko") has no .BTF section"; fi
 else
 	skip 4.8 "no msm module to look for .BTF in"
+fi
+
+if [ "$builder" = kiwi ]; then
+	athko=$(find "$ROOT/lib/modules/$kver" -name 'ath12k.ko*' | head -n1)
+	case $athko in *.xz) dec="xz -dc" ;; *.zst) dec="zstd -dc" ;; *.gz) dec="gzip -dc" ;; *) dec=cat ;; esac
+	if [ -n "$athko" ] && $dec "$athko" >"$W/ath12k.ko" &&
+	   grep -qx 'CONFIG_ATH12K_DEBUG=y' "$cfgk" &&
+	   nm --defined-only "$W/ath12k.ko" >"$W/ath12k-symbols.txt" &&
+	   grep -Eq ' T __ath12k_dbg$' "$W/ath12k-symbols.txt" &&
+	   grep -Eq ' T ath12k_dbg_dump$' "$W/ath12k-symbols.txt" &&
+	   strings "$W/ath12k.ko" >"$W/ath12k-strings.txt" &&
+	   grep -Fq 'ath12k: %pV' "$W/ath12k-strings.txt"; then
+		pass 4.10 "ATH12K_DEBUG=y: shipped module defines debug output functions and printk format"
+	else fail 4.10 "ath12k debug output missing from module/config"; fi
+	spiko=$(find "$ROOT/lib/modules/$kver" -name 'spi-geni-qcom.ko*' | head -n1)
+	case $spiko in *.xz) dec="xz -dc" ;; *.zst) dec="zstd -dc" ;; *.gz) dec="gzip -dc" ;; *) dec=cat ;; esac
+	if [ -n "$spiko" ] && $dec "$spiko" >"$W/spi-geni-qcom.ko" &&
+	   strings "$W/spi-geni-qcom.ko" >"$W/spi-geni-strings.txt" &&
+	   grep -Fq 'touch-pen-diag: proto=' "$W/spi-geni-strings.txt"; then
+		pass 4.11 "RFC 0014 pre-initialization diagnostic format exists in shipped spi-geni-qcom module"
+	else fail 4.11 "RFC 0014 diagnostic format absent from shipped module"; fi
 fi
 
 # ---------------------------------------------------------------- check 5 ----
@@ -730,6 +766,15 @@ PY
 	if systemd-analyze --root="$ROOT" verify sp11-bt-address.service >"$W/bluetooth-unit-verify.txt" 2>&1; then
 		pass 8.26 "Bluetooth helper unit passes systemd-analyze verify against the actual ISO root"
 	else fail 8.26 "Bluetooth helper unit validation failed (bluetooth-unit-verify.txt)"; fi
+fi
+if [ "$builder" = kiwi ]; then
+	touch_helper=$ROOT/usr/libexec/sp11-touch-pen-collect
+	if cmp -s "$touch_helper" "$REPO/hardware/touch-pen/collect-read-only.sh" &&
+	   [ "$(stat -c %a "$touch_helper")" = 755 ] && bash -n "$touch_helper" &&
+	   [ "$(sha256sum "$touch_helper" | cut -d' ' -f1)" = "$(jq_ .touch_collector_sha256)" ] &&
+	   grep -qxF "$(printf '\t')shsnap touch-pen.txt 'bash /usr/libexec/sp11-touch-pen-collect'" "$ROOT/usr/libexec/sp11-log-collector"; then
+		pass 8.27 "touch helper installed unchanged at mode 0755, recorded hash and exact shsnap invocation"
+	else fail 8.27 "touch helper, permissions, record or collector invocation differs"; fi
 fi
 for t in dmesg journalctl lspci lsusb dtc timeout blkid findmnt mount python3 lsmod rfkill iw ethtool qrtr-lookup upower btmgmt bluetoothctl libinput evtest; do
 	[ -x "$ROOT/usr/bin/$t" ] || [ -x "$ROOT/usr/sbin/$t" ] || fail 8.5 "collector needs $t, not in the image"
