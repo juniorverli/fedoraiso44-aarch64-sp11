@@ -7,14 +7,15 @@ inside board-2.bin (sources/linux/drivers/net/wireless/ath/ath12k/core.c:221, :5
 reports qmi-board-id 255 (device log m5-20261028), so Linux loads the generic Qualcomm entry for id
 255. The Windows driver builds "bdwlan.elf" for board id 0xff (qcwlanhmt8380.sys, function
 0x14014a478 -> 0x140147b80; hardware/wifi/evidence/2026-10-28-windows-board-selection.md). The two
-payloads differ. This tool keeps every Fedora entry and replaces only the payload of the entry
-named above; the Windows file is a DriverStore blob, so the output stays in out/ and never goes
-into git (S5). Staging: firmware worker (request in hardware/wifi/README.md).
+payloads differ. This tool keeps every Fedora entry and prepends a shadow entry for the
+name above; the Windows file is a DriverStore blob, so the output stays in out/ and never goes
+into git (S5). Staging: operator-provided image input (F2/I7 in hardware/wifi/README.md).
 
 Usage (inspect the Fedora file; or build):
   wifi-board2.py list  <board-2.bin[.xz]>
   wifi-board2.py build --fedora <board-2.bin[.xz]> --windows <bdwlan.elf> --out <board-2.bin>
-                       [--board-id 255] [--sha256 <expected sha256 of the Windows file>]
+                       [--board-id 255] [--sha256 <Windows SHA-256>]
+                       [--fedora-sha256 <decompressed Fedora SHA-256>]
   wifi-board2.py selftest <board-2.bin[.xz]>      # re-encode and compare structure and length
 
 Run with python3 -I. No third-party modules.
@@ -22,8 +23,15 @@ Run with python3 -I. No third-party modules.
 import argparse
 import hashlib
 import lzma
+import os
+from pathlib import Path
 import struct
 import sys
+import tempfile
+
+WINDOWS_SHA256 = "b24438910ff0383d299798a997d3ef3484be624ac013aec2ce7939ec32900c4f"
+FEDORA_SHA256 = "6a98237c743d864773a547e81e23f0c6dc721dcd7331926bee7381e2152e00fd"
+LOCAL_OUT = Path(__file__).resolve().parents[3] / "out"
 
 MAGIC = b"QCA-ATH12K-BOARD\0"
 BD_IE_BOARD, BD_IE_REGDB = 0, 1      # drivers/net/wireless/ath/ath12k/hw.h:312-314
@@ -48,15 +56,23 @@ def parse(d):
     off = pad4(len(MAGIC))
     header = d[:off]
     ies = []                         # [(top_id, [(sub_id, payload), ...])]
-    while off + 8 <= len(d):
+    while off < len(d):
+        if off + 8 > len(d):
+            sys.exit("truncated top-level IE header")
         tid, tlen = struct.unpack_from("<II", d, off)
         off += 8
+        if off + pad4(tlen) > len(d):
+            sys.exit("truncated top-level IE body")
         body = d[off:off + tlen]
         off += pad4(tlen)
         subs, o = [], 0
-        while o + 8 <= len(body):
+        while o < len(body):
+            if o + 8 > len(body):
+                sys.exit("truncated nested IE header")
             sid, slen = struct.unpack_from("<II", body, o)
             o += 8
+            if o + pad4(slen) > len(body):
+                sys.exit("truncated nested IE body")
             subs.append((sid, body[o:o + slen]))
             o += pad4(slen)
         ies.append((tid, subs))
@@ -105,10 +121,17 @@ def cmd_selftest(a):
 
 
 def cmd_build(a):
+    output = Path(a.out).resolve()
+    if not output.is_relative_to(LOCAL_OUT.resolve()):
+        sys.exit("derived board file must stay under this repository out/ (S5)")
+    if output in (Path(a.fedora).resolve(), Path(a.windows).resolve()):
+        sys.exit("output must not overwrite either input")
     d = read(a.fedora)
+    if hashlib.sha256(d).hexdigest() != a.fedora_sha256:
+        sys.exit("Fedora board file hash differs from the pinned decompressed input")
     win = open(a.windows, "rb").read()
     got = hashlib.sha256(win).hexdigest()
-    if a.sha256 and got != a.sha256:
+    if got != a.sha256:
         sys.exit("Windows file sha256 %s != expected %s" % (got, a.sha256))
     if win[:4] != b"\x7fELF":
         sys.exit("Windows board file is not an ELF (it must be the bdwlan*.elf container)")
@@ -119,8 +142,19 @@ def cmd_build(a):
     # entry of that name without touching the other names that share its payload.
     ies.insert(0, (BD_IE_BOARD, [(BD_NAME, target.encode()), (BD_DATA, win)]))
     out = encode(header, ies)
-    assert encode(*parse(out)) == out
-    open(a.out, "wb").write(out)
+    if parse(out) != (header, ies):
+        sys.exit("derived file did not preserve every parsed element")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(dir=output.parent, delete=False) as f:
+        temporary = Path(f.name)
+        try:
+            f.write(out)
+            f.flush()
+            os.fsync(f.fileno())
+            os.replace(temporary, output)
+        finally:
+            temporary.unlink(missing_ok=True)
+    print("sha256(output)", hashlib.sha256(out).hexdigest())
     print("wrote %s: %d bytes, shadowed fedora entries=%d, windows sha256 %s, name %s"
           % (a.out, len(out), len(shadowed), got, target))
 
@@ -133,7 +167,10 @@ def main():
     s = sp.add_parser("build")
     s.add_argument("--fedora", required=True); s.add_argument("--windows", required=True)
     s.add_argument("--out", required=True); s.add_argument("--board-id", type=int, default=255)
-    s.add_argument("--sha256"); s.set_defaults(f=cmd_build)
+    s.add_argument("--sha256", default=WINDOWS_SHA256)
+    s.add_argument("--fedora-sha256", default=FEDORA_SHA256,
+                   help="expected SHA-256 of decompressed Fedora board file (default: 20261019)")
+    s.set_defaults(f=cmd_build)
     a = p.parse_args()
     a.f(a)
 

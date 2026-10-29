@@ -1,0 +1,36 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: juniorverli <25966843+juniorverli@users.noreply.github.com>
+Date: Thu, 29 Oct 2026 22:00:00 +0000
+Subject: [PATCH 3/3] arm64: dts: qcom: x1-microsoft-denali: keep CMA below 4 GiB
+
+The default 128 MiB CMA pool has no allocation range. On the M8 boot it
+lands at 0xbf8000000, outside the WCN7850's 32-bit coherent DMA mask.
+The first QMI host-DDR allocation of 7274496 bytes consequently fails:
+dma-direct rejects CMA pages above the mask, and this 4 KiB-page kernel
+cannot satisfy an order-11 allocation from the buddy allocator (maximum
+order 10). Firmware recovers by requesting smaller chunks, but the
+initial allocation can be satisfied directly with reachable CMA memory.
+
+Constrain the existing reusable pool to the lower RAM window, from
+0x80000000 up to 4 GiB. Memblock still chooses its location around the
+firmware reservations; no fixed address or larger pool is introduced.
+The M8 EFI memory map contains multiple usable extents in this window
+larger than 128 MiB. Keep the ath12k DMA masks and firmware protocol
+intact.
+
+Assisted-by: Codex gpt-6.1-sol
+---
+ arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi b/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi
+--- a/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi
++++ b/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi
+@@ -120,6 +120,7 @@
+ 		linux,cma {
+ 			compatible = "shared-dma-pool";
+ 			size = <0x0 0x8000000>;
++			alloc-ranges = <0x0 0x80000000 0x0 0x80000000>;
+ 			reusable;
+ 			linux,cma-default;
+ 		};

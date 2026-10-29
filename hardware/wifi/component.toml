@@ -3,7 +3,7 @@ name = "Wi-Fi: Qualcomm WCN7850 (FastConnect 7800) on PCIe4, ath12k"
 phase = 2
 status = "designed"
 depends_on = ["soc-boot"]
-updated = "2026-10-28"
+updated = "2026-10-29"
 
 [windows]
 hardware_ids = ["PCI\\VEN_17CB&DEV_1107", "ACPI\\VEN_QCOM&DEV_0CD5 (WLAN thermal)", "ACPI\\VEN_QCOM&DEV_0CFC (WLAN limits)"]
@@ -13,16 +13,21 @@ packages = ["qcwlanhmt8380", "qcwlanhmt_ext8380", "surfacesarmanager", "surfacer
 drivers = ["net/wireless/ath/ath12k", "pci/pwrctrl/pci-pwrctrl-pwrseq", "power/sequencing pwrseq-qcom-wcn", "pci/controller/dwc/pcie-qcom", "phy/qualcomm/phy-qcom-qmp-pcie"]
 dt = ["x1-microsoft-denali.dtsi &pcie4, &pcie4_phy, &pcie4_port0 wifi@0 (pci17cb,1107), wcn7850-pmu"]
 native = "full"
-patches = ["patches/0001-arm64-dts-qcom-denali-wire-pcie4-perst-wake.patch"]
+patches = [
+  "patches/0001-arm64-dts-qcom-denali-wire-pcie4-perst-wake.patch",
+  "patches/0002-wifi-ath12k-skip-broken-surface-rfkill.patch",
+  "patches/0003-arm64-dts-qcom-denali-keep-cma-in-dma32.patch",
+]
 gaps = [
-  "Wi-Fi radio is blocked in NetworkManager ('disabled by radio killswitch') on M5; blocker not yet identified (rfkill soft block or firmware GPIO 48 rfkill)",
-  "PCIe4 PERST#, WAKE# and pcie4_default not in the DT: patch 0001 (builds, dt-schema clean); link trained on M5 without it",
-  "board data: Linux uses Fedora generic id-255 entry (atheros-firmware >= 20261019), Windows loads bdwlan.elf; derived board-2.bin prepared, held",
-  "SAR / TAS / regulatory power tables: UEFI variables and DPP, unreadable offline",
+  "M8 firmware rfkill OFF=1 hard-blocks WCN7850 (soft=0 hard=1); upstream Surface quirk in patch 0002, needs integration and device validation",
+  "M8 CMA above the 32-bit coherent mask causes first QMI 7274496-byte allocation failure; patch 0003 constrains existing 128 MiB CMA below 4 GiB, needs cross-check and runtime proof",
+  "F2 released for private M9: local Windows-derived board-2.bin built; image must accept it as an operator-provided file, never publish",
+  "Independent cross-check outstanding for DMA placement and original PCIe4 PERST/WAKE wiring",
+  "SAR / TAS tables in UEFI variables/DPP remain unreadable offline; Windows power-policy parity not claimed",
 ]
 
 [firmware]
 needs = [
   "ath12k/WCN7850/hw2.0/amss.bin, m3.bin, board-2.bin from Fedora atheros-firmware >= 20261019 (not qcom-firmware)",
-  "optional, held: derived ath12k/WCN7850/hw2.0/board-2.bin in /usr/lib/firmware/updates carrying Windows bdwlan.elf (built by hardware/wifi/tools/wifi-board2.py; stays in out/)",
+  "F2 RELEASED for private M9: derived ath12k/WCN7850/hw2.0/board-2.bin in /usr/lib/firmware/updates from operator-provided out/firmware-private/wifi/.../board-2.bin; never git/publish",
 ]

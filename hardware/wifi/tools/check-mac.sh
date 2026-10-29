@@ -12,7 +12,7 @@ set -euo pipefail
 log=${1:?usage: check-mac.sh extra-wifi.txt}
 here=$(cd "$(dirname "$0")/../../.." && pwd)
 conf="$here/sources/windows/live-inventory/sp11-mac.conf"
-want=$(sed -n 's/^WIFI_MAC=//p' "$conf" | tr -d ':- \r' | tr 'A-F' 'a-f' | sed -E 's/(..)/\1:/g; s/:$//')
+want=$(sed -n 's/^WIFI_MAC=//p' "$conf" | tr -d ': \r-' | tr 'A-F' 'a-f' | sed -E 's/(..)/\1:/g; s/:$//')
 [ -n "$want" ] || { echo "no WIFI_MAC in $conf"; exit 2; }
 want_h=$(printf '%s' "$want" | sha256sum | cut -c1-16)
 got_h=$(sed -n 's/.* mac_sha256_16=\([0-9a-f]\{16\}\).*/\1/p' "$log" | head -1)

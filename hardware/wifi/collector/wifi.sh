@@ -2,8 +2,8 @@
 # Install as /etc/sp11-log-collector.d/wifi.sh (sourced by sp11-log-collector in a subshell,
 # output goes to extra-wifi.txt). Owner: wifi worker; installed by the image worker.
 #
-# Read-only, except one thing: `iw dev <if> scan` sends probe requests. It runs once per boot
-# (stamp in /run) and only COUNTS the BSSs per band; no SSID or BSSID is stored.
+# Read-only: count the existing scan cache using `iw dev <if> scan dump`.
+# NetworkManager performs its normal scans; no probe request or radio toggle is issued here.
 # Privacy (S5): no MAC address, no serial. Every MAC-shaped string is masked by mask(); for the
 # station address only a hash prefix is printed (compare with hardware/wifi/tools/check-mac.sh).
 # The core collector's lspci.txt still carries the endpoint's Device Serial Number line.
@@ -47,7 +47,7 @@ echo "== 5 ath12k messages (kernel log)"
 sh_ "dmesg | grep -i -E 'ath12k|pwrctrl|pwrseq|wcn7850|qrtr|mhi mhi|1c08000|0004:|cfg80211|regulatory|rfkill|pcie.*link|wlan|board|regdb|firmware' | grep -v -E 'systemd|audit' | tail -150"
 sh_ "dmesg | grep -i -E 'ath12k.*(fail|error|timeout|unable|invalid|can.t|crash|firmware|board|regdb|rfkill|m3|amss)|Direct firmware load.*(ath12k|qca)|mhi.*(error|timeout|fail)'"
 
-echo "== 6 firmware files seen by the kernel (names, sizes, hashes of public blobs only)"
+echo "== 6 firmware files seen by the kernel (names, sizes, local integrity hashes)"
 sh_ "ls -l /usr/lib/firmware/ath12k/WCN7850/hw2.0/ /usr/lib/firmware/updates/ath12k/WCN7850/hw2.0/ 2>&1"
 sh_ "sha256sum /usr/lib/firmware/ath12k/WCN7850/hw2.0/*.xz /usr/lib/firmware/updates/ath12k/WCN7850/hw2.0/* 2>/dev/null"
 sh_ "rpm -q atheros-firmware linux-firmware qcom-firmware wireless-regdb"
@@ -70,17 +70,20 @@ sh_ "journalctl -b --no-pager -u NetworkManager -u wpa_supplicant -o short-monot
 sh_ "ip -br link | grep -v -E '^lo '"
 sh_ "ip -br addr | grep -E '^wl'"
 
-echo "== 8 scan count, once per boot (probe requests are sent; counts only)"
-if [ ! -e /run/sp11-wifi-scan.done ] && [ "$(cut -d. -f1 /proc/uptime)" -ge 60 ]; then
-	touch /run/sp11-wifi-scan.done
-	for i in $(ls /sys/class/ieee80211/*/device/net 2>/dev/null); do
-		echo "### iw dev $i scan (counts per band)"
-		timeout 25 iw dev "$i" scan 2>&1 | awk '
-			/^BSS /{n++}
-			/^\tfreq:/{f=int($2); if (f<3000) b24++; else if (f<5900) b5++; else b6++}
-			/command failed|Operation not|Network is down|busy/{print "iw error: " $0}
-			END{printf "bss_total=%d bss_2g4=%d bss_5g=%d bss_6g=%d\n", n, b24, b5, b6}'
-	done
-else
-	echo "skipped: already done in this boot, or uptime < 60 s"
-fi
+echo "== 8 cached scan counts (read-only; NetworkManager owns scanning)"
+for i in $(ls /sys/class/ieee80211/*/device/net 2>/dev/null); do
+	echo "### iw dev $i scan dump (counts per band)"
+	timeout 20 iw dev "$i" scan dump 2>&1 | awk '
+		/^BSS /{n++}
+		/^\tfreq:/{f=int($2); if (f<3000) b24++; else if (f<5900) b5++; else b6++}
+		/command failed|Operation not|Network is down|busy/{print "iw error: " $0}
+		END{printf "bss_total=%d bss_2g4=%d bss_5g=%d bss_6g=%d\n", n, b24, b5, b6}' | mask
+done
+
+echo "== 9 coherent DMA reachability, CMA, and service ordering"
+sh_ "for f in /sys/bus/pci/devices/0004:01:00.0/{dma_mask_bits,consistent_dma_mask_bits}; do [ -r \$f ] && { echo \"\$f\"; cat \$f; }; done"
+sh_ "grep -E '^Cma(Total|Free):' /proc/meminfo; cat /proc/buddyinfo"
+sh_ "for c in /sys/kernel/mm/cma/*; do [ -d \$c ] || continue; for f in \$c/{total_pages,available_pages,alloc_pages_success,alloc_pages_fail,release_pages_success}; do [ -r \$f ] && { echo \"\$f\"; cat \$f; }; done; done"
+sh_ "dmesg | grep -i -E 'created CMA|cma.*reserved|qmi.*(mem|alloc)|memory allocation failure'"
+sh_ "systemctl show sp11-rfkill-events.service NetworkManager.service -p Id -p Type -p Before -p After -p ActiveState -p SubState -p ExecMainStatus -p ActiveEnterTimestampMonotonic"
+sh_ "journalctl -b --no-pager -u sp11-rfkill-events.service -o short-monotonic | tail -40"
