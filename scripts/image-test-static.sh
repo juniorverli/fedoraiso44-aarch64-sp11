@@ -57,6 +57,14 @@ actual=$(sha256sum "$iso" | cut -d' ' -f1)
 ROOT=$W/root
 cleanup() { for m in "$W/root2" "$W/root"; do findmnt -n "$m" >/dev/null 2>&1 && umount "$m" 2>/dev/null; done; return 0; }
 trap cleanup EXIT
+# Reuse extraction only for these exact ISO bytes. Replacing an ISO at the same
+# path must never make L0 inspect an older root/initramfs policy.
+if [ "$(cat "$W/.iso-sha256" 2>/dev/null)" != "$actual" ]; then
+	cleanup
+	rm -f "$W/squashfs.img" "$W/.erofs-extracted"
+	rm -rf "$W/root" "$W/root2"
+	printf '%s\n' "$actual" >"$W/.iso-sha256"
+fi
 
 # --------------------------------------------------------------- extract ----
 x() { xorriso -osirrox on -indev "$iso" -extract "$1" "$2" >/dev/null 2>&1; }
@@ -174,9 +182,9 @@ else
 fi
 titles=$(grep -o "^menuentry '[^']*'" "$cfg_esp" | sed "s/menuentry '//;s/'\$//")
 if [ "$builder" = kiwi ]; then
-	# M5 (D21): the six entries of the menu, in this order
-	expect=$'SP11 debug\nSP11 debug, GPU on\nSP11 debug, GPU on + DRM trace\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)'
-	nentries=6
+	# M6: seven entries; combined diagnostics, no GPU-on entry
+	expect=$'SP11 debug\nSP11 debug, USB + DSP trace\nSP11 debug, no early DSP\nSP11 debug, Wi-Fi unblock probe\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)'
+	nentries=7
 else
 	expect=$'SP11 debug\nSP11 debug + DRM trace\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)'
 	nentries=5
@@ -198,7 +206,7 @@ ids_ok=1
 awk '/^menuentry /{t=$0} /^[[:space:]]+linux /{print t "\t" $0}' "$cfg_esp" >"$W/linux-lines.txt"
 while IFS=$'\t' read -r t l; do
 	id=$(echo "$t" | sed -n "s/.*--id sp11-\([a-z0-9-]*\).*/\1/p")
-	case $id in debug | gpu | gpu-drm-trace | nomodeset | initramfs | vmtest) ;; *) ids_ok=0; fail 2.12 "unknown entry id '$id' ($t)" ;; esac
+	case $id in debug | usbdbg | nodsp | wifi-unblock | nomodeset | initramfs | vmtest) ;; *) ids_ok=0; fail 2.12 "unknown entry id '$id' ($t)" ;; esac
 	want=$id
 	case $l in *" sp11.entry=$want"*) ;; *) ids_ok=0; fail 2.12 "entry '$t' lacks sp11.entry=$want" ;; esac
 	case $l in *console=ttyAMA0*) [ "$id" = vmtest ] || { ids_ok=0; fail 2.12 "serial console on a device entry: $t"; } ;; *) [ "$id" != vmtest ] || { ids_ok=0; fail 2.12 "VM entry lacks the serial console"; } ;; esac
@@ -209,30 +217,11 @@ vm=$(awk '/^menuentry .VM test/{f=1} f&&/^[[:space:]]+devicetree /{print "x"}' "
 [ -z "$vm" ] && pass 2.8 "VM test entry has no devicetree" || fail 2.8 "VM test entry has a devicetree line"
 [ "$(grep -c "^menuentry '" "$cfg_esp")" = "$nentries" ] && [ "$(grep '^set default' "$cfg_esp")" = "set default=0" ] && pass 2.9 "VM test entry is not the default"
 if [ "$builder" = kiwi ]; then
-	# D21: every device entry has clk_ignore_unused pd_ignore_unused rootdelay=10; the DTB is m5 (GPU off) except on the two
-	# GPU entries (m5gpu); each adds at most one argument; nothing else (no blacklist, no earlier DTB).
-	d19=1
-	while IFS=$'\t' read -r t l; do
-		id=$(echo "$t" | sed -n "s/.*--id sp11-\([a-z0-9-]*\).*/\1/p")
-		case $id in
-		vmtest) base=0; extra=; want= ;;
-		gpu) base=1; extra=; want=x1p64100-microsoft-denali-m5gpu.dtb ;;
-		gpu-drm-trace) base=1; extra=drm.debug=0x1ff; want=x1p64100-microsoft-denali-m5gpu.dtb ;;
-		nomodeset) base=1; extra=nomodeset; want=x1p64100-microsoft-denali-m5.dtb ;;
-		initramfs) base=1; extra=rd.break=pre-mount; want=x1p64100-microsoft-denali-m5.dtb ;;
-		*) base=1; extra=; want=x1p64100-microsoft-denali-m5.dtb ;;
-		esac
-		case $l in *" clk_ignore_unused pd_ignore_unused rootdelay=10"*) have=1 ;; *) have=0 ;; esac
-		[ "$base" = "$have" ] || { d19=0; fail 2.17 "entry $id: clk_ignore_unused pd_ignore_unused rootdelay=10 expected=$base found=$have"; }
-		for x in rd.driver.blacklist=qcom_q6v5_pas drm.debug=0x1ff nomodeset rd.break=pre-mount; do
-			case $l in *" $x "*) [ "$x" = "$extra" ] || { d19=0; fail 2.17 "entry $id carries $x"; } ;; *) [ "$x" != "$extra" ] || { d19=0; fail 2.17 "entry $id lacks $x"; } ;; esac
-		done
-		if [ -n "$want" ]; then
-			got=$(awk -v t="$t" '$0==t{f=1;next} /^menuentry /{f=0} f&&/^\tdevicetree /{print $2}' "$cfg_esp")
-			[ "$got" = "(\$root)/boot/dtb/qcom/$want" ] || { d19=0; fail 2.17 "entry $id loads '$got', expected qcom/$want"; }
-		fi
-	done <"$W/linux-lines.txt"
-	[ "$d19" = 1 ] && pass 2.17 "M5 menu: every device entry has clk_ignore_unused pd_ignore_unused rootdelay=10, the m5 DTB (m5gpu on the two GPU entries) and at most its one extra argument"
+	if python3 -I "$REPO/image/tools/check-m6-menu.py" "$cfg_esp" >"$W/m6-menu.txt" 2>&1; then
+		pass 2.17 "M6 menu: m6 DTB, preserved default arguments, USB/DSP trace combined, no early DSP and opt-in Wi-Fi probe isolated"
+	else
+		fail 2.17 "M6 menu: $(cat "$W/m6-menu.txt")"
+	fi
 fi
 if [ "$builder" = kiwi ]; then
 	# S1 (D21): no device entry may load a DTB that enables the sound card or the WSA8845 speaker amplifiers. Every DTB a
@@ -334,15 +323,19 @@ fi
 if [ "$builder" = kiwi ]; then
 	# D19: DTB variants next to the packaged one. Same SoC and board (root compatible), different from the
 	# packaged DTB, hashes as in the build record and as in out/dtb-variants (the kernel worker's output).
-	for v in m5 m5gpu parity edponly nobl; do
+	for v in m6; do
 		vf=x1p64100-microsoft-denali-$v.dtb
 		vd=$W/$vf
 		x "/boot/dtb/qcom/$vf" "$vd"
 		if [ ! -s "$vd" ]; then
-			if [ "$v" = m5 ] || [ "$v" = m5gpu ]; then fail 3.6 "variant DTB /boot/dtb/qcom/$vf missing on the ISO"; else skip 3.6 "variant $v is not on the ISO (unreferenced in M5, optional)"; fi
+			if [ "$v" = m6 ]; then fail 3.6 "variant DTB /boot/dtb/qcom/$vf missing on the ISO"; else skip 3.6 "variant $v is not on the ISO (unreferenced in M5, optional)"; fi
 			continue
 		fi
 		dtc -I dtb -O dts -o "$vd.dts" "$vd" 2>"$vd.err" && pass 3.6 "variant $v decompiles with dtc" || fail 3.6 "variant $v: dtc failed: $(head -n2 "$vd.err")"
+		if [ "$v" = m6 ]; then
+			gpu_status=$(fdtget "$vd" /soc@0/gpu@3d00000 status 2>/dev/null)
+			[ "$gpu_status" = disabled ] && pass 3.12 "D22: M6 GPU node disabled" || fail 3.12 "D22: M6 GPU status '$gpu_status'"
+		fi
 		rc=$(fdtget "$vd" / compatible 2>/dev/null)
 		case " $rc " in *" microsoft,denali-lcd "*) pass 3.7 "variant $v root compatible has microsoft,denali-lcd" ;; *) fail 3.7 "variant $v root compatible is '$rc'" ;; esac
 		vsha=$(sha256sum "$vd" | cut -d' ' -f1)
@@ -433,7 +426,7 @@ else
 		early | late)
 			if grep -qx "$n" "$W/ko-names.txt" "$W/builtin-names.txt"; then pass 5.1 "$mod in the kernel package"; else fail 5.1 "$mod not in the kernel package"; fi
 			[ "$kind" = early ] && { if grep -qx "$n" "$W/initrd-ko.txt" || grep -qx "$n" "$W/builtin-names.txt"; then pass 5.2 "$mod early (initramfs or built in)"; else fail 5.2 "$mod not in the initramfs"; fi; } ;;
-		never-early) if grep -qx "$n" "$W/initrd-ko.txt"; then fail 5.3 "$mod is in the initramfs (decision F1)"; else pass 5.3 "$mod is not in the initramfs (decision F1)"; fi ;;
+		never-early) if grep -qx "$n" "$W/initrd-ko.txt"; then fail 5.3 "$mod is in the initramfs (D23)"; else pass 5.3 "$mod is not in the initramfs (D23)"; fi ;;
 		esac
 	done <"$REPO/image/expected-modules.txt"
 fi
@@ -466,9 +459,9 @@ for m in chain:
         total += 1
         if x not in inird and x not in built:
             missing.append(f"{x} (needed by {m})")
-print(("FAIL " + "; ".join(sorted(set(missing)))) if missing else f"PASS {len(chain)} display-chain modules and their {total} module-dependency entries are in the initramfs or built in")
+print(("FAIL " + "; ".join(sorted(set(missing)))) if missing else f"PASS {len(chain)} early modules and their {total} module-dependency entries are in the initramfs or built in")
 PY
-	line=$(cat "$W/initrd-deps.txt"); case $line in PASS*) pass 5.5 "${line#PASS }" ;; *) fail 5.5 "display chain not complete in the initramfs: ${line#FAIL }" ;; esac
+	line=$(cat "$W/initrd-deps.txt"); case $line in PASS*) pass 5.5 "${line#PASS }" ;; *) fail 5.5 "early driver chain not complete in the initramfs: ${line#FAIL }" ;; esac
 fi
 if [ "$builder" = kiwi ]; then
 	# M4: the failure capture hook is in the initramfs, with the tools and the vfat module it needs
@@ -493,6 +486,28 @@ print(next((b['sha256'] for b in m['blob'] if b.get('linux_path') == sys.argv[2]
 	if grep -q -E 'gen70500|qcdxkmsuc8380' "$W/initrd-list.txt"; then fail 5.8 "GPU zap shader or gen70500 is in the initramfs"; else pass 5.8 "GPU zap shader and gen70500 are not in the initramfs"; fi
 fi
 grep -E '^[-dlcbps][-rwxsStT]{9} .*plymouth' "$W/initrd-list.txt" >/dev/null && fail 5.4 "plymouth files in the initramfs" || pass 5.4 "no plymouth in the initramfs"
+
+# D23: actual kmod dry-runs, blacklist, built-in exclusion and initramfs contents.
+if [ "$builder" = kiwi ]; then
+	chroot "$ROOT" modprobe -S "$kver" --showconfig >"$W/modprobe-config.txt" 2>&1
+	chroot "$ROOT" modprobe -S "$kver" -n -v qcom_battmgr >"$W/battmgr-dry-run.txt" 2>&1
+	if grep -qx 'blacklist qcom_battmgr' "$W/modprobe-config.txt" &&
+	   grep -Eq '^install /usr/bin/false[[:space:]]*$' "$W/battmgr-dry-run.txt" &&
+	   ! grep -qx qcom_battmgr "$W/builtin-names.txt" &&
+	   ! grep -qx qcom_battmgr "$W/initrd-ko.txt"; then
+		pass 5.9 "D23: aliases blacklisted, explicit modprobe resolves to false, battery driver neither built in nor in initramfs"
+	else fail 5.9 "qcom_battmgr can load or policy dry-run failed"; fi
+	if lsinitrd "$initrd_img" -f etc/modprobe.d/50-sp11-battery.conf >"$W/initrd-battery.conf" 2>/dev/null &&
+	   cmp -s "$W/initrd-battery.conf" "$ROOT/etc/modprobe.d/50-sp11-battery.conf" &&
+	   grep -qx 'blacklist qcom_battmgr' "$W/initrd-battery.conf" &&
+	   grep -qx 'install qcom_battmgr /usr/bin/false' "$W/initrd-battery.conf" &&
+	   grep -q 'omit_drivers.*qcom_battmgr' "$ROOT/etc/dracut.conf.d/90-sp11.conf"; then
+		pass 5.10 "D23 policy present in real root and initramfs; dracut omits qcom_battmgr"
+	else fail 5.10 "D23 initramfs/root policy missing"; fi
+	if python3 -I "$REPO/image/tools/check-charge-writes.py" "$ROOT" >"$W/charge-writes.txt" 2>&1; then
+		pass 5.11 "S6: no image text file writes charge_control_* (only audited reads, udev tests and comments allowed)"
+	else fail 5.11 "S6 charge policy: $(cat "$W/charge-writes.txt")"; fi
+fi
 
 # ---------------------------------------------------------------- check 6 ----
 python3 - "$REPO/firmware/manifest.toml" "$ROOT" "$W/rpm-files.txt" "$smoke" <<'EOF' >"$W/firmware-check.txt"
@@ -567,6 +582,16 @@ hits_mod=$(cd "$ROOT" && sed 's|^/||' "$W/rpm-modified.txt" | xargs -r -d '\n' g
 [ -z "$mac_mod$hits_mod" ] && pass 7.4 "no MAC address or private string in the $mods RPM-owned files whose content rpm -Va reports changed ($(tr '\n' ' ' <"$W/rpm-modified.txt" | cut -c1-200))" || fail 7.4 "private strings in modified RPM files: $mac_mod $hits_mod"
 priv_iso=$(grep -rIlF -e 'sp11-windows-dumps' -e 'sources/windows' -e 'juniormverli' "$W/iso-tree" 2>/dev/null | head -n3)
 [ -z "$priv_iso" ] && pass 7.3 "no private string in the ISO boot files" || fail 7.3 "private strings in ISO boot files: $priv_iso"
+if [ "$builder" = kiwi ]; then
+	# S5: inspect the real root, ISO boot tree and embedded FAT, never the operator's input.
+	address_inputs=$(find "$ROOT" "$W/iso-tree" \( -iname bt-address -o -iname sp11-mac.conf -o -iname BT_MAC \) -print)
+	if mdir -/ -b -i "$esp_img" :: >"$W/esp-files.txt" 2>"$W/esp-files.err" &&
+	   [ -z "$address_inputs" ] &&
+	   ! grep -Eqi '/(bt-address|sp11-mac\.conf|BT_MAC)$|\.reg$' "$W/esp-files.txt" &&
+	   ! grep -Eqi '\.reg$' "$W/unowned.txt"; then
+		pass 7.5 "no operator Bluetooth address input or registry export in root/ISO boot files/embedded ESP"
+	else fail 7.5 "operator address input present or embedded ESP could not be inspected"; fi
+fi
 
 # ---------------------------------------------------------------- check 8 ----
 svc=$ROOT/usr/lib/systemd/system/sp11-log-collector.service
@@ -590,7 +615,34 @@ if [ "$builder" = kiwi ]; then
 	[ "$ok" = 1 ] && pass 8.14 "logind session triggers (path units for the first session and the first numbered user session) are installed, enabled and preset"
 	ck=$ROOT/usr/libexec/sp11-log-collector
 	if grep -q '^release_target()' "$ck" && grep -q 'release_target' "$ck" && awk '/^publish\(\)/,/^}/' "$ck" | grep -q 'release_target'; then pass 8.15 "collector: publish() mounts for the write and releases (sync, umount, verify) after it"; else fail 8.15 "collector does not release the target after each publish"; fi
-	if [ "$(grep -c 'nvmem"' "$ck")" -le 2 ] && grep -q 'dd if="$dev/nvmem" bs=1 skip=$((0x119)) count=2' "$ck" && [ "$(grep -c 'dd if="$dev/nvmem"' "$ck")" = 1 ]; then pass 8.16 "collector reads exactly 2 bytes at 0x119 of the qfprom (GPU speed bin), nothing else (S5)"; else fail 8.16 "qfprom read is not limited to 2 bytes at 0x119"; fi
+	# the speed-bin read: one aligned 4-byte window at 0x118 (the nvmem core rejects unaligned reads), the 2-byte cell cut out of it
+	if [ "$(grep -c 'dd if="$dev/nvmem"' "$ck")" = 1 ] && grep -q 'dd if="$dev/nvmem" bs=4 skip=$((0x118 / 4)) count=1' "$ck"; then pass 8.16 "collector reads the GPU speed bin with one aligned 4-byte read at 0x118 of the qfprom, nothing else (S5)"; else fail 8.16 "qfprom read is not the single aligned 4-byte window at 0x118"; fi
+	# M5 device log: debugfs reads only from an allow-list. The collector's own function is run against paths: every
+	# msm dpu/drm object debugfs file (crtc-*, plane-*, encoder-*, connector, dp_debug) must be refused, the known-safe ones allowed.
+	dbgt=$W/debugfs-allow-test.sh
+	{ echo 'shopt -s extglob'; sed -n '/^debugfs_allowed() {/,/^}/p' "$ck"; cat <<'EOT'
+bad=0
+for p in /sys/kernel/debug/dri/0/crtc-0/state /sys/kernel/debug/dri/0/crtc-1/state /sys/kernel/debug/dri/0/plane-3/state /sys/kernel/debug/dri/0/encoder-0/state \
+	/sys/kernel/debug/dri/0/DP-1/dp_debug /sys/kernel/debug/dri/0/eDP-1/dp_debug \
+	/sys/kernel/debug/dri/0/DP-1/msm_dp_test_active /sys/kernel/debug/dri/0/DP-1/test_active /sys/kernel/debug/dri/0/DP-1/test_data /sys/kernel/debug/dri/0/DP-1/test_type \
+	/sys/kernel/debug/dri/0/DP-1/dp_debug/msm_dp_test_active /sys/kernel/debug/dri/0/DP-1/dp_debug/test_active /sys/kernel/debug/dri/0/DP-1/dp_debug/test_data /sys/kernel/debug/dri/0/DP-1/dp_debug/test_type /sys/kernel/debug/dri/0/dpu_ctl.1 /sys/kernel/debug/dri/0/crtc-0/crc/data \
+	/sys/kernel/debug/dri/0/gem /sys/kernel/debug/dri/0/state /sys/kernel/debug/dri/1/state /sys/kernel/debug/dri/128/state /sys/kernel/debug/dri/0/../0/crtc-0/state /sys/kernel/debug/dri/0/state/crtc-0 /sys/kernel/debug/msm/foo; do
+	debugfs_allowed "$p" && { echo "WRONGLY ALLOWED: $p"; bad=1; }
+done
+for p in /sys/kernel/debug/dri/0/clients /sys/kernel/debug/dri/0/name /sys/kernel/debug/clk/clk_summary /sys/kernel/debug/devices_deferred \
+	/sys/kernel/debug/gpio /sys/kernel/debug/pwm /sys/kernel/debug/device_component/mdss \
+	/sys/kernel/debug/pm_genpd/pm_genpd_summary /sys/kernel/debug/regulator/regulator_summary /sys/kernel/debug/devfreq/devfreq_summary \
+	/sys/kernel/debug/pinctrl/{pinctrl-devices,pinctrl-handles,pinctrl-maps} \
+	/sys/kernel/debug/pinctrl/foo-pinctrl/{pins,pinmux-pins,pinmux-functions,pinconf-pins,pingroups,gpio-ranges} \
+	/sys/kernel/debug/usb/devices /sys/kernel/debug/usb/xhci/foo/ports/port1/portsc; do
+	debugfs_allowed "$p" || { echo "WRONGLY REFUSED: $p"; bad=1; }
+done
+debugfs_allowed /sys/class/drm/card0/status || { echo "sysfs path must not be this function's business"; bad=1; }
+exit $bad
+EOT
+	} >"$dbgt"
+	dres=$(bash "$dbgt" 2>&1) && pass 8.18 "debugfs allow-list: every DRM state, object, connector, dp_debug and DP test path is refused; only known-safe files allowed" || fail 8.18 "debugfs allow-list: $dres"
+	grep -q 'if ! debugfs_allowed "\$f"' "$ck" && ! grep -q -E 'exec cat|cat /sys/kernel/debug/dri/\*|crtc-' <(grep -v '^[[:space:]]*#' "$ck") && pass 8.19 "collector: dump_tree is gated by the allow-list, no direct read of dri/*/crtc-*" || fail 8.19 "collector: dump_tree is not gated or reads crtc-* directly"
 	grep -q '/proc/asound/cards' "$ck" && grep -q 'aplay -l' "$ck" && pass 8.17 "collector records /proc/asound/cards and aplay -l" || fail 8.17 "collector lacks the sound evidence"
 	# S4: the collector and the initramfs hook write only to a partition of the boot medium's disk
 	ck=$ROOT/usr/libexec/sp11-log-collector; ih=$ROOT/usr/lib/dracut/modules.d/95sp11-initrd-log/sp11-initrd-log.sh
@@ -603,7 +655,83 @@ if [ "$builder" = kiwi ]; then
 	[ -n "$iso_vol" ] && [ "${SP11_MEDIUM_LABEL:-}" = "$iso_vol" ] && pass 8.13 "/etc/sp11-boot-medium label '$SP11_MEDIUM_LABEL' equals the ISO volume id" || fail 8.13 "/etc/sp11-boot-medium label '${SP11_MEDIUM_LABEL:-}' differs from the ISO volume id '$iso_vol'"
 	grep -q '^CAP_ESP_KIB=32768' "$ROOT/etc/sp11-log-collector.conf" && grep -q '^ESP_LABEL=BOOT' "$ROOT/etc/sp11-log-collector.conf" && pass 8.10 "collector fallback is the ESP labelled BOOT, cap 32 MiB" || fail 8.10 "collector ESP settings missing in /etc/sp11-log-collector.conf"
 fi
-for t in dmesg journalctl lspci lsusb dtc timeout blkid mount python3 lsmod; do
+if [ "$builder" = kiwi ]; then
+	ok=1
+	for c in dsp-subsystems wifi; do
+		cmp -s "$ROOT/etc/sp11-log-collector.d/$c.sh" "$REPO/hardware/$c/collector/$c.sh" || ok=0
+		bash -n "$ROOT/etc/sp11-log-collector.d/$c.sh" || ok=0
+	done
+	cmp -s "$ROOT/etc/sp11-log-collector.d/usb-typec.sh" "$REPO/image/overlay/etc/sp11-log-collector.d/usb-typec.sh" || ok=0
+	[ "$ok" = 1 ] && pass 8.20 "DSP, Wi-Fi and USB-C collectors installed unchanged, shell syntax valid" || fail 8.20 "component collector missing or changed"
+	u=sp11-rfkill-events.service
+	if [ "$(readlink "$ROOT/etc/systemd/system/multi-user.target.wants/$u")" = "/usr/lib/systemd/system/$u" ] &&
+	   grep -qx "enable $u" "$ROOT/usr/lib/systemd/system-preset/80-sp11.preset" &&
+	   grep -qx 'Before=NetworkManager.service' "$ROOT/usr/lib/systemd/system/$u" &&
+	   grep -qx 'ExecStart=/usr/bin/rfkill event' "$ROOT/usr/lib/systemd/system/$u" &&
+	   grep -qx rfkill "$ROOT/etc/modules-load.d/sp11-rfkill.conf"; then
+		pass 8.21 "rfkill event unit enabled, preset and ordered before NetworkManager"
+	else fail 8.21 "rfkill event unit policy incomplete"; fi
+	gate_test=$W/wifi-gate-test.sh
+	{ sed -n '/^wifi_unblock_enabled() {/,/^}/p' "$ROOT/usr/libexec/sp11-log-collector"; cat <<'EOT'
+cat() { printf '%s' "$test_cmdline"; }
+for test_cmdline in 'debug sp11.entry=debug' 'debug sp11.entry=vmtest' 'sp11.wifi_unblock=10' 'xsp11.wifi_unblock=1'; do
+	wifi_unblock_enabled && exit 1
+done
+test_cmdline='debug sp11.wifi_unblock=1 sp11.entry=wifi-unblock'
+wifi_unblock_enabled || exit 1
+exit 0
+EOT
+	} >"$gate_test"
+	if cmp -s "$ROOT/usr/libexec/sp11-wifi-unblock-probe.sh" "$REPO/hardware/wifi/collector/wifi-unblock-probe.sh" &&
+	   [ ! -e "$ROOT/etc/sp11-log-collector.d/wifi-unblock-probe.sh" ] &&
+	   grep -q 'if wifi_unblock_enabled; then' "$ROOT/usr/libexec/sp11-log-collector" && bash "$gate_test"; then
+		pass 8.22 "Wi-Fi unblock probe outside automatic drop-ins, invoked only behind the cmdline gate (menu checked in 2.17)"
+	else fail 8.22 "Wi-Fi unblock probe is missing or automatic"; fi
+	if modinfo -b "$ROOT" -k "$kver" -p ath12k | grep -q '^debug_mask:' &&
+	   grep -qx 'options ath12k debug_mask=0x30' "$ROOT/etc/modprobe.d/50-sp11-ath12k.conf"; then
+		pass 8.23 "shipped ath12k exposes debug_mask and the image sets 0x30"
+	else fail 8.23 "ath12k debug_mask missing or options invalid"; fi
+fi
+if [ "$builder" = kiwi ]; then
+	if python3 -I - "$ROOT" "$REPO/image/component-inputs" "$rec" <<'PY'
+import ast, hashlib, json, pathlib, subprocess, sys
+root, inputs, record = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), json.load(open(sys.argv[3]))
+manifest = json.loads((inputs / 'sources.json').read_text())
+assert manifest == record['component_inputs'], 'component source pin differs from build record'
+for source, want in manifest['files'].items():
+    relative = source.removeprefix('hardware/')
+    assert hashlib.sha256((inputs / relative).read_bytes()).hexdigest() == want, source
+    name = pathlib.Path(source).name
+    if name == 'check.py':
+        continue  # test code stays outside the ISO
+    dest = ('usr/libexec/sp11/ec-sam/' + name if relative.startswith('ec-sam/') else
+            'usr/lib/systemd/system/' + name if name.endswith('.service') else 'usr/libexec/' + name)
+    path = root / dest
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == want, dest
+    if name.endswith('.service'):
+        continue
+    assert path.stat().st_mode & 0o111, dest
+    if name.endswith('.py'):
+        ast.parse(path.read_text())
+    else:
+        subprocess.run(['bash', '-n', str(path)], check=True)
+PY
+	then pass 8.24 "Bluetooth and ec-sam tools match pinned main inputs and build record; executable and syntax valid"
+	else fail 8.24 "component payload missing, changed or invalid"; fi
+	u=sp11-bt-address.service
+	if [ "$(readlink "$ROOT/etc/systemd/system/sys-subsystem-bluetooth-devices-hci0.device.wants/$u")" = "/usr/lib/systemd/system/$u" ] &&
+	   grep -qx "enable $u" "$ROOT/usr/lib/systemd/system-preset/80-sp11.preset" &&
+	   grep -qx 'WantedBy=sys-subsystem-bluetooth-devices-hci0.device' "$ROOT/usr/lib/systemd/system/$u" &&
+	   grep -qx 'timeout -k 1 80 /usr/libexec/sp11-bt-collect' "$ROOT/etc/sp11-log-collector.d/bluetooth.sh" &&
+	   rpm --root "$ROOT" -q bluez libinput-utils evtest >/dev/null 2>&1 &&
+	   [ -f "$ROOT/usr/lib/systemd/system/bluetooth.service" ]; then
+		pass 8.25 "Bluetooth helper hci0 wants link/preset and masked hook present; Fedora BlueZ and input tools installed"
+	else fail 8.25 "Bluetooth activation/collector or Fedora input packages missing"; fi
+	if systemd-analyze --root="$ROOT" verify sp11-bt-address.service >"$W/bluetooth-unit-verify.txt" 2>&1; then
+		pass 8.26 "Bluetooth helper unit passes systemd-analyze verify against the actual ISO root"
+	else fail 8.26 "Bluetooth helper unit validation failed (bluetooth-unit-verify.txt)"; fi
+fi
+for t in dmesg journalctl lspci lsusb dtc timeout blkid findmnt mount python3 lsmod rfkill iw ethtool qrtr-lookup upower btmgmt bluetoothctl libinput evtest; do
 	[ -x "$ROOT/usr/bin/$t" ] || [ -x "$ROOT/usr/sbin/$t" ] || fail 8.5 "collector needs $t, not in the image"
 done
 for t in debug loglevel=8 ignore_loglevel; do grep -q "$t" "$ROOT/etc/default/grub" || fail 8.6 "/etc/default/grub lacks $t"; done
@@ -621,6 +749,10 @@ if [ "$builder" = kiwi ]; then
 	[ "$pm" = 0 ] && pass 9.2 "plymouth units are masked (kiwi: the package stays installed)" || fail 9.2 "a plymouth unit is not masked"
 else
 	rpm --root "$ROOT" -q plymouth >/dev/null 2>&1 && fail 9.2 "plymouth is installed" || pass 9.2 "plymouth is not installed"
+fi
+if [ "$builder" = kiwi ]; then
+	av=$(rpm --root "$ROOT" -q atheros-firmware --qf '%{version}' 2>/dev/null)
+	if [[ "$av" =~ ^[0-9]+$ ]] && [ "$av" -ge 20261019 ]; then pass 9.5 "Wi-Fi atheros-firmware version $av >= 20261019"; else fail 9.5 "atheros-firmware '$av' is too old or missing"; fi
 fi
 rpm --root "$ROOT" -q qcom-firmware >/dev/null 2>&1 && pass 9.3 "qcom-firmware is installed" || fail 9.3 "qcom-firmware is not installed"
 for p in pd-mapper; do rpm --root "$ROOT" -q "$p" >/dev/null 2>&1 && fail 9.4 "$p is installed (obsolete in Fedora 44)"; done

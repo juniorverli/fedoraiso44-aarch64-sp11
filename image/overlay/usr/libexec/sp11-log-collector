@@ -163,6 +163,30 @@ shsnap() {
 	timeout "$CMD_TIMEOUT" bash -c "$2" >"$OUT/$1" 2>&1
 }
 
+# ---- debugfs allow-list (M5 device log, defect 1). debugfs files run driver code on read, and some crash: the msm
+# dpu_crtc_debugfs_state_show() dereferenced NULL on every read of dri/N/crtc-*/state (36 Oopses, process "head",
+# in the GPU-off M5 boot) while the old collector walked all of dri/ with dump_tree. From now on a file below
+# /sys/kernel/debug is read ONLY if it is on this list, which names the files known safe (read on the device, or
+# plain framework summaries); everything else, every crtc-*, plane-*, encoder-* and connector debugfs file included,
+# is skipped and the skip is written into the log. Directory listings (ls) are not reads and stay.
+debugfs_allowed() { # PATH: 0 if the debugfs file may be read
+	local f=$1
+	[[ $f == /sys/kernel/debug/* ]] || return 0   # not debugfs: not this function's business
+	[[ $f =~ ^/sys/kernel/debug/(devices_deferred|gpio|pwm)$ ]] && return 0
+	[[ $f =~ ^/sys/kernel/debug/device_component/[^/]+$ ]] && return 0
+	[[ $f =~ ^/sys/kernel/debug/(clk/clk_summary|pm_genpd/pm_genpd_summary|regulator/regulator_summary|devfreq/devfreq_summary)$ ]] && return 0
+	[[ $f =~ ^/sys/kernel/debug/pinctrl/(pinctrl-devices|pinctrl-handles|pinctrl-maps)$ ]] && return 0
+	[[ $f =~ ^/sys/kernel/debug/pinctrl/[^/]+/(pins|pinmux-pins|pinmux-functions|pinconf-pins|pingroups|gpio-ranges)$ ]] && return 0
+	# name/clients print DRM bookkeeping only; atomic state invokes driver print hooks.
+	[[ $f =~ ^/sys/kernel/debug/dri/[0-9]+/(name|clients)$ ]] && return 0
+	[[ $f =~ ^/sys/kernel/debug/usb/(devices|xhci/[^/]+/ports/port[0-9]+/portsc)$ ]] && return 0
+	return 1
+}
+# dbgcat FILE: cat of an allowed debugfs file, else a note
+dbgcat() {
+	if debugfs_allowed "$1"; then cat "$1" 2>&1; else echo "# not read: $1 is not on the debugfs allow-list"; fi
+}
+
 # dump_tree NAME DIR...   every readable regular file below DIR, as "=== path" + content
 # (read-only; skips blocking or binary files; every read has a timeout and a size cap)
 dump_tree() {
@@ -175,6 +199,7 @@ dump_tree() {
 		find -L "$d" -maxdepth 6 -type f -perm -u=r \
 			! -name trace_pipe ! -name 'pipe*' ! -name kmsg ! -name edid ! -name config \
 			! -name rom ! -path '*/crc/*' 2>/dev/null | sort | while IFS= read -r f; do
+			if ! debugfs_allowed "$f"; then printf '=== %s (not read: not on the debugfs allow-list)\n' "$f"; continue; fi
 			printf '=== %s\n' "$f"
 			timeout "$READ_TIMEOUT" head -c "$FILE_CAP" "$f" 2>&1 | tr -d '\000'
 			echo
@@ -217,7 +242,11 @@ dpcd() {
 # every full snapshot. Everything here only reads; the DPCD tool reads AUX and never writes.
 # The GPU speed-bin fuse and nothing else of the qfprom (S5): the nvmem cell gpu-speed-bin@119 of the
 # x1e80100 qfprom (sources/linux/arch/arm64/boot/dts/qcom/hamoa.dtsi:8790, reg = <0x119 0x2>, bits = <7 8>:
-# bit offset 7, 8 bits wide, i.e. bits 7-14 of the little-endian 16-bit value). Exactly two bytes are read.
+# bit offset 7, 8 bits wide, i.e. bits 7-14 of the little-endian 16-bit value at 0x119-0x11a).
+# The nvmem core rejects reads that are not aligned to the provider's stride/word size (M5 device log:
+# "read of 2 bytes at 0x119 failed"). So one read of the smallest aligned window, 4 bytes at 0x118
+# (dd bs=4 skip=0x46 count=1: a single 4-byte read), the cell is cut out of it, and ONLY the two cell bytes and
+# the decoded value are written to the log; the other two bytes of the window are discarded unseen.
 gpu_speed_bin() {
 	local d dev= raw lo hi val
 	for d in "${SP11_TEST_NVMEM:-/sys/bus/nvmem/devices}"/*; do
@@ -232,14 +261,15 @@ gpu_speed_bin() {
 			echo "qfprom nvmem device: not found in /sys/bus/nvmem/devices ($(ls /sys/bus/nvmem/devices 2>&1 | tr '\n' ' '))"
 		else
 			echo "qfprom nvmem device: $dev"
-			raw=$(timeout 5 dd if="$dev/nvmem" bs=1 skip=$((0x119)) count=2 2>/dev/null | od -An -tx1 | tr -d ' \n')
-			if [ "${#raw}" = 4 ]; then
-				lo=$((0x${raw:0:2})); hi=$((0x${raw:2:2}))
+			echo "read window: 4 bytes at 0x118 (aligned), cell = bytes 1-2 of the window"
+			raw=$(timeout 5 dd if="$dev/nvmem" bs=4 skip=$((0x118 / 4)) count=1 2>/dev/null | od -An -tx1 | tr -d ' \n')
+			if [ "${#raw}" = 8 ]; then
+				lo=$((0x${raw:2:2})); hi=$((0x${raw:4:2}))
 				val=$(((hi << 8 | lo) >> 7 & 0xff))
-				echo "raw bytes at 0x119 (2): ${raw:0:2} ${raw:2:2}"
+				echo "raw cell bytes at 0x119 (2): ${raw:2:2} ${raw:4:2}"
 				printf 'decoded speed bin (bits 7-14): %d (0x%02x)\n' "$val" "$val"
 			else
-				echo "read of 2 bytes at 0x119 failed (got '${raw}')"
+				echo "read of the 4-byte window at 0x118 failed (got '${#raw}' hex digits)"
 			fi
 		fi
 	} >"$OUT/gpu-speed-bin.txt" 2>&1
@@ -263,11 +293,13 @@ display_set() {
 	snap regulator_summary.txt cat /sys/kernel/debug/regulator/regulator_summary
 	# H2/H3: msm, eDP link, panel, backlight, PWM, pmic pins
 	shsnap display-dmesg.txt "dmesg --time-format=iso 2>&1 | grep -i -E 'msm|dpu|mdss|drm|\bdp\b|dp_|panel|edp|backlight|pwm|lpg|simpledrm|simple-framebuffer|efifb|dispcc|phy.*(dp|edp)|pmk8550|pmc8380|spmi-gpio|clk_disable|unused|genpd|probe.*defer|deferred'"
-	shsnap drm-state.txt 'cat /sys/kernel/debug/dri/*/state 2>&1'
-	shsnap dp-link.txt 'find /sys/kernel/debug/dri -type f -name dp_debug -print -exec cat {} \; 2>&1'
+	export -f debugfs_allowed dbgcat
+	shsnap drm-state.txt 'for f in /sys/kernel/debug/dri/*/state; do [ -e "$f" ] && { echo "=== $f"; dbgcat "$f"; }; done 2>&1'
+	# dp_debug (including msm_dp_test_active/test_active, test_data and test_type) is NOT read: it is not on the allow-list, nothing proved it safe. Listing only.
+	shsnap dp-link.txt 'echo "# dp_debug files are not read (debugfs allow-list); listing only:"; find /sys/kernel/debug/dri -type f -name dp_debug 2>&1'
 	shsnap drm-connectors.txt 'for c in /sys/class/drm/card*-*; do [ -d "$c" ] || continue; echo "== $c: status=$(cat $c/status 2>&1) enabled=$(cat $c/enabled 2>&1) dpms=$(cat $c/dpms 2>&1)"; head -n 5 "$c/modes" 2>&1; done; for d in /sys/kernel/debug/dri/*/; do for c in "$d"eDP-1 "$d"DP-*; do [ -d "$c" ] || continue; echo "== $c"; ls "$c" 2>&1; done; done'
 	attrs backlight.txt /sys/class/backlight/*
-	shsnap pwm.txt 'ls -l /sys/class/pwm 2>&1; cat /sys/kernel/debug/pwm 2>&1'
+	shsnap pwm.txt 'ls -l /sys/class/pwm 2>&1; dbgcat /sys/kernel/debug/pwm'
 	attrs leds.txt /sys/class/leds/*
 	dump_tree pinctrl-pmic.txt /sys/kernel/debug/pinctrl/*pmic*
 	shsnap spmi-gpio-dmesg.txt "dmesg | grep -i -E 'subtype|func3|spmi-gpio|pmk8550|pmc8380'"
@@ -318,6 +350,10 @@ early_snapshot() {   # early_snapshot [REASON]
 	done
 	say "early snapshot: no target after 30 s, files stay in $OUT"
 	return 1
+}
+
+wifi_unblock_enabled() {
+	case " $(cat /proc/cmdline) " in *" sp11.wifi_unblock=1 "*) return 0 ;; *) return 1 ;; esac
 }
 
 # --------------------------------------------------------------- snapshot ----
@@ -409,6 +445,11 @@ snapshot() {
 		# shellcheck disable=SC1090
 		( . "$d" ) >"$OUT/extra-$(basename "$d" .sh).txt" 2>&1
 	done
+
+	# Wi-Fi state changes are opt-in through one GRUB entry; never an automatic drop-in.
+	if wifi_unblock_enabled; then
+		( . /usr/libexec/sp11-wifi-unblock-probe.sh ) >"$OUT/extra-wifi-unblock-probe.txt" 2>&1
+	fi
 
 	mv -f "$OUT/STATUS.new" "$OUT/STATUS"
 }

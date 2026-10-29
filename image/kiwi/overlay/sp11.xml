@@ -36,6 +36,10 @@
 		<package name="bpftool"/>
 		<package name="mtools"/>
 		<package name="dosfstools"/>
+		<!-- ec-sam R3 and Bluetooth boot-time configuration / masked capture. -->
+		<package name="libinput-utils"/>
+		<package name="evtest"/>
+		<package name="bluez"/>
 		<!-- SP11 change 4/5: ausearch for the SELinux AVC capture of the log collector (D15) -->
 		<package name="audit"/>
 

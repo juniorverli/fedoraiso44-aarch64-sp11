@@ -6,10 +6,10 @@
 # Differences, all listed in image/README.md ("kiwi layer", change 3):
 #   - load_video keeps efi_gop and all_video only: efi_uga, video_bochs and video_cirrus do not exist
 #     on arm64-efi (QEMU printed "file not found" for each; they are x86 modules in Fedora's template);
-#   - no `Test this media` and no `Troubleshooting` submenu; the six SP11 entries of M5 (D21) instead;
+#   - no `Test this media` and no `Troubleshooting` submenu; the seven M6 entries (D22–D23) instead;
 #   - `set default=0` and timeout_style=menu with a fixed timeout: the menu is always shown;
 #   - every device entry has a `devicetree` line (GRUB 2 command, D9); the VM test entry has none;
-#     only the `-m5` and `-m5gpu` DTBs are used (sound off on both, S1); the other DTBs on the ISO are unreferenced;
+#     every device entry uses the `-m6` DTB (speakers and GPU off, S1/D22);
 #   - every entry has sp11.entry=<id>; only the VM entry adds the serial console (D15);
 #   - the common kernel arguments are kiwi's boot options: its live options (root=live:CDLABEL, rd.live.image)
 #     plus the verbose kernelcmdline patched into components/liveinstall.xml (patch 0002).
@@ -37,37 +37,37 @@ set default=0
 
 search ${search_params}
 
-# D21 / M5. Every device entry has the command line of the previous project's GNOME boot (clocks and power domains kept,
-# rootdelay=10) and a DTB with the sound card and the WSA8845 speaker amplifiers off (/sound and &swr0 disabled; S1).
-# m5: parity DT, sound off, GPU off (GNOME on msm KMS with llvmpipe). m5gpu: the same with the GPU on.
+# M6 (D22–D23): one sound-off, GPU-off DTB. USB and DSP debug share one diagnostic entry.
 menuentry 'SP11 debug' --id sp11-debug --class fedora --class gnu-linux --class gnu --class os {
-	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 sp11.entry=debug
-	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m5.dtb
+	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr sp11.entry=debug
+	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m6.dtb
 	initrd ($$root)${bootpath}/${initrd_file}
 }
-# 2. The GPU on: isolates the GPU first open (zap shader, GMU, speed bin) as the reboot cause.
-menuentry 'SP11 debug, GPU on' --id sp11-gpu --class fedora --class gnu-linux --class gnu --class os {
-	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 sp11.entry=gpu
-	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m5gpu.dtb
+menuentry 'SP11 debug, USB + DSP trace' --id sp11-usbdbg --class fedora --class gnu-linux --class gnu --class os {
+	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr pmic_glink_altmode.dyndbg=+p ps883x.dyndbg=+p phy_qcom_qmp_combo.dyndbg=+p ucsi_glink.dyndbg=+p typec_ucsi.dyndbg=+p dwc3.dyndbg=+p dwc3_qcom.dyndbg=+p qcom_pd_mapper.dyndbg=+p pdr_interface.dyndbg=+p trace_event=:mod:qcom_glink trace_buf_size=8M sp11.entry=usbdbg
+	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m6.dtb
 	initrd ($$root)${bootpath}/${initrd_file}
 }
-menuentry 'SP11 debug, GPU on + DRM trace' --id sp11-gpu-drm-trace --class fedora --class gnu-linux --class gnu --class os {
-	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 drm.debug=0x1ff sp11.entry=gpu-drm-trace
-	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m5gpu.dtb
+menuentry 'SP11 debug, no early DSP' --id sp11-nodsp --class fedora --class gnu-linux --class gnu --class os {
+	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr,qcom_q6v5_pas modprobe.blacklist=qcom_battmgr sp11.entry=nodsp
+	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m6.dtb
+	initrd ($$root)${bootpath}/${initrd_file}
+}
+menuentry 'SP11 debug, Wi-Fi unblock probe' --id sp11-wifi-unblock --class fedora --class gnu-linux --class gnu --class os {
+	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr sp11.wifi_unblock=1 sp11.entry=wifi-unblock
+	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m6.dtb
 	initrd ($$root)${bootpath}/${initrd_file}
 }
 menuentry 'SP11 debug nomodeset' --id sp11-nomodeset --class fedora --class gnu-linux --class gnu --class os {
-	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 nomodeset sp11.entry=nomodeset
-	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m5.dtb
+	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr nomodeset sp11.entry=nomodeset
+	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m6.dtb
 	initrd ($$root)${bootpath}/${initrd_file}
 }
 menuentry 'SP11 debug, stop in initramfs' --id sp11-initramfs --class fedora --class gnu-linux --class gnu --class os {
-	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.break=pre-mount sp11.entry=initramfs
-	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m5.dtb
+	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr rd.break=pre-mount sp11.entry=initramfs
+	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m6.dtb
 	initrd ($$root)${bootpath}/${initrd_file}
 }
-# L1 only (QEMU virt): same kernel, no devicetree, so the firmware description is used.
-# Serial console last so that systemd status and the L1 test see it on /dev/console.
 menuentry 'VM test (no devicetree)' --id sp11-vmtest --class fedora --class gnu-linux --class gnu --class os {
 	linux ($$root)${bootpath}/${kernel_file} ${boot_options} console=ttyAMA0,115200 sp11.entry=vmtest
 	initrd ($$root)${bootpath}/${initrd_file}

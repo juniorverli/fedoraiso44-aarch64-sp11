@@ -6,3 +6,5 @@
 enable sp11-log-collector.service
 enable sp11-log-collector-session-first.path
 enable sp11-log-collector-session-user.path
+enable sp11-rfkill-events.service
+enable sp11-bt-address.service

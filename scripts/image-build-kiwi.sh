@@ -61,13 +61,23 @@ if [ "$(rpm --eval "%{lua:print(rpm.vercmp('$newest_vr', '$min'))}")" -le 0 ]; t
 fi
 log "kernel $kver_full (newer than $min, the only kernel NEVRA at the top level of out/rpms)"
 
+# M6 prerequisite: refuse before starting kiwi when the kernel worker has not published its DTB.
+m6src=$OUT/dtb-variants/$kver_full/qcom/x1p64100-microsoft-denali-m6
+[ -s "$m6src.dtb" ] && [ -s "$m6src.json" ] || {
+	log "REFUSED: M6 DTB and JSON not yet published by the kernel worker"; exit 6;
+}
+
+[ "$(sha256sum "$m6src.dtb" | cut -d' ' -f1)" = "$(jq -r .sha256 "$m6src.json")" ] || {
+	log "REFUSED: M6 DTB hash does not match the kernel worker JSON"; exit 6;
+}
+
 # ---- 1. Fedora's description at the pinned commit
 pin=$(tr -d '[:space:]' <"$REPO/image/kiwi/DESCRIPTION_COMMIT")
 src=$OUT/kiwi/fedora-kiwi-descriptions.git
 url=https://pagure.io/fedora-kiwi-descriptions.git
 head=$(git ls-remote "$url" refs/heads/f44 | cut -f1)
 [ -n "$head" ] || { log "cannot read branch f44 of $url"; exit 1; }
-if [ -d "$src" ]; then git -C "$src" fetch -q origin "+refs/heads/f44:refs/heads/f44" || log "WARNING: fetch failed, using the cached clone"; else git clone -q --bare -b f44 "$url" "$src"; fi
+[ -d "$src" ] || { log "cached description $src missing; request it from the sources owner (no git writes)"; exit 1; }
 log "description pin $pin, branch f44 head $head$([ "$pin" = "$head" ] && echo ' (same)' || echo ' (DIFFERENT: the pin is kept)')"
 git -C "$src" cat-file -e "$pin^{commit}" || { log "pinned commit not in the clone"; exit 1; }
 desc=$work/description
@@ -89,12 +99,29 @@ chmod 0755 "$desc/root/usr/libexec/sp11-log-collector"
 # collector as root against every /dev/drm_dp_aux*
 cp "$REPO/hardware/display-lcd/tools/collect-dpcd.py" "$desc/root/usr/libexec/sp11-collect-dpcd.py"
 chmod 0755 "$desc/root/usr/libexec/sp11-collect-dpcd.py"
+# Component collector requests (R-I1 and Wi-Fi I1/I2), copied unchanged from the merged dossiers.
+mkdir -p "$desc/root/etc/sp11-log-collector.d"
+for c in dsp-subsystems wifi; do
+	cp "$REPO/hardware/$c/collector/$c.sh" "$desc/root/etc/sp11-log-collector.d/$c.sh"
+done
+cp "$REPO/hardware/wifi/collector/wifi-unblock-probe.sh" "$desc/root/usr/libexec/sp11-wifi-unblock-probe.sh"
+# D24: read-only snapshots taken with git show main:<path>, pinned in sources.json.
+# No operator address input is read or staged by the build.
+inputs=$REPO/image/component-inputs
+install -m 0755 "$inputs/bluetooth/userspace/sp11-bt-address" "$desc/root/usr/libexec/sp11-bt-address"
+install -m 0755 "$inputs/bluetooth/userspace/sp11-bt-collect" "$desc/root/usr/libexec/sp11-bt-collect"
+install -m 0644 "$inputs/bluetooth/userspace/sp11-bt-address.service" "$desc/root/usr/lib/systemd/system/sp11-bt-address.service"
+mkdir -p "$desc/root/usr/libexec/sp11/ec-sam" "$desc/root/etc/systemd/system/sys-subsystem-bluetooth-devices-hci0.device.wants"
+for tool in collect-input-capabilities.sh collect-power.sh ssam-ro.py; do
+	install -m 0755 "$inputs/ec-sam/tools/$tool" "$desc/root/usr/libexec/sp11/ec-sam/$tool"
+done
+ln -sf /usr/lib/systemd/system/sp11-bt-address.service "$desc/root/etc/systemd/system/sys-subsystem-bluetooth-devices-hci0.device.wants/sp11-bt-address.service"
 mkdir -p "$desc/root/etc/systemd/system/multi-user.target.wants"
 # Plymouth is installed (required by Fedora's package groups) but switched off: units masked
 for u in start quit quit-wait read-write switch-root halt reboot poweroff kexec; do
 	ln -sf /dev/null "$desc/root/etc/systemd/system/plymouth-$u.service"
 done
-for u in sp11-log-collector.service sp11-log-collector-session-first.path sp11-log-collector-session-user.path; do
+for u in sp11-log-collector.service sp11-log-collector-session-first.path sp11-log-collector-session-user.path sp11-rfkill-events.service; do
 	ln -sf "/usr/lib/systemd/system/$u" "$desc/root/etc/systemd/system/multi-user.target.wants/$u"
 done
 
@@ -124,18 +151,16 @@ mkdir -p "$dtbtmp/boot/dtb/qcom"
 rpm2cpio "$kcore" | cpio -i --quiet --to-stdout "./lib/modules/$kver/dtb/qcom/x1p64100-microsoft-denali.dtb" \
 	>"$dtbtmp/boot/dtb/qcom/x1p64100-microsoft-denali.dtb"
 [ -s "$dtbtmp/boot/dtb/qcom/x1p64100-microsoft-denali.dtb" ] || { log "DTB not in $kcore"; exit 1; }
-# D19: the two variants of the kernel worker, next to the packaged DTB. The build fails without
-# them; with --smoke a copy of the packaged DTB stands in (recorded, never for the device).
+# M6: the kernel worker variant next to the packaged DTB. The build fails without
+# it; with --smoke a copy of the packaged DTB stands in (recorded, never for the device).
 variants_smoke_copy=0
-for v in m5 m5gpu parity edponly nobl; do
+for v in m6; do
 	vf=x1p64100-microsoft-denali-$v.dtb
 	vsrc=$OUT/dtb-variants/$kver/qcom/$vf
 	if [ -s "$vsrc" ]; then
 		cp "$vsrc" "$dtbtmp/boot/dtb/qcom/$vf"
 		mkdir -p "$work/dtb-records"
 		for r in "${vsrc%.dtb}.json" "$vsrc.json"; do [ -f "$r" ] && cp "$r" "$work/dtb-records/$vf.json"; done
-	elif [ "$v" != m5 ] && [ "$v" != m5gpu ]; then
-		log "DTB variant $vsrc is missing; $v is unreferenced in M5 and optional, not shipped"
 	elif [ "$smoke" = 1 ]; then
 		log "SMOKE: $vsrc missing, using a copy of the packaged DTB for the $v entry"
 		cp "$dtbtmp/boot/dtb/qcom/x1p64100-microsoft-denali.dtb" "$dtbtmp/boot/dtb/qcom/$vf"
@@ -233,9 +258,9 @@ mcopy -i "$chk/bi/eltorito_img1_uefi.img" ::EFI/BOOT/grub.cfg "$chk/esp-grub.cfg
 for f in "$chk"/_* "$chk/esp-grub.cfg"; do
 	if grep -v '^[[:space:]]*#' "$f" | grep -w -E 'quiet|rhgb|splash' >/dev/null; then log "FAIL: quiet/rhgb/splash in $f"; exit 1; fi
 done
-n=$(grep -c "^menuentry '" "$chk/_boot_grub2_grub.cfg"); [ "$n" = 6 ] || { log "FAIL: $n menu entries, expected 6 (M5)"; exit 1; }
-for e in debug gpu gpu-drm-trace nomodeset initramfs vmtest; do grep -q "sp11.entry=$e\$" "$chk/_boot_grub2_grub.cfg" || { log "FAIL: no entry with sp11.entry=$e"; exit 1; }; done
-for f in x1p64100-microsoft-denali-m5 x1p64100-microsoft-denali-m5gpu; do
+n=$(grep -c "^menuentry '" "$chk/_boot_grub2_grub.cfg"); [ "$n" = 7 ] || { log "FAIL: $n menu entries, expected 7 (M6)"; exit 1; }
+for e in debug usbdbg nodsp wifi-unblock nomodeset initramfs vmtest; do grep -q "sp11.entry=$e\$" "$chk/_boot_grub2_grub.cfg" || { log "FAIL: no entry with sp11.entry=$e"; exit 1; }; done
+for f in x1p64100-microsoft-denali-m6; do
 	xorriso -indev "$iso" -find "/boot/dtb/qcom/$f.dtb" -type f 2>/dev/null | grep -q . || { log "FAIL: /boot/dtb/qcom/$f.dtb not on the ISO"; exit 1; }
 done
 
@@ -279,7 +304,7 @@ series = f"{repo}/kernel/series"
 manifest = f"{repo}/firmware/manifest.toml"
 patches = sorted(os.listdir(f"{repo}/image/kiwi/patches"))
 record = {
-    "name": name, "kind": kind, "builder": "kiwi", "smoke": False, "build_id": bid,
+    "name": name, "kind": kind, "builder": "kiwi", "smoke": kind == "kiwi-smoke", "build_id": bid,
     "iso_sha256": sha, "iso_size": os.path.getsize(f"{out}/iso/{name}.iso"),
     "build_seconds": int(elapsed),
     "kernel_nevra": read(f"{out}/image-work/kernel-nevra.txt").strip(),
@@ -294,6 +319,14 @@ record = {
     "dtb_variant_records": {f: json.load(open(f"{work}/dtb-records/{f}")) for f in sorted(os.listdir(f"{work}/dtb-records"))} if os.path.isdir(f"{work}/dtb-records") else {},
     "kernel_cmdline_reasons": "image/README.md, GRUB 2 and the kernel command line",
     "grub_entries": entries,
+    "milestone": "M6",
+    "module_policy": {"qcom_battmgr": "blacklist + install false + dracut omit_drivers (D23)",
+                      "ucsi_glink": "retained early", "ath12k.debug_mask": "0x30; parameter unconditional; output needs ATH12K_DEBUG"},
+    "diagnostic_args_reason": {"usbdbg": "USB-C test-plan C + DSP R-I2, combined to contain trace volume",
+                               "nodsp": "DSP R-I3: PAS deferred until switch-root",
+                               "wifi-unblock": "Wi-Fi I2: opt-in transient rfkill/NM probe"},
+    "collector_sources": {c: sha256(f"{repo}/hardware/{c}/collector/{c}.sh") for c in ("dsp-subsystems", "wifi")},
+    "component_inputs": json.load(open(f"{repo}/image/component-inputs/sources.json")),
     "kiwi_description": {"url": "https://pagure.io/fedora-kiwi-descriptions.git", "branch": "f44", "pinned_commit": pin,
                          "branch_head_at_build": head, "profile": "Workstation-Live", "kiwi_file": "Fedora.kiwi",
                          "sp11_patches": patches},

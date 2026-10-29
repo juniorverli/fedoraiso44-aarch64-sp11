@@ -18,7 +18,7 @@ def out(s):
 
 out("UEFI firmware (fake)\r\n")
 time.sleep(1)
-for e in ["SP11 debug", "SP11 debug + DRM trace", "SP11 debug nomodeset", "SP11 debug, stop in initramfs", "VM test (no devicetree)"]:
+for e in ["SP11 debug", "SP11 debug, USB + DSP trace", "SP11 debug, no early DSP", "SP11 debug, Wi-Fi unblock probe", "SP11 debug nomodeset", "SP11 debug, stop in initramfs", "VM test (no devicetree)"]:
     out(f"\x1b[1;1H  {e}\r\n")
 tty.setraw(0)  # QEMU puts the terminal in raw mode for -serial stdio
 os.set_blocking(0, False)
@@ -34,7 +34,7 @@ while True:
         break
     choice = buf.count(b"\x1b[B")
     time.sleep(0.2)
-entry = ["debug", "drm-trace", "nomodeset", "initramfs", "vmtest"][choice]
+entry = ["debug", "usbdbg", "nodsp", "wifi-unblock", "nomodeset", "initramfs", "vmtest"][choice]
 out(f"Booting entry {choice}\r\n")
 out(f"[    0.000000] Kernel command line: root=live:CDLABEL=X debug sp11.entry={entry}\r\n")
 time.sleep(1)
@@ -43,7 +43,7 @@ out("[  OK  ] Started gdm.service - GNOME Display Manager.\r\n")
 bid = "0123abcd-0123-4abc-8def-0123456789ab"
 tmp = "/tmp/fakelogs"
 os.makedirs(tmp, exist_ok=True)
-files = {"COMPLETE": "now\n", "STATUS": "cycle: 1\n", "btf.txt": "btf: present\n", "gdm-status.txt": "x gdm.service\n   Active: active (running)\n",
+files = {"COMPLETE": "now\n", "STATUS": "cycle: 1\ntarget: logs\n", "btf.txt": "btf: present\n", "gdm-status.txt": "x gdm.service\n   Active: active (running)\n",
          "dmesg.txt": "d\n", "journal.txt": "j\n", "cmdline.txt": f"root=live:CDLABEL=X debug loglevel=8 sp11.entry={entry}\n",
          "lscpu.txt": "l\n", "units-failed.txt": "  UNIT LOAD ACTIVE SUB\n0 loaded units listed.\n"}
 subprocess.run(["mmd", "-i", logs, f"::{bid}"])
