@@ -8,7 +8,7 @@
 | S2 | The IR illuminator and the camera flash stay disabled until their eye-safety limits are established. | IR exposure is invisible |
 | S3 | No firmware is written to any device (UEFI, EC, TCON, retimers, touch, Type Cover, pen, NVMe) except through the vendor's signed path with explicit human approval. | Bricking |
 | S4 | The Windows partition is read-only. Never mount it read-write; never touch it while hibernated or BitLocker-encrypted. | Data loss |
-| S5 | No Windows binary, firmware, key, MAC address or serial number enters git, the kernel fork or any public place. | Licence and privacy |
+| S5 | No Windows binary, firmware, key, MAC address or serial number enters git, the kernel fork or any public place. Exception (operator-authorised, 2026-10-29): a `--private` image build for the operator's own device may embed that device's MAC addresses and locally derived Wi-Fi board data inside the ISO; the ISO is named `-private`, never shared, and records hold only hashes. | Licence and privacy |
 | S6 | Battery charging limits and thermal limits are never raised above the Windows values. | Hardware damage |
 
 ## 2. Project risks

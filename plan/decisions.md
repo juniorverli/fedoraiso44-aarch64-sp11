@@ -189,3 +189,7 @@ Append-only. Each entry: number, date, decision, reason, consequence. A later en
   - Codex sandbox rules from `agents/README.md` apply: no git writes; the orchestrator reviews and commits on `worker/<id>`.
   - Interrupted Sonnet sessions leave their uncommitted files in the worktree, and the Codex session continues from them.
   - Cross-checks of Codex-produced values run on Claude (protocol §5.1).
+
+## D25 (2026-10-29): private image mode
+
+The operator asked that the image generator embed the device's Windows-derived settings so Wi-Fi and Bluetooth work out of the box. Decision: `scripts/image-build.sh --private` reads the git-ignored `sp11-mac.conf` and the locally derived ath12k board file and installs them in the ISO (BT address, persistent Wi-Fi MAC, board-2.bin override). Public mode stays the default and keeps every S5 assertion. Private ISOs are named `-private`, record only hashes and are never shared. S5 carries the exception.
