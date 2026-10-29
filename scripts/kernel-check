@@ -130,17 +130,19 @@ fi
 
 # M8 checks the packaged LCD DT and the actual RPM payloads for the new
 # transport. The full BTF audit above covers every extracted touch module.
-if [[ $KERNEL_SERIES_REV == 5 ]]; then
+if [[ $KERNEL_SERIES_REV == 5 || $KERNEL_SERIES_REV == 6 ]]; then
+  milestone=m8; cma_args=()
+  if [[ $KERNEL_SERIES_REV == 6 ]]; then milestone=m9; cma_args=(--cma-dma32); fi
   packaged="$CK/root/lib/modules/$kver/dtb/$dtb"
   dt-validate -s "$D/Documentation/devicetree/bindings/processed-schema.json" \
     "$packaged" > "$CK/packaged.dt-validate.log" 2>&1
-  [[ ! -s $CK/packaged.dt-validate.log ]] || die "M8 packaged DTB schema diagnostics"
+  [[ ! -s $CK/packaged.dt-validate.log ]] || die "$milestone packaged DTB schema diagnostics"
   dtc -I dtb -O dts -qq "$packaged" -o "$CK/packaged.dts"
   python3 -I "$KERNEL_REPO/scripts/kernel-dtb-safety.py" "$CK/packaged.dts" \
     --also=gpu@3d00000 --also=soundwire@6b10000 > "$CK/packaged.safety.json"
   python3 -I "$KERNEL_REPO/scripts/kernel-m8-check.py" "$packaged" \
-    --variant packaged > "$CK/packaged.wiring.json"
-  python3 -I "$KERNEL_REPO/scripts/kernel-m8-rpm-check.py" "$CK" "$kver" "$RPMDIR"
+    --variant packaged "${cma_args[@]}" > "$CK/packaged.wiring.json"
+  python3 -I "$KERNEL_REPO/scripts/kernel-m8-rpm-check.py" "$CK" "$kver" "$RPMDIR" "$milestone"
 fi
 
 # 4. record
@@ -190,6 +192,7 @@ rec = {
   'rpm_metadata_sha256': sha("$CK/rpm-metadata.txt"),
   'm7': json.load(open("$CK/m7.json")) if os.path.exists("$CK/m7.json") else None,
   'm8': json.load(open("$CK/m8.json")) if os.path.exists("$CK/m8.json") else None,
+  'm9': json.load(open("$CK/m9.json")) if os.path.exists("$CK/m9.json") else None,
   'rpms': rpms,
 }
 json.dump(rec, open(sys.argv[1], 'w'), indent=2); print('record', sys.argv[1])

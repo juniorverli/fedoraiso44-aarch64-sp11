@@ -80,6 +80,7 @@ The RPM release carries the series revision through Fedora's `buildid`: `65.sp11
 | 3 | display-lcd 0001-0003 (M3, D19) | `kernel-7.3.0-65.sp11.3.fc44.aarch64` |
 | 4 | M7: display 0001–0003, Wi-Fi 0001, USB-C 0001, SAM 0001/0003, touch diagnostic 0014, S1 | `kernel-7.3.0-65.sp11.4.fc44.aarch64` |
 | 5 | M8: retained M7 fixes/S1, GPU off, spi-hid v7 0001–0011 and touch 0016–0020; RFC 0014 retired | `kernel-7.3.0-65.sp11.5.fc44.aarch64` |
+| 6 | M9: retain M8; Surface ath12k rfkill workaround, DMA32 CMA window, PMIC-GLINK/PS8830 diagnostics | `kernel-7.3.0-65.sp11.6.fc44.aarch64` |
 
 - `kernel/base.toml` holds `series_rev` and `series_sha256` (sha256 of the `<path> <patch sha256>` lines of `kernel/series`). Changing `kernel/series` or a patch in it without bumping both makes `scripts/kernel-build.sh` and `scripts/kernel-check` fail and print the new hash.
 - A build that succeeds archives the RPMs of every other `series_rev` from `out/rpms/` into `out/rpms/archive/<ver>-<rel>.sp11[.<rev>]/` before it copies the new ones. The record `out/rpms/<nevra>.json` has `series_rev` and the series hash.
@@ -121,8 +122,8 @@ Against the packaged DTB (`/lib/modules/<kver>/dtb/qcom/x1p64100-microsoft-denal
 - soc-boot (via orchestrator): also carry the parity deletion of `domain-idle-states` from `&system_pd` (no system SS3; retain CL4/CL5) in the component patch. M7 carries these changes in its DTB variants until the component patch arrives; the packaged DT retains the upstream CPU/idle description.
 - audio-speakers (via orchestrator): take ownership of `kernel/patches/0001-arm64-dts-qcom-denali-lcd-disable-unprotected-speakers.patch`. The operator explicitly authorized kernel to write this integration patch for M7. It copies the M5/M6 overrides into the packaged LCD DTB: `/sound` and `&swr0` disabled. Preserve both until speaker protection is evidenced, arrange the independent safety cross-check, and validate with `scripts/kernel-dtb-safety.py`.
 - gpu (via orchestrator): take ownership of `kernel/patches/0002-arm64-dts-qcom-denali-lcd-disable-gpu.patch`. It carries the existing D22 GPU-off policy into the packaged LCD DTB; M8 and its fallback inherit it. No GPU operating point, limit or firmware change is introduced.
-- image (via orchestrator): M8 supersedes M7. Use revision-5 RPMs with `x1p64100-microsoft-denali-m8.dtb` by default and `x1p64100-microsoft-denali-m8-notouch.dtb` as the touch-disabled fallback. Include `fixed` in the initramfs and its L0 display-chain assertion: M8 follows the touch development fragment's `CONFIG_REGULATOR_FIXED_VOLTAGE=m`, while M7 had it built in. Ensure the SPI-HID/OF, GENI, GPI, fixed-regulator and uinput runtime chain is available; stage native iptsd per the touch dossier. Preserve D19–D24 policy, including the qcom_battmgr blacklist. Run image L0/L1 before a device boot. Stage the collector and call exactly `shsnap touch-pen.txt 'bash /usr/libexec/sp11-touch-pen-collect'`. Kernel performed no device test.
-- orchestrator: the M8 checkout started clean at `bd657c2`, already equal to main, so no rebase was needed. Review and commit these worker changes under D24. Triage the unchanged spi-hid v7 strict findings (6 warnings, 11 checks, 0 errors) and commission the touch owner's pending independent Claude cross-check of QSPI constants/TREs and the v7 rebind port before clearing the component/device gates.
+- image (via orchestrator): M9 supersedes M8 after the checks below. Use revision-6 RPMs with `x1p64100-microsoft-denali-m9.dtb` by default and `x1p64100-microsoft-denali-m9-notouch.dtb` as the touch-disabled fallback. Ship the rebuilt `ath12k`, `ps883x` and `pmic_glink_altmode`; replace matching early USB-C modules in the initramfs, and assert the 2–4 GiB CMA allocation range in every shipped device DTB. Retain M8 artifacts for rollback. Include `fixed` in the initramfs and its L0 display-chain assertion: M8 follows the touch development fragment's `CONFIG_REGULATOR_FIXED_VOLTAGE=m`, while M7 had it built in. Ensure the SPI-HID/OF, GENI, GPI, fixed-regulator and uinput runtime chain is available; stage native iptsd per the touch dossier. Preserve D19–D24 policy, including the qcom_battmgr blacklist. Run image L0/L1 before a device boot. Stage the collector and call exactly `shsnap touch-pen.txt 'bash /usr/libexec/sp11-touch-pen-collect'`. Kernel performed no device test.
+- orchestrator: the M9 checkout started clean at `1e52dce`, already equal to main, so no rebase was needed. Review and commit these worker changes under D24. Triage the unchanged spi-hid v7 strict findings (6 warnings, 11 checks, 0 errors) and commission the touch owner's pending independent Claude cross-check of QSPI constants/TREs and the v7 rebind port before clearing the component/device gates. Retain the Wi-Fi owner's independent DMA32-window/wiring cross-check and sources pin request SRC1, and the USB-C owner's wiring cross-check/Windows-comparison requests. M9 integration and static checks do not close hardware acceptance gates.
 
 ## M5 DTB variants (D21)
 
@@ -281,6 +282,24 @@ JSON record SHA-256:
 Final hand-back checks: `scripts/index.py --check` reports **21 components, 0 errors**; tracked whitespace, shell syntax and new Python blocks pass. Both the shared build lock and M8 source lock are free. No task container, build, sampler or watchdog remains running. Kernel is a service worker and has no `component.toml`; hardware component status remains owner-managed. Changes remain uncommitted for orchestrator review under D24. Image L0/L1, the fixed-module initramfs addition, v7 lint triage and the pending independent touch cross-check remain the open requests above. No device boot was performed.
 
 
+
+## M9 series revision 6 (2026-10-29)
+
+The clean worker checkout already matched `main` at `1e52dce5c23e52130aab3374187c41b0d756d168`; no rebase or other git write was needed. Revision 6 retains all 25 M8 patches in their original order and appends only these three patches after touch 0020:
+
+| Position | Patch | Ordering reason |
+|--:|:--|:--|
+| 26 | `hardware/wifi/patches/0002-wifi-ath12k-skip-broken-surface-rfkill.patch` | Add the upstream Surface/WCN7850 hardware-rfkill setup bypass in ath12k; independent of touch. Software airplane mode remains available. |
+| 27 | `hardware/wifi/patches/0003-arm64-dts-qcom-denali-keep-cma-in-dma32.patch` | Keep the existing reusable 128 MiB CMA pool within 2–4 GiB; follows the Wi-Fi code fix and preserves DT context from the earlier series. Dynamic placement remains with memblock. |
+| 28 | `hardware/usb-typec/patches/0002-usb-typec-log-pmic-glink-and-ps8830-state.patch` | Add successful-path state diagnostics to PMIC-GLINK altmode and PS8830 after the existing USB-C patch; independent driver files. This is diagnostic only, with no SuperSpeed fix claimed. |
+
+All 28 patches apply to the pinned v7.3 export with `patch --batch --fuzz=0 -p1`; the three additions have no offsets. Existing M8 offsets are unchanged. Application log: `out/build/dtb-m9-checks/series-apply.log`. Strict checkpatch on the three added patches (patch content via stdin, `--strict --no-signoff`) reports **0 errors, 0 warnings, 0 checks**; log: `out/build/dtb-m9-checks/new-checkpatch.log`. The unchanged v7 baseline findings and independent component cross-check gates recorded for M8 remain open. No component patch or configuration fragment is changed. Series SHA-256: `3955c66bbdd1ba988b95387d02fbf409fc62fee6274dc88707c48a327f176cac`.
+
+M8 release RPM hashes were verified before removing its reproducible RPM BUILD tree and duplicate build-tree RPMs under the shared lock. Its release RPMs, DTBs and JSON remain available for rollback; build logs, statistics and extracted checks are preserved in `out/build/kernel/history/m8/`. The release disk guard and watchdog are unchanged, with no threshold override.
+
+Before release, `scripts/kernel-dev.sh --check m9 dtbs` completed in **46 s**; all **75** development fragment symbols hold. Explicit `dt-validate` gives zero diagnostic lines. Compiled-DTB S1/GPU/touch/Wi-Fi/USB-C gates pass, and comparison with the preserved RPM-extracted M8 DTB finds exactly the CMA `alloc-ranges` addition. Two negative fixtures (CMA above 4 GiB and CMA enlarged to 256 MiB) are rejected. Evidence: `out/build/dtb-m9-checks/preflight-*`, `preflight.*` and `negative/`.
+
+Release build and DTB variants: pending in this session.
 
 ## Log
 

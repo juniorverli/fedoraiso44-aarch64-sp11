@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check M8 DT wiring, S1, GPU isolation, parity and the QSPI touch path.
+"""Check M8/M9 DT wiring, S1, GPU isolation, parity and the QSPI touch path.
 
 Run inside the Fedora kernel container. Input is a DTB, not source text.
 The JSON is suitable for inclusion in the release/variant build records.
@@ -49,13 +49,32 @@ def read_tree(dtb):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('dtb', type=Path)
-    parser.add_argument('--variant', choices=['packaged', 'm8', 'm8-notouch'], required=True)
+    parser.add_argument('--variant', choices=['packaged', 'm8', 'm8-notouch', 'm9', 'm9-notouch'],
+                        required=True)
     parser.add_argument('--baseline', type=Path)
+    parser.add_argument('--previous', type=Path, help='M8 DTB: require only the CMA range addition')
+    parser.add_argument('--cma-dma32', action='store_true', help='Require the M9 DMA32 CMA window')
     args = parser.parse_args()
-    require(args.variant != 'm8-notouch' or args.baseline is not None,
-            'Fallback check requires the M8 baseline DTB')
+    fallback = args.variant.endswith('-notouch')
+    require(not fallback or args.baseline is not None, 'Fallback check requires its baseline DTB')
     source, nodes = read_tree(args.dtb)
     symbols = {k: strings(v)[0] for k, v in nodes['/__symbols__'].items()}
+
+    cma_record = None
+    if args.cma_dma32 or args.variant.startswith('m9'):
+        pools = [(p, props) for p, props in nodes.items() if 'linux,cma-default' in props]
+        require(len(pools) == 1, 'Missing/ambiguous default CMA pool')
+        path, pool = pools[0]
+        require(path == '/reserved-memory/linux,cma', 'Unexpected default CMA path')
+        require(pool.get('compatible') == '"shared-dma-pool"' and 'reusable' in pool,
+                'CMA pool type/reusability changed')
+        require(cells(pool['size']) == [0, 0x8000000], 'CMA is not 128 MiB')
+        require(cells(pool.get('alloc-ranges', '<>')) == [0, 0x80000000, 0, 0x80000000],
+                'CMA allocation window is not 2–4 GiB')
+        require('reg' not in pool, 'CMA location must remain dynamically allocated')
+        cma_record = dict(path=path, size_bytes=0x8000000, reusable=True,
+                          allocation_start=0x80000000, allocation_end_exclusive=0x100000000,
+                          dynamic_placement=True)
 
     def node(label):
         require(label in symbols, f'Missing label {label}')
@@ -107,14 +126,14 @@ def main():
         require('domain-idle-states' not in node('system_pd'), 'System SS3 still referenced')
         # Keep both cluster idle states in the DT.
         require('cluster_cl4' in symbols and 'cluster_cl5' in symbols, 'Cluster idle state removed')
-    require(not enabled(symbols['gpu']), 'GPU enabled in M8 LCD DTB')
+    require(not enabled(symbols['gpu']), 'GPU enabled in LCD DTB')
 
     spi_path = symbols['spi10']
     spi = node('spi10')
     touch_path = spi_path + '/touchscreen@0'
     require(touch_path in nodes, 'Missing touch child')
     touch = nodes[touch_path]
-    active_touch = args.variant != 'm8-notouch'
+    active_touch = not fallback
     require(enabled(spi_path), 'SE2 controller disabled')
     require(spi['compatible'] == '"qcom,geni-spi-qspi"', 'SE2 is not the QSPI personality')
     require(enabled(symbols['gpi_dma1']), 'QUP1 GPI disabled')
@@ -174,9 +193,23 @@ def main():
             for key in sorted(set(a) | set(b)):
                 if a.get(key) != b.get(key):
                     changes.append({'path': path, 'property': key, 'before': a.get(key), 'after': b.get(key)})
-        if args.variant == 'm8-notouch':
+        if fallback:
             expected = [{'path': touch_path, 'property': 'status', 'before': None, 'after': '"disabled"'}]
             require(changes == expected, f'Unexpected fallback changes: {changes}')
+
+    previous_changes = []
+    if args.previous:
+        _, previous = read_tree(args.previous)
+        require(set(previous) == set(nodes), 'DT nodes changed from M8')
+        for path in sorted(nodes):
+            a, b = previous[path], nodes[path]
+            for key in sorted(set(a) | set(b)):
+                if a.get(key) != b.get(key):
+                    previous_changes.append(dict(path=path, property=key,
+                                                 before=a.get(key), after=b.get(key)))
+        require(previous_changes == [dict(path='/reserved-memory/linux,cma', property='alloc-ranges',
+                                         before=None, after='<0x00 0x80000000 0x00 0x80000000>')],
+                f'Unexpected changes from M8: {previous_changes}')
 
     print(json.dumps(dict(variant=args.variant, s1_ok=True, watched_count=len(watched),
                           wifi=dict(perst_gpio=146, wake_gpio=148, active_low=True, pinctrl='pcie4_default'),
@@ -187,6 +220,8 @@ def main():
                           enabled_touch_supply_consumers=consumers,
                           touch_enabled=active_touch, touch_supply_startup_us=500000,
                           qspi_dma_selector=4, no_touch_firmware_request=True,
+                          cma_dma32=cma_record,
+                          diff_vs_previous=previous_changes,
                           diff_vs_baseline=changes), indent=2))
 
 
