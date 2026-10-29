@@ -12,6 +12,8 @@ set -uo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 if [ "${SP11_OUT:-}" = "" ] || [ ! -d /sp11 ]; then
+	# a private ISO (name carries "-private") is checked against the operator's address file
+	case ${1:-$(ls -t "$here"/out/iso/*.iso 2>/dev/null | head -n1)} in *-private*) export SP11_MOUNT_MAC_CONF=1 ;; esac
 	exec "$here/scripts/image-container.sh" run /sp11/scripts/image-test-static.sh "$@"
 fi
 OUT=$SP11_OUT
@@ -631,7 +633,34 @@ hits_mod=$(cd "$ROOT" && sed 's|^/||' "$W/rpm-modified.txt" | xargs -r -d '\n' g
 [ -z "$mac_mod$hits_mod" ] && pass 7.4 "no MAC address or private string in the $mods RPM-owned files whose content rpm -Va reports changed ($(tr '\n' ' ' <"$W/rpm-modified.txt" | cut -c1-200))" || fail 7.4 "private strings in modified RPM files: $mac_mod $hits_mod"
 priv_iso=$(grep -rIlF -e 'sp11-windows-dumps' -e 'sources/windows' -e 'juniormverli' "$W/iso-tree" 2>/dev/null | head -n3)
 [ -z "$priv_iso" ] && pass 7.3 "no private string in the ISO boot files" || fail 7.3 "private strings in ISO boot files: $priv_iso"
-if [ "$builder" = kiwi ]; then
+private=$(jq_ '.private // false | if type == "object" then "true" else "false" end')
+if [ "$private" = true ]; then
+	# Private build (image/README.md, "Private build mode"): the root MUST carry the operator's
+	# settings, and the values must stay out of everything else. Values are compared by hash, never printed.
+	pt=$REPO/image/tools/private-stage.py
+	mc=${SP11_MAC_CONF_IN:-}
+	board=$OUT/firmware-private/wifi/ath12k/WCN7850/hw2.0/board-2.bin
+	case $name in *-private*) pass 7.6 "ISO name carries -private" ;; *) fail 7.6 "private record but the ISO name lacks -private" ;; esac
+	if [ -z "$mc" ] || [ ! -r "$mc" ]; then fail 7.7 "address file not available to L0 (private L0 must run through scripts/image-test-static.sh)"
+	else
+		# verify uses the recorded board hash when the local board file moved
+		bargs=(); [ -r "$board" ] && bargs=(--board "$board")
+		if python3 -I "$pt" verify --root "$ROOT" --mac-conf "$mc" --record "$rec" --owner-root "${bargs[@]}" >"$W/private-verify.txt" 2>&1; then
+			pass 7.7 "private artefacts present with modes/formats; bt-address, Wi-Fi conf/.link equal the source file (hash compare); board file equals the derived file; record has hashes only"
+		else fail 7.7 "private artefacts wrong: $(grep '^FAIL' "$W/private-verify.txt" | head -n 4 | tr '\n' ';')"; fi
+		# nothing outside the root file system may hold a value: JSON record, ISO boot tree, embedded ESP, report
+		rm -rf "$W/esp-copy"; mkdir -p "$W/esp-copy"
+		mcopy -s -n -i "$esp_img" :: "$W/esp-copy/" >/dev/null 2>&1
+		if python3 -I "$pt" leaks --mac-conf "$mc" "$rec" "$W/iso-tree" "$W/esp-copy" "$iso.sha256" >"$W/private-leaks.txt" 2>&1; then
+			pass 7.8 "no address value in the JSON record, ISO boot tree or embedded ESP"
+		else fail 7.8 "address value outside the root file system: $(grep '^LEAK' "$W/private-leaks.txt" | head -n 3 | tr '\n' ' ')"; fi
+		if python3 -I "$pt" repo-clean --mac-conf "$mc" --repo "$REPO" >"$W/private-repo.txt" 2>&1; then
+			pass 7.9 "no address value in any tracked or untracked-unignored file of the repository"
+		else fail 7.9 "address value in the repository: $(grep '^LEAK' "$W/private-repo.txt" | head -n 3 | tr '\n' ' ')"; fi
+		# the report itself (this file, so far) must be clean too
+		python3 -I "$pt" leaks --mac-conf "$mc" "$report" >/dev/null 2>&1 && pass 7.10 "L0 report holds no address value" || fail 7.10 "L0 report holds an address value"
+	fi
+elif [ "$builder" = kiwi ]; then
 	# S5: inspect the real root, ISO boot tree and embedded FAT, never the operator's input.
 	address_inputs=$(find "$ROOT" "$W/iso-tree" \( -iname bt-address -o -iname sp11-mac.conf -o -iname BT_MAC \) -print)
 	if mdir -/ -b -i "$esp_img" :: >"$W/esp-files.txt" 2>"$W/esp-files.err" &&

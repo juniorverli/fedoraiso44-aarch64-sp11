@@ -16,10 +16,11 @@ set -euo pipefail
 
 OUT=${SP11_OUT:-/out}
 REPO=/sp11
-name_arg= post_only= smoke=0
+name_arg= post_only= smoke=0 private=0
 while [ $# -gt 0 ]; do
 	case $1 in
 	--post-only) post_only=${2:?build id}; shift ;;   # redo steps 6b-9 of a finished kiwi run
+	--private) private=1 ;;   # operator-only build: stage from out/private-stage (image/README.md)
 	--smoke) smoke=1 ;;   # D19: a missing DTB variant is replaced by a copy of the packaged DTB (pipeline test only)
 	*) name_arg=$1 ;;
 	esac
@@ -29,11 +30,22 @@ done
 id=${post_only:-$(date -u +%Y%m%dT%H%M%SZ)}
 kind=kiwi; [ "$smoke" = 1 ] && kind=kiwi-smoke
 name=${name_arg:-sp11-fedora44-aarch64-$kind-$id}
+if [ "$private" = 1 ]; then
+	case $name in *-private*) ;; *) name=$name-private ;; esac
+fi
 work=$OUT/image-work/$id
 isodir=$OUT/iso
 mkdir -p "$work/tmp" "$isodir" "$OUT/kiwi"
 cd "$work"   # /sp11 is a worktree whose .git file points outside the container
 log() { echo "image-build[kiwi]: $*" >&2; }
+# private mode: whatever happens, the staged values and the copies in the work tree are removed
+scrub_private() {
+	rm -rf "$OUT/private-stage"
+	rm -f "$work/description/root/etc/sp11/bt-address" "$work/description/root/etc/NetworkManager/conf.d/90-sp11-wifi-mac.conf" \
+		"$work/description/root/etc/systemd/network/10-sp11-wifi.link" \
+		"$work/description/root/usr/lib/firmware/updates/ath12k/WCN7850/hw2.0/board-2.bin"
+}
+[ "$private" = 1 ] && trap scrub_private EXIT
 
 # The local Fedora-native iptsd RPM must be prepared before the single compose.
 iptsd_rpm=$OUT/rpms/iptsd-3.1.0-1.fc44.aarch64.rpm
@@ -127,7 +139,7 @@ for c in dsp-subsystems wifi; do
 done
 cp "$REPO/hardware/wifi/collector/wifi-unblock-probe.sh" "$desc/root/usr/libexec/sp11-wifi-unblock-probe.sh"
 # D24: read-only snapshots taken with git show main:<path>, pinned in sources.json.
-# No operator address input is read or staged by the build.
+# Public build: no operator address input is read or staged. Private mode: see below.
 inputs=$REPO/image/component-inputs
 install -m 0755 "$inputs/bluetooth/userspace/sp11-bt-address" "$desc/root/usr/libexec/sp11-bt-address"
 install -m 0755 "$inputs/bluetooth/userspace/sp11-bt-collect" "$desc/root/usr/libexec/sp11-bt-collect"
@@ -145,6 +157,18 @@ done
 for u in sp11-log-collector.service sp11-log-collector-session-first.path sp11-log-collector-session-user.path sp11-rfkill-events.service; do
 	ln -sf "/usr/lib/systemd/system/$u" "$desc/root/etc/systemd/system/multi-user.target.wants/$u"
 done
+
+# Private mode (operator device only): copy the staged tree made by the host side. It holds the
+# Bluetooth address file, the Wi-Fi address (NetworkManager conf and .link) and the derived board file.
+if [ "$private" = 1 ]; then
+	ps=$OUT/private-stage
+	[ -s "$ps/private-record.json" ] && [ -d "$ps/root" ] || { log "REFUSED: private stage missing; run scripts/image-build.sh --private"; exit 6; }
+	cp -a "$ps/root/." "$desc/root/"
+	chown -R 0:0 "$desc/root/etc/sp11" "$desc/root/usr/lib/firmware/updates"
+	chown 0:0 "$desc/root/etc/NetworkManager/conf.d/90-sp11-wifi-mac.conf" "$desc/root/etc/systemd/network/10-sp11-wifi.link"
+	cp "$ps/private-record.json" "$work/private-record.json"   # hash prefixes only
+	log "PRIVATE build: staged device settings copied into the root (values not logged)"
+fi
 
 [ -d "$OUT/firmware-root/lib/firmware" ] || { log "$OUT/firmware-root missing; run scripts/firmware-stage.sh"; exit 1; }
 mkdir -p "$desc/root/usr/lib/firmware"
@@ -292,9 +316,9 @@ mv -f "$iso" "$isodir/$name.iso"
 sha=$(cut -d' ' -f1 "$isodir/$name.iso.sha256")
 
 # ---- 9. build record
-python3 - "$isodir/$name.json" "$name" "$sha" "$id" "$elapsed" "$work" "$REPO" "$OUT" "$pin" "$head" "${variants_smoke_copy:-0}" "$kind" <<'PYEOF'
+python3 - "$isodir/$name.json" "$name" "$sha" "$id" "$elapsed" "$work" "$REPO" "$OUT" "$pin" "$head" "${variants_smoke_copy:-0}" "$kind" "$private" <<'PYEOF'
 import hashlib, json, os, re, subprocess, sys
-rec, name, sha, bid, elapsed, work, repo, out, pin, head, variants_smoke_copy, kind = sys.argv[1:13]
+rec, name, sha, bid, elapsed, work, repo, out, pin, head, variants_smoke_copy, kind, private = sys.argv[1:14]
 
 def sha256(p):
     h = hashlib.sha256()
@@ -368,6 +392,10 @@ record = {
     "tools": {t: subprocess.run(["rpm", "-q", t], capture_output=True, text=True).stdout.strip()
               for t in ("kiwi-cli", "dnf5", "grub2-efi-aa64", "shim-aa64", "dracut", "xorriso", "erofs-utils")},
 }
+if private == "1":
+    # hash prefixes and the board hash only (image/tools/private-stage.py); never an address
+    record["private"] = json.load(open(f"{work}/private-record.json"))
+    record["distribution"] = "forbidden: contains device addresses and Windows-derived board data"
 json.dump(record, open(rec, "w"), indent=1)
 PYEOF
 log "done: $isodir/$name.iso ($sha)"

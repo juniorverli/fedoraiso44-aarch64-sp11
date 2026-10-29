@@ -719,9 +719,35 @@ The first QEMU run reached both sessions and the complete capture at 1861 second
 
 The host verifier accepts that exact exit-1 capture only for `sp11.entry=vmtest`, with both SP11 controller paths explicitly absent in the captured DT, a valid full boot journal and no iptsd instance/daemon in that journal. Other exit codes, unavailable captures, device entries, missing controller/journal evidence, existing iptsd instances, failed input capture, leaked input properties and addresses still fail; ten negative fixtures exercise these cases. Normal nonempty iptsd journals remain accepted. This corrects only host-side interpretation of an expected hardware absence; the collector and single ISO remain unchanged. The helper's exit-1 marker is retained as evidence, and actual iptsd activation/processing remains a device gate.
 
+## Private build mode (operator device only)
+
+`scripts/image-build.sh --private` (or `SP11_PRIVATE=1`) builds an ISO for the operator's own Surface Pro 11 with the Windows-derived settings embedded, so Wi-Fi and Bluetooth work without the post-write provisioning of the M6 procedure. Kiwi builder only. The default build stays public: no address, no derived blob, L0 checks 7.5 unchanged.
+
+**Threat model.** A private ISO contains this device's Wi-Fi and Bluetooth addresses and Windows-derived Wi-Fi board data. It must not be shared, uploaded, attached to a ticket or used on another device. Values stay out of git, logs, the JSON build record and every README; those hold only "present", SHA-256 prefixes (8 hex digits for an address) and the board file hash. The values exist only in the staging tree (removed after the build, also on failure), in the ISO root file system, and in the L0 work directory `out/image-work/l0-<name>/root`, which the operator deletes with the ISO. The ISO name carries `-private`, the record has a `private` object and `distribution: forbidden`.
+
+| Input | Default | Override |
+|:--|:--|:--|
+| Addresses `WIFI_MAC`, `BT_MAC` | `~/sp11-windows-dumps/live-inventory/sp11-mac.conf` (git-ignored; also `sources/windows/live-inventory/sp11-mac.conf`) | `SP11_MAC_CONF` |
+| Derived board file (wifi request F2/I7) | `out/firmware-private/wifi/ath12k/WCN7850/hw2.0/board-2.bin` | `SP11_WIFI_BOARD2`, optional pin `SP11_WIFI_BOARD2_SHA256` |
+
+The host side of `image-build.sh` runs `image/tools/private-stage.py stage` (the container cannot see the dumps). It validates the addresses (six bytes, not a sentinel, unicast) and the board file (ath12k board magic) and fails the build with a clear message when the board file is missing or invalid. It stages these files, handed to the kiwi root overlay and chowned to root:
+
+| Image path | Mode | Content |
+|:--|:--|:--|
+| `/etc/sp11/bt-address` | 0600 | one upper-case colon address and a newline; the format `/usr/libexec/sp11-bt-address` reads, so the controller is configured without the boot-ESP file |
+| `/etc/NetworkManager/conf.d/90-sp11-wifi-mac.conf` | 0600 | `wifi.cloned-mac-address=` for `driver:ath12k*`, `wifi.scan-rand-mac-address=no` |
+| `/etc/systemd/network/10-sp11-wifi.link` | 0600 | `[Match] Driver=ath12k* Type=wlan`, `MACAddress=`; persistent from the first udev event (Fedora-native replacement of the reference's `sp11-mac-fixup` udev rules, D12) |
+| `/usr/lib/firmware/updates/ath12k/WCN7850/hw2.0/board-2.bin` | 0644 | derived board file; the kernel firmware loader searches `updates/` first, so it wins over Fedora's packaged `board-2.bin.xz`, which stays intact (the Fedora path itself must hold no override) |
+
+L0 for a private ISO (`scripts/image-test-static.sh`, which mounts the address file read-only for this check only): 7.6 name has `-private`; 7.7 the artefacts exist with these modes, formats and root ownership, values equal the source file and the board equals the derived file (all by hash, nothing printed), the record holds hashes only; 7.8 no value in the JSON record, ISO boot tree or embedded ESP; 7.9 no value in the repository; 7.10 none in the L0 report. Public ISOs skip 7.6-7.10 and keep 7.5 (no address input in root, boot tree or ESP). Selftests: `image/tools/private-stage-selftest.sh` (stage, verify, leak and refusal cases, public default retained).
+
+Rollback: rebuild without `--private`. Q3 of the wifi dossier (is the OTP address the factory one) is not decided by this mode; it only makes the userspace address persistent.
+
 ## Requests
 
 - sources/orchestrator (M8 prerequisite): fulfilled by main `3cd9c9f`. The native RPM consumes the `[iptsd]` table from `sources/sources.toml`; archive/spec hashes and the upstream commit match. The earlier `image/iptsd/source-pin-request.patch` is historical and must not be applied again.
+
+- orchestrator (S5, private mode): `plan/risks.md` S5 forbids addresses and derived blobs in the image. The operator, owner of this personal device, asked for a private build that embeds them. Please reword S5 as: "Public images never contain device addresses or Windows-derived data. A private image, built only with `--private` for the operator's own device, may contain them in its root file system; it is named `-private`, recorded by hash prefixes only, never shared, and values stay out of git, logs, JSON records and READMEs." Also supersede the Bluetooth `image-request.md` "Address stays out of the image" rule for private builds, and note that `hardware/wifi` I7 is implemented as `SP11_WIFI_BOARD2`. Nothing in `plan/` was edited by the image worker.
 
 - orchestrator/operator (M8): review and commit the uncommitted image work after validation. Provision `BOOT:/EFI/sp11/bt-address` only after DD-writing, as documented above. The next already-planned GPU-off/speakers-off boot can use the touch-on default, with `SP11 debug, touch off` as the fallback. No additional reboot is requested solely for evidence. Automatic full snapshots include touch, iptsd and input names. Exact read-only manual collectors, if needed:
 
@@ -766,3 +792,4 @@ The host verifier accepts that exact exit-1 capture only for `sp11.entry=vmtest`
 - 2026-10-25: D19/M3. ISO `sp11-fedora44-aarch64-kiwi-20261025T160856Z` (SHA-256 `2a7f7fc1...`): 8-entry menu, three DTBs, early display snapshot and the display evidence files, `collect-dpcd.py` in the image, 64 MiB FAT32 ESP with direct GRUB. L0 103/103; L1 `--esp-fallback` PASS (collector writes `/EFI/sp11-logs` on the `BOOT` ESP). Build refuses kernels not newer than 7.3.0-65.sp11 and more than one kernel NEVRA at the top of `out/rpms`.
 - 2026-10-25: D20/M4 and S4. ISO `sp11-fedora44-aarch64-kiwi-20261025T183834Z` (SHA-256 `0325c6f4...`): seven-entry menu with the parity DTB as default, `leds-qcom-lpg` and the DSP remoteproc set with the four DSP images in the initramfs, failure capture to the ESP, collector and hook write only to the boot medium and refuse Windows disks. L0 131/131; L1 `--esp-fallback --decoy` and `--initrd-fail --decoy` PASS, fake Windows disk byte-identical.
 - 2026-10-26: D21/M5 and S1. ISO `sp11-fedora44-aarch64-kiwi-20261026T192029Z` (SHA-256 `a106d5e1...`): six-entry menu with the sound-off DTBs `m5` and `m5gpu`; L0 2.18 fails if any device entry's DTB enables the speakers; the collector mounts the ESP per write, reads the GPU speed-bin cell only, records sound and GPU state, snapshots at the first logind session. L0 148/148, L1 `--until-session --decoy` and `--initrd-fail --decoy` PASS.
+- 2026-10-29: private build mode (`--private`): host-side staging of bt-address, Wi-Fi address (NetworkManager conf and .link) and the derived ath12k board file; private L0 checks 7.6-7.10; selftest `image/tools/private-stage-selftest.sh`. Not built: kernel M9/M10 pending and disk headroom below the guard. Not committed.

@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
 # Build the SP11 Fedora 44 live ISO with livemedia-creator --no-virt (decision D11).
 #
-#   scripts/image-build.sh [--builder kiwi|lmc] [--smoke] [--name NAME] [--mem GiB]
+#   scripts/image-build.sh [--builder kiwi|lmc] [--smoke] [--private] [--name NAME] [--mem GiB]
+#
+# --private (or SP11_PRIVATE=1): private build for the operator's own device, kiwi only. Embeds the
+# Windows-derived Wi-Fi/Bluetooth settings (image/README.md, "Private build mode"): /etc/sp11/bt-address,
+# a persistent Wi-Fi address and the derived ath12k board file. Inputs: SP11_MAC_CONF (default
+# ~/sp11-windows-dumps/live-inventory/sp11-mac.conf) and SP11_WIFI_BOARD2 (default
+# out/firmware-private/wifi/ath12k/WCN7850/hw2.0/board-2.bin). The ISO name carries "-private";
+# the ISO must never be shared. Default is the public build: no address, no derived blob.
 #
 # --builder kiwi (default, decision D16): kiwi-ng with Fedora's f44 Workstation-Live description,
 # scripts/image-build-kiwi.sh. --builder lmc: the livemedia-creator path of M2 (D11), kept until
@@ -23,19 +30,23 @@ set -euo pipefail
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
 smoke=0 name= mem= inside=0 builder=kiwi
+private=0
+[ "${SP11_PRIVATE:-0}" = 1 ] && private=1
 while [ $# -gt 0 ]; do
 	case $1 in
 	--builder) builder=${2:?}; shift ;;
 	--smoke) smoke=1 ;;
+	--private) private=1 ;;
 	--name) name=${2:?}; shift ;;
 	--mem) mem=${2:?}; shift ;;
 	--inside) inside=1 ;;
-	*) echo "usage: $0 [--builder kiwi|lmc] [--smoke] [--name NAME] [--mem GiB]" >&2; exit 2 ;;
+	*) echo "usage: $0 [--builder kiwi|lmc] [--smoke] [--private] [--name NAME] [--mem GiB]" >&2; exit 2 ;;
 	esac
 	shift
 done
 
 case $builder in kiwi | lmc) ;; *) echo "image-build: --builder must be kiwi or lmc" >&2; exit 2 ;; esac
+[ "$private" = 0 ] || [ "$builder" = kiwi ] || { echo "image-build: --private needs --builder kiwi" >&2; exit 2; }
 # mkfs.erofs of the kiwi live root needs about 3 GiB of its own on top of the build (OOM at 6 GiB)
 [ -n "$mem" ] || { [ "$builder" = kiwi ] && mem=9 || mem=6; }
 
@@ -72,7 +83,25 @@ if [ "$inside" = 0 ]; then
 		done
 		kargs=()
 		[ "$smoke" = 1 ] && kargs+=(--smoke)
+		if [ "$private" = 1 ]; then
+			# Private inputs are read here, on the host, by image/tools/private-stage.py (values never
+			# printed). The staging tree lives in the git-ignored out/ and is removed by the container side.
+			macconf=${SP11_MAC_CONF:-$HOME/sp11-windows-dumps/live-inventory/sp11-mac.conf}
+			[ -r "$macconf" ] || macconf=$here/sources/windows/live-inventory/sp11-mac.conf
+			board=${SP11_WIFI_BOARD2:-$out/firmware-private/wifi/ath12k/WCN7850/hw2.0/board-2.bin}
+			echo "image-build: PRIVATE build: embeds device addresses and Windows-derived board data; never share the ISO"
+			python3 -I "$here/image/tools/private-stage.py" stage --mac-conf "$macconf" --board "$board" \
+				${SP11_WIFI_BOARD2_SHA256:+--board-sha256 "$SP11_WIFI_BOARD2_SHA256"} --out "$out/private-stage" || exit 6
+			kargs+=(--private)
+		fi
 		[ -n "$name" ] && kargs+=("$name")
+		if [ "$private" = 1 ]; then
+			# no exec: the staged values must be removed even when the container side fails early
+			rc=0
+			SP11_DOCKER_MEMORY="${mem}g" "$here/scripts/image-container.sh" run /sp11/scripts/image-build-kiwi.sh "${kargs[@]}" || rc=$?
+			rm -rf "$out/private-stage"
+			exit "$rc"
+		fi
 		SP11_DOCKER_MEMORY="${mem}g" exec "$here/scripts/image-container.sh" run /sp11/scripts/image-build-kiwi.sh "${kargs[@]}"
 	fi
 	# the container gets a memory cap so a running kernel build keeps its RAM

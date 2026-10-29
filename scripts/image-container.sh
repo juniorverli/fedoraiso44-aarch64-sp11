@@ -35,6 +35,15 @@ run | shell)
 		--tmpfs /tmp:exec,size=4g
 		-e "SP11_IMAGE_ID=$(docker image inspect -f '{{.Id}}' "$IMAGE")"
 		-w /sp11)
+	# private L0 only (scripts/image-test-static.sh sets SP11_MOUNT_MAC_CONF=1 for a *-private ISO): the
+	# operator's address file, read-only, so L0 can compare hashes. Builds never get it (the host stages).
+	if [ "${SP11_MOUNT_MAC_CONF:-0}" = 1 ]; then
+		macconf=${SP11_MAC_CONF:-$HOME/sp11-windows-dumps/live-inventory/sp11-mac.conf}
+		[ -r "$macconf" ] || macconf=$here/sources/windows/live-inventory/sp11-mac.conf
+		macconf=$(readlink -f "$macconf")
+		[ -r "$macconf" ] || { echo "image-container: private L0 needs the address file (SP11_MAC_CONF)" >&2; exit 1; }
+		args+=(-v "$macconf:/run/sp11-private/sp11-mac.conf:ro" -e SP11_MAC_CONF_IN=/run/sp11-private/sp11-mac.conf)
+	fi
 	# optional memory cap (the ISO build must not starve a running kernel build)
 	[ -n "${SP11_DOCKER_MEMORY:-}" ] && args+=(--memory "$SP11_DOCKER_MEMORY" --memory-swap "$SP11_DOCKER_MEMORY")
 	# the ISO build work directory is large; keep it on the disk, not in RAM
