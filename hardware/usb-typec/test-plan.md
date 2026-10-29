@@ -2,7 +2,7 @@
 
 Every device test reboots the operator's own PC (the test device). All commands below are read-only: no write to sysfs, debugfs, I2C or any firmware path. S3: no retimer or PD firmware access; no `i2cdetect`/`i2cget`/`i2cset`. S6: no write to `charge_control_*` or to any current/voltage/PD file. S5: logs hold serials; they stay out of git.
 
-Failure ids F1-F4 refer to `evidence/2026-10-28-failure-points.md`. Baseline (M5, already collected): `evidence/2026-10-28-m5-device-log.md`.
+Failure ids F1-F4 refer to `evidence/2026-10-28-failure-points.md`. Baselines already collected: M5 (`evidence/2026-10-28-m5-device-log.md`) and M8 (`evidence/2026-10-29-m8-superspeed.md`). M8 is port 0 **reversed**, not the port 1 setup of M5. Use section F for the next M9 capture.
 
 ## A. What the existing collector already gives (read these first)
 
@@ -44,7 +44,7 @@ One extra GRUB entry, `sp11.entry=usbdbg`, same DTB and arguments as `debug`, pl
 pmic_glink_altmode.dyndbg=+p ps883x.dyndbg=+p phy_qcom_qmp_combo.dyndbg=+p ucsi_glink.dyndbg=+p typec_ucsi.dyndbg=+p dwc3.dyndbg=+p dwc3_qcom.dyndbg=+p qcom_battmgr.dyndbg=+p
 ```
 
-Expected useful lines: `typec_mux_set: switching from qmpphy mode ...` (QMP), orientation and `mux_ctrl` handling in the altmode worker, UCSI command traces. If `dyndbg` does not take effect for modules loaded from the initramfs, rely on `usb-dmesg.txt` and the `typec` attributes; do not write to `/sys/kernel/debug/dynamic_debug/control` from the collector.
+Expected useful lines: `typec_mux_set: switching from qmpphy mode ...` (QMP) and UCSI command traces. **Correction for M9:** successful PAN and PS8830 orientation/configuration handling has no debug messages in the base driver. Patch `0002-usb-typec-log-pmic-glink-and-ps8830-state.patch` supplies those sites; enabling `dyndbg` without that patch cannot reveal them. D23 omits `qcom_battmgr` from the image and from the actual `usbdbg` arguments. If `dyndbg` does not take effect for early modules, record that limitation; do not write to `/sys/kernel/debug/dynamic_debug/control` from the collector.
 
 ## D. Physical test matrix (operator)
 
@@ -66,6 +66,78 @@ Expected data per attribute (`typec.txt`): `data_role` `[host] device` with `hos
 
 | Acceptance | Test | Today |
 |:--|:--|:--|
-| 1. USB 3 storage at 5/10 Gbit/s on both ports, both orientations | T1, T3, T4 (4 combinations) | Not met: HS only on port 1 reversed; the other three untested |
+| 1. USB 3 storage at 5/10 Gbit/s on both ports, both orientations | T1, T3, T4 (4 combinations) | Not met: HS on M5 port 1 reversed and M8 port 0 reversed; normal orientations untested |
 | 2. External monitor over DP Alt Mode | T6 | Untested |
 | 3. Charging from a USB-C PD charger | T7 | Untested; supplies exist |
+
+## F. M9: one useful trace before another behavior change
+
+Prerequisites for the image/kernel owners: include diagnostic patch `0002`,
+ship the rebuilt `ps883x` and `pmic_glink_altmode` modules in the initramfs, and
+retain the existing `usbdbg` entry and D23 battery blacklist. The patch changes
+logging only. A successful build is not evidence that it fixes SS. The required
+Windows runtime comparison remains blocked by R-S1; see the dossier.
+
+For the operator's next scheduled device boot, choose **SP11 debug, USB + DSP
+trace** (`sp11.entry=usbdbg`). Keep the boot enclosure/cable/port/orientation
+the same as M8 where practical, and record any change in the setup. Never
+unplug or reverse the boot medium while it is mounted. A known USB3 storage
+device and known USB3 cable (established on Windows, with that cable) on the
+free port give a separate comparison; after login insert it normally, collect,
+then remove/reinsert it reversed and collect again. These are optional physical
+steps for the operator, not automatic collector actions. A later second boot
+can exchange boot/free ports and cover the remaining orientation combinations.
+USB2-only or unverified cable/device results cannot establish a driver failure.
+
+Keep the existing section B captures, plus `dmesg.txt`, `gpio.txt`,
+`regulator_summary.txt`, `devices_deferred.txt` and `/proc/cmdline`. The following
+additional hook command is read-only and distinguishes devices present in
+sysfs from drivers actually bound (no I2C transfer):
+
+```sh
+shsnap usb-typec-bindings.txt 'for d in /sys/bus/i2c/devices/*-0008 /sys/bus/auxiliary/devices/pmic_glink.*; do [ -d "$d" ] || continue; printf "%s driver=" "${d##*/}"; if [ -L "$d/driver" ]; then readlink "$d/driver"; else printf "unbound\n"; fi; done'
+```
+
+For an on-device snapshot after each free-port insertion, the operator can run
+this exact read-only command block. Its output remains private with the device
+logs; output identifiers must be masked before quoting outside `out/`.
+
+```sh
+date --iso-8601=seconds
+cat /proc/cmdline
+lsusb -t
+for d in /sys/class/typec/port*; do
+    [ -d "$d" ] || continue
+    printf '\n%s\n' "${d##*/}"
+    for a in orientation data_role power_role usb_capability; do
+        [ -r "$d/$a" ] || continue
+        printf '%s: ' "$a"
+        cat "$d/$a"
+    done
+done
+for d in /sys/bus/usb/devices/*; do
+    [ -r "$d/speed" ] || continue
+    printf '%s speed=' "${d##*/}"
+    cat "$d/speed"
+done
+sudo dmesg --time-format=iso | grep -i -E 'ps883x|pmic_glink|altmode|typec_mux_set|ucsi|usb [0-9]-' | grep -vi serial
+```
+
+Decoder (Verified source constants; expected observations are Inference):
+
+| Trace/result | Interpretation and next step |
+|:--|:--|
+| `request: cmd=0x10 ... acknowledged` | PAN notification enable request completed; an acknowledgement alone does not show a port event |
+| `notify: port=N orientation=0/1 mux=1 svid=0000` | ADSP reports plain USB3, normal/reverse; compare with that port's UCSI orientation and GPIO |
+| `apply: ... orientation=1/2 ... switch_ret=0` | Linux normal/reverse orientation callback succeeded; enums differ from raw PAN values |
+| `configure: conn_status=21/00/00` or `23/00/00`, followed by corresponding `set: ... in_reset=0 ret=0` | Plain normal/reverse USB3 requested and the driver's existing writes completed; this is not hardware readback or proof of a trained link |
+| PAN missing, or mux=0 on the connected port | Investigate PAN enable/replay/notification delivery in Windows and Linux; UCSI partner presence alone does not resolve it |
+| PAN/UCSI orientation disagree, or `switch_ret` is negative | Follow orientation source/callback failure before changing DT pins or polarity |
+| Retimer I/O/configuration error or still in reset for USB3 | Compare the verified Windows power/reset sequence; no manual I2C, reset or regulator commands |
+| USB3 request succeeds but xHCI SS stays RxDetect with known USB3 hardware | Retimer/QMP/link sequencing remains open; compare boot with hotplug and both orientations, then the Windows routine |
+| Hotplug works at SS but boot enclosure remains HS | Boot handoff/reset/replay becomes the leading hypothesis; no need to reboot once per free-port orientation |
+| `lsusb -t` child at 5000M/10000M on both ports/orientations | USB acceptance item 1; a 10000M **root hub** alone does not satisfy it |
+
+The command block never rebinds a driver, writes sysfs/debugfs, scans I2C,
+changes PD/charging policy or reads/writes firmware. Preserve the image's
+debugfs allow-list; do not add recursive debugfs capture or DRM test readers.
