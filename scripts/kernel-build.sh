@@ -56,6 +56,7 @@ if ((inner)); then
     "${KERNEL_RPM_SWITCHES[@]}" "$TOPDIR/SPECS/kernel.spec" || rc=$?
   end=$(date +%s)
   kill "$sampler" 2>/dev/null || true
+  wait "$sampler" 2>/dev/null || true
   {
     echo "start=$start"; echo "end=$end"; echo "seconds=$((end - start))"; echo "jobs=$jobs"; echo "rpmbuild_rc=$rc"
     ccache --print-stats | sed -n -E 's/^(direct_cache_hit|preprocessed_cache_hit|cache_miss|files_in_cache|cache_size_kibibyte)\t/ccache_\1=/p'
@@ -119,6 +120,9 @@ if ((n)); then
   sed -i -e "s|^# END OF PATCH DEFINITIONS|$defs&|" \
          -e "s|^ApplyOptionalPatch linux-kernel-test.patch|&\n$apps|" "$spec"
 fi
+# Apply to the disposable RPM source with Fedora's patch(1). D24 forbids
+# commands that write through git, including the spec's default git apply.
+sed -i "s/^patch_command='git --work-tree=. apply'$/patch_command='patch --batch --fuzz=0 -p1'/" "$spec"
 echo "kernel-build: $n series patch(es)"
 
 if ((prepare_only)); then echo "kernel-build: prepared $TOPDIR"; exit 0; fi
@@ -139,8 +143,10 @@ echo "kernel-build: series_rev $KERNEL_SERIES_REV, series sha256 $(kernel_series
 export KERNEL_CONTAINER_NAME="sp11-kernel-release-$$"
 kernel_watchdog_start "$KERNEL_CONTAINER_NAME" "$KERNEL_BUILD_DIR/rpmbuild.log"
 trap 'docker kill "$KERNEL_CONTAINER_NAME" >/dev/null 2>&1 || true; kernel_watchdog_stop || true' INT TERM
+set +e
 cr "$KERNEL_REPO/scripts/kernel-build.sh" -j "$jobs" --inner 2>&1 | tee "$KERNEL_BUILD_DIR/rpmbuild.log"
 rc=${PIPESTATUS[0]}
+set -e
 kernel_watchdog_stop || die "build stopped by the disk watchdog, see $KERNEL_BUILD_DIR/rpmbuild.log"
 [[ -f $KERNEL_WATCHDOG_FLAG.min ]] && echo "kernel-build: min headroom seen $(( $(cat "$KERNEL_WATCHDOG_FLAG.min") / KERNEL_GIB )) GiB" | tee -a "$KERNEL_BUILD_DIR/rpmbuild.log"
 ((rc == 0)) || die "rpmbuild failed (rc=$rc), see $KERNEL_BUILD_DIR/rpmbuild.log"

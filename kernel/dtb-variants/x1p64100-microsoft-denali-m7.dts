@@ -1,0 +1,7 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/* M7: revision-4 board DT (including S1) + parity + GPU off (D22). */
+#include "x1p64100-microsoft-denali-parity.dts"
+
+&gpu {
+	status = "disabled";
+};

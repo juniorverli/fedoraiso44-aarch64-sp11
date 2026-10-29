@@ -146,7 +146,10 @@ kernel_watchdog_start() {
 }
 # Returns 1 (and prints the reason) if the watchdog stopped the build.
 kernel_watchdog_stop() {
-  if [[ -n ${KERNEL_WATCHDOG_PID:-} ]]; then kill "$KERNEL_WATCHDOG_PID" 2>/dev/null || true; fi
+  if [[ -n ${KERNEL_WATCHDOG_PID:-} ]]; then
+    kill "$KERNEL_WATCHDOG_PID" 2>/dev/null || true
+    wait "$KERNEL_WATCHDOG_PID" 2>/dev/null || true
+  fi
   if [[ -s $KERNEL_WATCHDOG_FLAG ]]; then cat "$KERNEL_WATCHDOG_FLAG" >&2; return 1; fi
   return 0
 }
