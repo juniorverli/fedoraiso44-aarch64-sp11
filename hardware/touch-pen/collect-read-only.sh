@@ -123,3 +123,63 @@ for path in (base, Path(str(base) + '.xz'), Path(str(base) + '.zst')):
 else:
     print('qupv3fw.elf: absent')
 PY
+
+echo '=== HID, input and iptsd probe messages ==='
+dmesg --color=never 2>&1 |
+    grep -iE 'a88000|ac0000|geni|qspi|gpi |spi|hid|ipts|input:' || :
+journalctl -k -b --no-hostname --no-pager -o short-monotonic 2>&1 |
+    grep -iE 'geni|qspi|gpi |spi|hid|ipts|input:' || :
+journalctl -b --no-hostname --no-pager -o short-monotonic \
+    --unit='iptsd@*' 2>&1 || :
+rpm -q iptsd libinput-utils evtest 2>&1 || :
+systemctl --no-pager --plain list-units 'iptsd@*' 2>&1 || :
+
+echo '=== SPI child binding and input names/capabilities ==='
+python3 -B - <<'PY'
+from pathlib import Path
+for node in sorted(Path('/sys/bus/spi/devices').glob('spi*')):
+    print(node.name)
+    for key in ('driver', 'of_node'):
+        p = node / key
+        print(' ', key, p.resolve() if p.is_symlink() else 'absent')
+    for key in ('modalias', 'power/runtime_status'):
+        try:
+            print(' ', key, (node / key).read_text().strip())
+        except OSError:
+            pass
+for node in sorted(Path('/sys/class/input').glob('event*')):
+    dev = node / 'device'
+    try:
+        name = (dev / 'name').read_text().strip()
+    except OSError:
+        continue
+    print(node.name, name)
+    for key in ('ev', 'key', 'abs', 'rel', 'prop'):
+        try:
+            print(' ', key, (dev / 'capabilities' / key).read_text().strip())
+        except OSError:
+            pass
+PY
+
+echo '=== libinput devices ==='
+if command -v libinput >/dev/null; then
+    timeout 20 libinput list-devices 2>&1 || :
+else
+    echo 'UNAVAILABLE: install Fedora libinput-utils'
+fi
+
+echo '=== evtest capabilities (two seconds per touch/pen device, no grab) ==='
+if command -v evtest >/dev/null; then
+    for path in /sys/class/input/event*; do
+        [[ -r $path/device/name ]] || continue
+        name=$(cat "$path/device/name")
+        case ${name,,} in
+            *ipts*|*surface*touch*|*surface*pen*|*microsoft*digitizer*)
+                echo "/dev/input/${path##*/}: $name"
+                timeout 2 stdbuf -oL evtest "/dev/input/${path##*/}" </dev/null 2>&1 || :
+                ;;
+        esac
+    done
+else
+    echo 'UNAVAILABLE: install Fedora evtest'
+fi

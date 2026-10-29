@@ -1,0 +1,233 @@
+From: Dale Whinham <daleyo@gmail.com>
+Date: Thu, 29 Oct 2026 12:00:00 +0000
+Subject: [PATCH] HID: spi-hid: support MSHW0484 QSPI and reset recovery
+
+Port Carter Davis/orvitpng's command-plus-response reads and Dale
+Whinham's heatmap rebind fix to spi-hid v7. The rebind behavior derives
+from Jizhou Tong's Romulus13 RFC. Restrict both quirks to MSHW0484 so
+other devices retain v7's two-transfer reads and descriptor reuse.
+
+GENI sends only opcode plus address and generates eight dummy clocks;
+its RX buffer contains response data without command padding. Keep a
+DMA-safe TX buffer and bound trace lengths to the command bytes.
+
+Use the independently decoded SSDT opcodes eb/e2, 300 ms reset and
+10 ms reset-before-power-off timing. The board regulator supplies the
+500 ms cold-start wait. v7 already calls _DSM revision 3, as required by
+this SSDT, and already provides the device-specific SPI module alias.
+
+Link: https://github.com/dwhinham/linux-sp11/commit/1a10ba716fb528a92523406aac461a7af9bbf285
+Link: https://github.com/dwhinham/linux-sp11/commit/d7e99026f785b61d7ddbf6eebc7426e2d3a13c41
+Link: https://github.com/orvitpng/nix1e/commit/b274dd722fb1797a369ffab34a05b28cf0401a94
+Link: https://lists.openwall.net/linux-kernel/2026/10/10/957
+
+Assisted-by: Codex gpt-6.1-sol
+---
+diff --git a/drivers/hid/spi-hid/spi-hid-core.c b/drivers/hid/spi-hid/spi-hid-core.c
+--- a/drivers/hid/spi-hid/spi-hid-core.c
++++ b/drivers/hid/spi-hid/spi-hid-core.c
+@@ -199,16 +199,27 @@
+ 					 shid->read_approval_header :
+ 					 shid->read_approval_body;
+ 	shid->input_transfer[0].len = SPI_HID_READ_APPROVAL_LEN;
++	shid->input_transfer[0].rx_buf = NULL;
+ 
+ 	shid->input_transfer[1].rx_buf = buf;
+ 	shid->input_transfer[1].len = length;
+ 
++	if (shid->conf->qspi_read) {
++		/* GENI emits opcode/address, eight dummy clocks, then RX data. */
++		memcpy(shid->input_tx, shid->input_transfer[0].tx_buf,
++		       SPI_HID_READ_APPROVAL_LEN - 1);
++		shid->input_transfer[0].tx_buf = shid->input_tx;
++		shid->input_transfer[0].rx_buf = buf;
++		shid->input_transfer[0].len = length;
++	}
++
+ 	spi_message_init_with_transfers(&shid->input_message,
+-					shid->input_transfer, 2);
++					shid->input_transfer,
++					shid->conf->qspi_read ? 1 : 2);
+ 
+ 	/* rx_buf is not filled yet; received data is traced by *_complete. */
+ 	trace_spi_hid_input_sync(shid, shid->input_transfer[0].tx_buf,
+-				 shid->input_transfer[0].len,
++				 SPI_HID_READ_APPROVAL_LEN - shid->conf->qspi_read,
+ 				 shid->input_transfer[1].rx_buf, 0, 0);
+ 
+ 	error = spi_sync(shid->spi, &shid->input_message);
+@@ -255,7 +266,8 @@
+ 		return -ETIMEDOUT;
+ 	}
+ 
+-	set_bit(SPI_HID_READY, &shid->flags);
++	if (!shid->conf->rebind_after_reset)
++		set_bit(SPI_HID_READY, &shid->flags);
+ 	return 0;
+ }
+ 
+@@ -372,6 +384,9 @@
+ 			schedule_work(&shid->reset_work);
+ 			return -ETIMEDOUT;
+ 		}
++		/* The reset worker recreates HID and reconnects iptsd. */
++		if (was_reset && shid->conf->rebind_after_reset)
++			return 0;
+ 		/* HID requests would fail while the device is not ready. */
+ 		if (!test_bit(SPI_HID_READY, &shid->flags))
+ 			return 0;
+@@ -859,8 +874,9 @@
+ 				     (size_t)error);
+ 	}
+ 
+-	/* Same report descriptor, so no need to create a new hid device. */
+-	if (new_crc32 == shid->report_descriptor_crc32) {
++	/* Reconnect hidraw clients if reset loses their selected mode. */
++	if (new_crc32 == shid->report_descriptor_crc32 &&
++	    !shid->conf->rebind_after_reset) {
+ 		shid->reset_attempts = 0;
+ 		set_bit(SPI_HID_READY, &shid->flags);
+ 		return;
+@@ -1113,6 +1129,7 @@
+ 	struct spi_hid *shid = _shid;
+ 	struct device *dev = &shid->spi->dev;
+ 	struct spi_hid_input_header header;
++	u8 approval_len = SPI_HID_READ_APPROVAL_LEN - shid->conf->qspi_read;
+ 	int error = 0;
+ 
+ 	trace_spi_hid_dev_irq(shid, irq);
+@@ -1133,7 +1150,7 @@
+ 
+ 		trace_spi_hid_input_header_complete(shid,
+ 						    shid->input_transfer[0].tx_buf,
+-						    shid->input_transfer[0].len,
++						    approval_len,
+ 						    shid->input_transfer[1].rx_buf,
+ 						    shid->input_transfer[1].len,
+ 						    shid->input_message.status);
+@@ -1166,7 +1183,7 @@
+ 		}
+ 
+ 		trace_spi_hid_input_body_complete(shid, shid->input_transfer[0].tx_buf,
+-						  shid->input_transfer[0].len,
++						  approval_len,
+ 						  shid->input_transfer[1].rx_buf,
+ 						  shid->input_transfer[1].len,
+ 						  shid->input_message.status);
+@@ -1210,8 +1227,13 @@
+ 		return -ENOMEM;
+ 	shid->response = tmp;
+ 
+-	if (!shid->output || !shid->input || !shid->response)
+-		return -ENOMEM;
++	if (shid->conf->qspi_read) {
++		tmp = devm_krealloc(dev, shid->input_tx, inbufsize,
++				    GFP_KERNEL | __GFP_ZERO);
++		if (!tmp)
++			return -ENOMEM;
++		shid->input_tx = tmp;
++	}
+ 
+ 	shid->bufsize = report_size;
+ 
+diff --git a/drivers/hid/spi-hid/spi-hid-core.h b/drivers/hid/spi-hid/spi-hid-core.h
+--- a/drivers/hid/spi-hid/spi-hid-core.h
++++ b/drivers/hid/spi-hid/spi-hid-core.h
+@@ -57,6 +57,7 @@
+ 	struct spi_hid_output_buf *output;	/* Output buffer. */
+ 	struct spi_hid_input_buf *input;	/* Input buffer. */
+ 	struct spi_hid_input_buf *response;	/* Response buffer. */
++	u8		*input_tx;
+ 
+ 	struct drm_panel_follower panel_follower;
+ 	bool	is_panel_follower;
+diff --git a/drivers/hid/spi-hid/spi-hid.h b/drivers/hid/spi-hid/spi-hid.h
+--- a/drivers/hid/spi-hid/spi-hid.h
++++ b/drivers/hid/spi-hid/spi-hid.h
+@@ -17,6 +17,10 @@
+ 	u32 output_report_address;
+ 	u8 read_opcode;
+ 	u8 write_opcode;
++	/* GENI QSPI command-plus-response read convention. */
++	bool qspi_read;
++	/* Reset loses the heatmap mode selected by iptsd. */
++	bool rebind_after_reset;
+ };
+ 
+ /**
+diff --git a/drivers/hid/spi-hid/spi-hid-of.c b/drivers/hid/spi-hid/spi-hid-of.c
+--- a/drivers/hid/spi-hid/spi-hid-of.c
++++ b/drivers/hid/spi-hid/spi-hid-of.c
+@@ -37,6 +37,7 @@
+ 	struct spi_hid_conf conf;
+ 	u32 post_power_on_delay_ms;
+ 	u32 minimal_reset_delay_ms;
++	u32 pre_power_off_delay_ms;
+ };
+ 
+ /* Config structure is filled with match data and Device Tree resources */
+@@ -62,6 +63,22 @@
+ 	.minimal_reset_delay_ms = 100,
+ };
+ 
++/* Cold power-on wait is provided by the board's fixed regulator. */
++static const struct spi_hid_of_data microsoft_mshw0484_data = {
++	.conf = {
++		.input_report_header_address = 0x1000,
++		.input_report_body_address = 0x1004,
++		.output_report_address = 0x2000,
++		.read_opcode = 0xeb,
++		.write_opcode = 0xe2,
++		.qspi_read = true,
++		.rebind_after_reset = true,
++	},
++	.post_power_on_delay_ms = 10,
++	.minimal_reset_delay_ms = 300,
++	.pre_power_off_delay_ms = 10,
++};
++
+ static int spi_hid_of_populate_config(struct spi_hid_of_config *conf,
+ 				      struct device *dev)
+ {
+@@ -88,6 +105,14 @@
+ 
+ 	if (!conf->supply_enabled)
+ 		return 0;
++
++	if (conf->data.pre_power_off_delay_ms) {
++		error = gpiod_set_value_cansleep(conf->reset_gpio, 1);
++		if (error)
++			return error;
++
++		fsleep(1000 * conf->data.pre_power_off_delay_ms);
++	}
+ 
+ 	error = regulator_disable(conf->supply);
+ 	if (error == 0)
+@@ -167,10 +192,7 @@
+ 
+ 	config->data = *data;
+ 
+-	/*
+-	 * FIXME: multi-SPI not supported. Once it is, derive the
+-	 * HID-over-SPI flags from spi->mode.
+-	 */
++	/* The MSHW0484 match uses the downstream GENI QSPI convention. */
+ 
+ 	error = spi_hid_of_populate_config(config, dev);
+ 	if (error)
+@@ -180,12 +202,14 @@
+ }
+ 
+ static const struct of_device_id spi_hid_of_match[] = {
++	{ .compatible = "microsoft,mshw0484", .data = &microsoft_mshw0484_data },
+ 	{ .compatible = "microsoft,g6-touch-digitizer", .data = &microsoft_g6_data },
+ 	{ }
+ };
+ MODULE_DEVICE_TABLE(of, spi_hid_of_match);
+ 
+ static const struct spi_device_id spi_hid_of_id_table[] = {
++	{ .name = "mshw0484", .driver_data = (kernel_ulong_t)&microsoft_mshw0484_data },
+ 	{ .name = "g6-touch-digitizer", .driver_data = (kernel_ulong_t)&microsoft_g6_data },
+ 	{ }
+ };

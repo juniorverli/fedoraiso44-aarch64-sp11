@@ -1,0 +1,16 @@
+hardware/touch-pen/patches/v7/0001-spi-hid-v7.patch
+hardware/touch-pen/patches/v7/0002-spi-hid-v7.patch
+hardware/touch-pen/patches/v7/0003-spi-hid-v7.patch
+hardware/touch-pen/patches/v7/0004-spi-hid-v7.patch
+hardware/touch-pen/patches/v7/0005-spi-hid-v7.patch
+hardware/touch-pen/patches/v7/0006-spi-hid-v7.patch
+hardware/touch-pen/patches/v7/0007-spi-hid-v7.patch
+hardware/touch-pen/patches/v7/0008-spi-hid-v7.patch
+hardware/touch-pen/patches/v7/0009-spi-hid-v7.patch
+hardware/touch-pen/patches/v7/0010-spi-hid-v7.patch
+hardware/touch-pen/patches/v7/0011-spi-hid-v7.patch
+hardware/touch-pen/patches/0016-dt-bindings-qspi-mshw0484.patch
+hardware/touch-pen/patches/0017-dmaengine-qcom-gpi-qspi.patch
+hardware/touch-pen/patches/0018-spi-geni-qcom-qspi.patch
+hardware/touch-pen/patches/0019-spi-hid-mshw0484.patch
+hardware/touch-pen/patches/0020-denali-lcd-touch.patch

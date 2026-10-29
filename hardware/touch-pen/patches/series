@@ -9,3 +9,8 @@ v7/0008-spi-hid-v7.patch
 v7/0009-spi-hid-v7.patch
 v7/0010-spi-hid-v7.patch
 v7/0011-spi-hid-v7.patch
+0016-dt-bindings-qspi-mshw0484.patch
+0017-dmaengine-qcom-gpi-qspi.patch
+0018-spi-geni-qcom-qspi.patch
+0019-spi-hid-mshw0484.patch
+0020-denali-lcd-touch.patch

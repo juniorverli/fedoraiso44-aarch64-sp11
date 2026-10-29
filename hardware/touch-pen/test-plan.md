@@ -1,101 +1,110 @@
 # Touch and pen test plan
 
-Status: **designed**. No device test ran. Earlier BTF/W=1 and DT results apply
-to the unchanged v6 baseline and old disabled draft only. The current v7
-baseline and revised RFCs remain unbuilt. [Session-2 evidence](evidence/2026-10-28-quad-firmware-sequencing.md)
-and [validation](evidence/2026-10-28-validation.md) distinguish completed
-checks from future gates.
+Status **designed**. No device test ran. The candidate reproduces the working
+SP11 QSPI path with spi-hid v7 and a separate enabled LCD DT patch. Full-series
+strict lint and independent new-code review remain gates even when builds and
+DT validation pass. See [validation](evidence/2026-10-29-validation.md).
 
-## Next boot: controller state only
+## Before the next device boot
 
-Use the exact image-worker request and read-only commands in
-[README Requests](README.md#8-requests). Stage `collect-read-only.sh`, include
-temporary RFC 0014, and use `touch-pen-state.dts` with the working LCD base.
-There must be no enabled HID child, touch-supply consumer or QUP1
-firmware-name. The normal SPI probe records clocked RO registers before
-protocol dispatch; collection only reads its journal record and existing
-sysfs/debugfs files. No module loading, bind/unbind, raw MMIO, GPIO requests,
-runtime-PM control writes or firmware uploads are collector operations.
+1. Kernel reviews the 16 entries in `kernel-series.list`, appended after the
+   current integration series. Preserve diagnostic 0014 and the existing
+   speaker-disable patch; exclude archived v6/RFCs. Confirm both BTF settings
+   and `.BTF` sections. Use the kernel owner's release RPM process for the ISO.
+2. Obtain Claude cross-check of imported QSPI register/TRE constants and the
+   v7 rebind port; the merged Claude report already reproduces board pins and
+   timing. Record how v7's existing strict lint findings are resolved/triaged.
+3. Image installs a native aarch64 iptsd 3.1.0 RPM, standard udev/template
+   service/default config, uinput support, `libinput-utils`, and `evtest`.
+   No firmware-name, proprietary microcode copy or flashing tool is needed.
+4. L0 checks the **actual selected** DTB includes the new touch node after
+   overlay/variant processing and keeps `/sound`, `swr0` and default GPU off.
+   Keep D23's `qcom_battmgr` block. L1 still precedes a hardware boot.
+5. Batch this component's collection into the existing image collector;
+   every device boot reboots the operator's own PC. No extra reboot solely
+   for this component is requested before the image passes its normal gates.
 
-Expected evidence:
+## Exact read-only collection
 
-- Live DT status and platform binding explain whether SE2 probed at all.
-- `touch-pen-diag` shows protocol, raw FW revision, interface-disable,
-  clock-status and HW parameters before initialization/firmware loading.
-- The full surrounding normal probe messages explain rejection/deferral.
-- GPIO40–43/48–51/64 include actual mux/direction/level/pull/drive where debugfs
-  exposes them. GPIO49/50 are observed before explicitly selecting their mux.
-- Installed firmware package/hash/protocol metadata is distinguished from
-  loaded engine state. A disabled DT or absent message means not sampled.
+Stage `collect-read-only.sh` as `/usr/libexec/sp11-touch-pen-collect` (0755).
+After the existing image collector's debugfs setup:
 
-Preserve normal full private collector output and export only sanitized
-component evidence. Interpret outcomes using `quad-design.md`; protocol 0
-alone does not prove empty IRAM, and protocol 1 alone does not prove quad support.
+```sh
+shsnap touch-pen.txt 'bash /usr/libexec/sp11-touch-pen-collect'
+```
 
-## Software gates before touch integration
+An operator with a root terminal can instead run:
 
-1. Sources pins v7, the posted Romulus spi-mem transport RFC, the Microsoft
-   specification and exact controller/GPI research inputs. Identify the supported GENI QSPI transfer contract and,
-   if the engine needs programming, a compatible authorized payload/load path.
-2. Implement quad host/GPI support and port the posted spi-mem phases onto v7, preserving
-   CS. Quad reads require four placeholder bytes for eight clocks. Verify
-   failure when required lanes or GPI channels are absent; do not fall back
-   to one-lane FIFO or overwrite a different programmed protocol.
-3. Apply/review RFCs 0015, 0013, then 0012. The MSHW0484 match supplies eb/e2;
-   v7 G6 defaults to 0b/02.
-   The extra GPIO49/50 mux is evidenced,
-   but electrical settings need independent decoding. Check that GPIO51
-   remains the input IRQ. Keep wake-resource guesses out of the first image.
-4. Run the project `scripts/kernel-dev.sh` commands and fragment from README.
-   Build host/GPI/transport with both BTF symbols; verify `.BTF` in vmlinux and
-   applicable modules. Run binding checks and DT schema validation on the
-   final enabled board, not just a disabled draft. Inspect diagnostics as well
-   as process exit codes.
-5. Run full `checkpatch --strict` against the assembled tree. Resolve the
-   unchanged upstream baseline findings and unsigned RFCs with the authors;
-   this worker does not add a Signed-off-by. Commission Claude cross-check
-   under protocol §5.1 before integration. Kernel/image owners run the final
-   Fedora build and image gates before the operator's next touch boot.
+```sh
+bash /usr/libexec/sp11-touch-pen-collect
+```
 
-The old `build-test.sh` remains a historical minimal compatibility reproducer,
-not the required project dev/Fedora integration gate.
-
-## First working-touch boot
-
-Read-only initial inspection (as root where needed):
+The checked-in helper is the authoritative complete command list. Its core
+commands, for a targeted terminal capture, are:
 
 ```sh
 uname -r
-test -s /sys/kernel/btf/vmlinux
-journalctl -k -b --no-pager | grep -iE 'geni|spi|hid|touch|digitizer|firmware|invalid proto'
-ls /sys/bus/spi/devices
+dmesg --color=never | grep -iE 'a88000|ac0000|geni|qspi|gpi |spi|hid|ipts|input:'
+journalctl -k -b --no-hostname --no-pager -o short-monotonic |
+    grep -iE 'a88000|ac0000|geni|qspi|gpi |spi|hid|ipts|input:'
+journalctl -b --no-hostname --no-pager -o short-monotonic --unit='iptsd@*'
+systemctl --no-pager --plain list-units 'iptsd@*'
+rpm -q iptsd libinput-utils evtest
 libinput list-devices
 ```
 
-Expected: controller and HID enumeration, no unsupported-mode warnings,
-descriptor timeout loops or recurring unsolicited resets. Runtime SPI bus
-numbers are dynamic; identify SE2 by its OF path/MMIO address. Record the
-kernel journal before/after input and power tests. v7 drops
-the v6 error-counter sysfs attributes, so do not request those paths as if
-they exist. Separate startup resets from recurring errors in the log.
+SE state/protocol come from the boot probe's **existing diagnostic message**,
+including `proto`, firmware revision, interface-disable, clock status and HW
+parameters. Linux has no generic read-only sysfs file exposing these GENI
+registers. Do not substitute `devmem` or force a runtime resume. The helper
+also reads DT, platform/SPI driver links, pinctrl, clocks and deferred probes
+without requesting GPIOs or changing any driver state.
 
-Select the touchscreen event node with `evtest`. Check ten contacts, slot and
-tracking lifetimes, corners, orientation and lifting all fingers. In GNOME
-check taps, dragging, scrolling and rotation. Record actual axis ranges and
-maximum contacts, rather than deriving them from a Windows collection name.
+For evtest capabilities, the helper reads input names, then runs exactly this
+for each matching touch/pen event node (event number is discovered, not fixed):
 
-Pen is optional for this milestone. If exposed, record actual pressure/tilt,
-hover, barrel button and eraser capabilities in evtest and a drawing app;
-report unsupported features without guessing. No firmware-update reports,
-CFU tools, touch flashing or pen flashing are part of this plan.
+```sh
+timeout 2 stdbuf -oL evtest /dev/input/eventN </dev/null
+```
 
-## Recovery and power
+Replace `eventN` only with a touch/pen path identified from
+`/sys/class/input/event*/device/name`. There is no `--grab`; timeout exit 124
+is expected. The helper bounds every invocation and also records capability
+bitmaps directly from sysfs. Do not run this collector on the development
+host as a substitute for a real device capture.
 
-Once ordinary touch works, test ten display blank/unblank cycles and ten
-suspend/resume cycles, checking a gesture after each and recording kernel
-errors/resets. These counts are proposed acceptance policy, not hardware values.
-Expected: no reset storm, lost input, spurious contacts or power-reference
-imbalance. Check pen recovery only if it is present. Test wake only after
-its route/policy is established; the current proposal does not enable it.
+## Expected observations and failure decisions
 
-Only the orchestrator can set pass after reviewing actual evidence.
+| Layer | Expected | Failure decision |
+|:--|:--|:--|
+| Selected DT | `spi@a88000` compatible `qcom,geni-spi-qspi`, enabled; GPI selector4 and SEID2; `microsoft,mshw0484` child; no firmware-name | Disabled/missing node means not sampled, not protocol0 |
+| Clocked SE | `touch-pen-diag: proto=9`, nonempty raw fields; GPI channels acquired | Any other protocol: preserve surrounding diagnostics and stop; no generic SPI/QUP firmware guess |
+| Pins | 40–43 and 49/50 belong to `qup1_se2`; 48 reset, 51 IRQ; 64 supply | Retain full pinctrl evidence; do not change electrical settings ad hoc |
+| HID | OF frontend autoloads through `mshw0484` SPI alias, descriptor exchange completes, hidraw exists | Failed module alias, descriptor timeout, GPI CH STOP timeout and IRQ storm are separate findings |
+| iptsd | A per-hidraw service starts, metadata and dimensions are sensible, uinput devices appear | Missing daemon/package differs from transport failure; no guessed geometry preset |
+| Touch | libinput reports a touchscreen; evtest has multitouch absolute coordinates/slots/tracking IDs | Save actual capability set and errors; do not claim ten contacts from a name alone |
+| Pen | If present, record ABS_PRESSURE, ABS_TILT_X/Y, tool/buttons/eraser capabilities | Unsupported or unobserved fields remain TBD |
+
+The reference driver retains a 20 MHz maximum even though the child advertises
+the ACPI maximum of 40 MHz. Eight dummy clocks are generated by the host/GPI
+configuration; no manual four-byte dummy buffer should be expected in a trace.
+Firmware-file presence is not evidence that SE2 loaded that file.
+
+## Operator input acceptance in the same boot
+
+After the read-only baseline capture, manually test taps at all four corners,
+dragging, scrolling and ten simultaneous contacts in GNOME Wayland. Record
+orientation, missing/ghost contacts and whether input persists for at least
+five minutes without a reset storm or growing bus errors. Draw with the pen
+if available and report hover, pressure, tilt, buttons and eraser separately.
+These observations complement capabilities; they are not established by them.
+
+Collect the same helper again after the agreed display/suspend/recovery test
+when the operator and image owner are ready. Do not script a reset, power-off,
+suspend, firmware update or mode switch into this read-only helper. Check that
+HID/hidraw re-creation reconnects iptsd and restores heatmap mode. Wake on the
+unresolved second ACPI interrupt is outside this candidate's acceptance.
+
+All raw output remains private under the normal device-log directory. Evidence
+committed here contains sanitized conclusions, IDs and safe kernel MMIO
+addresses only; never MAC/BD addresses, serials or Windows binary bytes.
