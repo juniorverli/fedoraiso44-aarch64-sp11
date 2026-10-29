@@ -1,6 +1,6 @@
 # Image request: configure WCN7850 from a local boot-time address file
 
-Owner: image worker. Status: requested, not integrated. Worker implementation and rationale are in [README.md](README.md) and [address design](evidence/2026-10-28-address-design.md). This request changes userspace only; keep the M5 sound/GPU defaults and D23 policy.
+Owner: image worker. Status: original payload integrated in M8; **M9 refresh requested**. Refresh all three files below in `image/component-inputs/bluetooth/userspace/` and update its provenance after orchestrator review/commit. M8 confirms the missing-address diagnosis but had no operator file; its expected absence caused exit 1. M9 soft-skips that case with exit 0 and a clear journal line. Worker implementation and evidence are in [README.md](README.md) and [M8/REA findings](evidence/2026-10-29-m8-and-rea.md). This request changes userspace only; keep GPU/speakers off and D23 policy.
 
 ## Payload and activation
 
@@ -21,6 +21,8 @@ timeout -k 1 80 /usr/libexec/sp11-bt-collect
 ```
 
 The commands only read state. Addresses and BlueZ device-path addresses are masked, as are controller Name/Alias. Keep their original exit/status text so missing/unconfigured hci0 differs from tool/daemon failure. The main `journal.txt` remains private; Bluetooth's shareable component evidence should use this masked capture.
+
+The M9 collector adds unit dependency properties and a bounded `find` of Hamilton firmware/NVM filenames and symlink targets under `/usr/lib/firmware/qca`. Nine bounded commands fit the existing 80-second hook. Capture while the session is running as well as at shutdown: M8's shutdown-only component output had an inactive daemon and a D-Bus client abort. Do not interpret that snapshot as session-time BlueZ failure. No new service dependency on bluetoothd or D-Bus is required; preserve the device trigger, polling and private read-only mount.
 
 ## Address stays out of the image
 
@@ -52,7 +54,7 @@ print('local boot-stick Bluetooth file provisioned; value withheld')
 PY
 ```
 
-Do not mount the Windows partition to obtain this file. If a new Windows capture is needed, obtain a targeted read-only export while Windows is running, then convert it locally; no exact registry address key/type is established yet. On installed Fedora, the operator may instead provision root-owned mode 0600 `/etc/sp11/bt-address` locally after installation. It must not be generated into the installation media.
+Do not mount the Windows partition to obtain this file. Use the Windows radio API capture already documented by the image owner, or the private existing capture above. REA identifies `Device Parameters\BdAddr` as a four-byte registry/random fallback, not a full six-byte factory-address record; do not convert it blindly into the operator file. No automatic Linux DPP/UEFI source was established. On installed Fedora, the operator may instead provision root-owned mode 0600 `/etc/sp11/bt-address` locally after installation. It must not be generated into the installation media.
 
 ## L0/L1 and next L3
 
@@ -61,3 +63,4 @@ Do not mount the Windows partition to obtain this file. If a new Windows capture
 3. L1 without WCN7850 must not fail a boot because of this service. With a fake boot-ISO/FAT sibling setup, validate only the actual boot disk's ESP is selected and read-only, an unrelated `BOOT` partition is ignored, and the private mount is cleaned up. Unit tests cover these decisions with mocked utilities; real FAT/systemd activation remains an image-level check.
 4. In the next already-planned GPU-off/speakers-off device boot, include the private file, collect the helper's missing-option/success messages and `extra-bluetooth.txt`, then follow [test-plan.md](test-plan.md). Do not schedule an extra reboot merely to get baseline status: the helper logs the pre-change missing option in the same boot.
 5. If the helper reports no file, invalid query, another controller or an unexpected option, preserve that evidence. Do not invent an address, force power-off/unblock, replace NVM or enable audio as a fallback.
+6. Check the expected no-file case separately: exit 0, `Result=success`, no failed unit, journal says `controller remains unconfigured; skipped`, and no address-setting command occurs. One-shot inactivity afterward is normal. Existing malformed explicit files and actual management failures must still be reported as errors. Re-run the refreshed `check.py` in Fedora; its new cases cover missing explicit and boot sources.

@@ -3,7 +3,7 @@ name = "Bluetooth: WCN7850 on UART14"
 phase = 2
 status = "designed"
 depends_on = ["soc-boot"]
-updated = "2026-10-28"
+updated = "2026-10-29"
 
 [windows]
 hardware_ids = ["ACPI\\VEN_QCOM&DEV_0C6B&SUBSYS_CRD08380 (UART transport)"]
@@ -12,8 +12,8 @@ packages = ["qcbluetooth8380", "qcbtacx_transportdriver8380", "qcbtaddvscregistr
 [linux]
 drivers = ["bluetooth/hci_qca (qcom,wcn7850-bt)"]
 dt = ["x1-microsoft-denali.dtsi &uart14 bluetooth"]
-native = "UART and firmware setup verified on M5; BlueZ adapter/pairing unverified"
-gaps = ["Confirm missing public address with masked MGMT/BlueZ collector; integrate checked boot-time operator-file helper (no address in ISO)", "Explain Linux generic NVM versus Windows b3b selection; pairing/range and stable identity need device evidence"]
+native = "M8 UART/firmware setup passes; hci0 unconfigured with only public-address missing; Bluetooth rfkill unblocked"
+gaps = ["Image M9: refresh soft-skip helper/unit/collector; absent private source must not fail service; provision operator file after writing stick for pairing", "REA traces DPP/OTP/registry fallback but unit-selected source and read-only Linux DPP access remain unknown; no BT UEFI variable identified", "Fedora generic NVM versus Windows UserNvmFile b3b override differs; pairing/range and stable identity need configured-controller evidence and independent cross-check"]
 
 [firmware]
 needs = ["qca/hmtbtfw20.tlv (Fedora atheros-firmware; M5 download succeeds)", "qca/hmtnv20.bin (Fedora atheros-firmware; M5 download succeeds; board/RF suitability unverified)"]

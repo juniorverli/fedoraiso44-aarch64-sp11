@@ -1,8 +1,10 @@
 [Unit]
-Description=Give the unconfigured Surface Pro 11 Bluetooth controller a public address
+Description=Configure Surface Pro 11 Bluetooth when a public address is available
 BindsTo=sys-subsystem-bluetooth-devices-hci0.device
 After=sys-subsystem-bluetooth-devices-hci0.device
 After=local-fs.target
+# MGMT does not need bluetoothd or D-Bus. BlueZ observes the configured index
+# asynchronously; avoid blocking its startup on optional operator provisioning.
 
 [Service]
 Type=oneshot
