@@ -43,4 +43,31 @@ assert q.verify_log_target(logs, boot, False, 'target: logs\n')[0]
 assert not q.verify_log_target(esp, boot, False, 'target: logs\n')[0]
 assert not q.verify_log_target(image, boot, False, 'target: logs\n')[0]
 print('PASS target fixtures: SP11LOGS label accepted, wrong label and offset rejected')
+
+# A nonexistent journal unit glob is ENODATA, not an installed-helper failure.
+# Require independent VM/controller/journal evidence and reject other failures.
+touch = '\n'.join(p + '\n  ABSENT' for p in (
+    '/sys/firmware/devicetree/base/soc@0/geniqup@ac0000',
+    '/sys/firmware/devicetree/base/soc@0/geniqup@ac0000/spi@a88000')) + '\n'
+base = ('<capture failed: exit 1>\n', '<no device names>\n', touch,
+        'debug sp11.entry=vmtest', 'systemd[1]: Started gdm.service\n')
+assert q.touch_userspace_captures(*base)[0]
+print('PASS capture fixture: evidenced VM without iptsd instance')
+for name, index, value in (
+    ('device entry', 3, 'debug sp11.entry=debug'),
+    ('controller evidence missing', 2, ''),
+    ('boot journal missing', 4, ''),
+    ('instance exists', 4, base[4] + 'systemd[1]: Started iptsd@dev-hidraw0.service\n'),
+    ('daemon exists', 4, base[4] + 'iptsd[42]: started\n'),
+    ('other command failure', 0, '<capture failed: exit 2>\n'),
+    ('capture unavailable', 0, '<capture unavailable>\n'),
+    ('input capture failure', 1, '<capture failed: exit 1>\n'),
+    ('input properties leaked', 1, 'Kernel: /dev/input/event0\n'),
+    ('address leaked', 1, ':'.join(['12', '34', '56', '78', '9a', 'bc']) + '\n'),
+):
+    bad = list(base); bad[index] = value
+    assert not q.touch_userspace_captures(*bad)[0], name
+    print('PASS negative capture fixture:', name)
+assert q.touch_userspace_captures('iptsd started\n', 'Touch\n', '', '', '')[0]
+print('PASS capture fixture: nonempty iptsd journal and device name')
 PY

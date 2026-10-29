@@ -80,6 +80,26 @@ def read_log(img, bootdir, name):
     return data.decode(errors="replace")
 
 
+def touch_userspace_captures(iptsd, devices, touch, cmdline, journal):
+    # journalctl returns ENODATA (exit 1) when a unit glob matches no instances.
+    # QEMU has no SP11 touch controller. Accept that exact result only when the
+    # captured DT and boot journal independently establish this VM-only case.
+    no_instance = (
+        iptsd.strip() == "<capture failed: exit 1>" and
+        re.search(r"(?:^|\s)sp11.entry=vmtest(?:\s|$)", cmdline) and
+        all(re.search(r"^" + re.escape(path) + r"\n  ABSENT$", touch, re.M)
+            for path in ("/sys/firmware/devicetree/base/soc@0/geniqup@ac0000",
+                         "/sys/firmware/devicetree/base/soc@0/geniqup@ac0000/spi@a88000")) and
+        "systemd[1]" in journal and
+        not re.search(r"iptsd@[^\s*]+\.service|iptsd\[\d+\]", journal))
+    checked_journal = "<no iptsd instance in VM>" if no_instance else iptsd
+    captures = checked_journal + devices
+    ok = (bool(checked_journal.strip()) and bool(devices.strip()) and
+          not any(bad in captures for bad in ("<capture unavailable>", "<capture failed:", "Kernel:", "Group:", "Seat:")) and
+          not re.search(r"(?i)(?<![0-9a-f])(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}(?![0-9a-f])", captures))
+    return bool(ok), ("no iptsd instance in VM: absent controller, valid boot journal, journalctl ENODATA" if no_instance else "")
+
+
 def find_initrd_dir(img):
     """initrd-<boot-id>/ with a COMPLETE marker below /EFI/sp11-logs (the dracut capture hook)."""
     for entry in mtools_listing(img):
@@ -458,10 +478,11 @@ def main():
                       "=== installed firmware package and file")))
             iptsd = read_log(a.logs, bd, "iptsd-journal.txt") or ""
             devices = read_log(a.logs, bd, "libinput-device-names.txt") or ""
-            check("M8 iptsd journal and libinput names-only captures present without identifiers",
-                  bool(iptsd.strip()) and bool(devices.strip()) and
-                  not any(bad in iptsd + devices for bad in ("<capture unavailable>", "<capture failed:", "Kernel:", "Group:", "Seat:")) and
-                  not re.search(r"(?i)(?<![0-9a-f])(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}(?![0-9a-f])", iptsd + devices))
+            captures_ok, captures_detail = touch_userspace_captures(
+                iptsd, devices, touch, read_log(a.logs, bd, "cmdline.txt") or "",
+                read_log(a.logs, bd, "journal.txt") or "")
+            check("M8 iptsd journal (or evidenced absent VM instance) and names-only captures",
+                  captures_ok, captures_detail)
             modules = read_log(a.logs, bd, "lsmod.txt") or ""
             check("M8 live uinput and SPI-HID modules loaded",
                   all(re.search(r"^" + name + r"\s", modules, re.M)

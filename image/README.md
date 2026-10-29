@@ -677,11 +677,51 @@ The Fedora-native iptsd spec in `image/iptsd/iptsd.spec` is based on the upstrea
 
 Each full snapshot still runs exactly `shsnap touch-pen.txt 'bash /usr/libexec/sp11-touch-pen-collect'`. It adds `iptsd-journal.txt` (the journal for `iptsd@*.service`) and `libinput-device-names.txt` (only `Device:` values from `libinput list-devices`, without properties, serial fields, kernel paths, groups or seats). The shared helper masks address patterns and labeled serial/unique identifiers before exporting either new capture. Privacy fixtures exercise the actual installed helper. QEMU requires these files and loaded uinput/SPI-HID modules, in addition to the existing menu/VM/session/ESP/decoy checks.
 
-Preflight: both DTBs pass the kernel owner's compiled wiring/S1/GPU/parity checker, including the exact one-property fallback difference. Menu fixtures pass and reject a wrong fallback DTB, missing battery blacklist, default radio unblock and trace drift. The QEMU driver regression passes with the eighth entry selected. Source pin, RPM build, compose and ISO L0/L1 results are pending.
+Preflight: both DTBs pass the kernel owner's compiled wiring/S1/GPU/parity checker, including the exact one-property fallback difference. Menu fixtures pass and reject a wrong fallback DTB, missing battery blacklist, default radio unblock and trace drift. The QEMU driver regression passes with the eighth entry selected.
+
+The continuation starts at `3cd9c9f`, already equal to main, with the centrally pinned iptsd inputs available. The interrupted RPM run had completed: `out/rpms/iptsd-3.1.0-1.fc44.aarch64.rpm`, SHA-256 `e253b72b0a8fe41910ef8d8f113ccfb515509974cb49a7fd7fc3f78ceade134a`. Its archive, upstream spec, local spec and central pin-file hashes were rechecked against the build record; the RPM is aarch64 and includes the upstream config, presets and udev/template service. Fedora's query found no official package. `%check` completed successfully but upstream defines no Meson tests, so no upstream test coverage is claimed. L0 also verifies the central pin-file hash, archive URL/hash, upstream spec hash and commit against the embedded iptsd record.
+
+### M8 ISO (2026-10-29)
+
+| Item | Value |
+|:--|:--|
+| ISO | `out/iso/sp11-fedora44-aarch64-kiwi-m8-20261029T172500Z.iso` |
+| Record / checksum | `out/iso/sp11-fedora44-aarch64-kiwi-m8-20261029T172500Z.json` / `.iso.sha256` |
+| Size | 2,801,991,680 bytes |
+| SHA-256 | `dda2e2a78024bbb8b3d61451641ababc55a279bf2ac915ef75f3f17c0b1fb8c4` |
+| Kernel | `kernel-core-7.3.0-65.sp11.5.fc44.aarch64`; series revision 5, both BTF options enabled |
+| Build | One fresh kiwi compose, 1840 seconds, 1975 packages; build id `20261029T171659Z` |
+| iptsd | Local Fedora-native `iptsd-3.1.0-1.fc44.aarch64`; upstream config/presets and udev-activated template service |
+| DTB `m8` | `1ad30d3e3f928a6db5c5b8bf2649bed8f85baaba3cf2adc6ed542bafe502a0e6` |
+| DTB `m8-notouch` | `6dbac355db7f081b5f77db4558e646efaef14eff7d90a51ed9afcdd44b4eebb7` |
+| ESP | 64 MiB FAT32, 129022 clusters; direct Fedora GRUB (D17–D18) |
+| L0 | **197 passed, 0 failed, 0 skipped**; report `out/iso/sp11-fedora44-aarch64-kiwi-m8-20261029T172500Z.l0.txt` |
+| QEMU (L1) | **21 PASS, 0 FAIL** (`out/iso/…m8-20261029T172500Z.l1.txt`, rerun 2026-10-29 19:03 after the verifier fix); the earlier 20/21 run is kept as `.l1-empty-iptsd.txt`. Clean ESP (110 files, 22528/129022 clusters), decoy unchanged |
+
+Menu from the built ISO. Every device entry retains the common verbose/live arguments and `clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr`, with the `nodsp` replacement noted below. Every selectable device DTB keeps speakers and GPU off.
+
+| # | Title | `sp11.entry` | DTB | Extra |
+|:--|:--|:--|:--|:--|
+| 1 | `SP11 debug` (default) | `debug` | m8 | none; touch on |
+| 2 | `SP11 debug, USB + DSP trace` | `usbdbg` | m8 | USB/DSP trace arguments listed above |
+| 3 | `SP11 debug, no early DSP` | `nodsp` | m8 | rd blacklist is `qcom_battmgr,qcom_q6v5_pas` |
+| 4 | `SP11 debug, Wi-Fi unblock probe` | `wifi-unblock` | m8 | `sp11.wifi_unblock=1` |
+| 5 | `SP11 debug nomodeset` | `nomodeset` | m8 | `nomodeset` |
+| 6 | `SP11 debug, stop in initramfs` | `initramfs` | m8 | `rd.break=pre-mount` |
+| 7 | `SP11 debug, touch off` | `notouch` | m8-notouch | Same arguments as `debug` except entry marker |
+| 8 | `VM test (no devicetree)` | `vmtest` | none | Common verbose/live arguments and `console=ttyAMA0,115200`; no device overrides |
+
+Compared with M7, the Fedora transaction replaced the five kernel packages with revision 5 and added only `iptsd`, `cairomm`, `libsigc++20` and `spdlog`; no package was removed and no other NEVRA changed. The complete delta is `out/image-work/m8-package-delta.json`; the complete NEVRA list is in the ISO build record. Before composing, only reproducible M6/M7 L0 extracted roots/images were removed for disk headroom; their ISOs, reports and collected evidence remain.
+
+L0 verifies both published/embedded DTB JSON records and hashes, S1 on every selectable device DTB, the exact one-property touch-off difference, all eight touch-module payload hashes against the release JSON, and **34 early modules with 104 dependency entries** in the actual initramfs or built in. This includes the modular `fixed` supply provider. The native iptsd package/config/presets, unmodified RPM payload, udev activation, current central source pins, forced early/live touch modules, exact touch helper invocation, userspace capture code and privacy fixtures all pass. Bluetooth, the early SAM chain, the DRM-state read refusal and D23 policy retain their passing checks.
+
+The first QEMU run reached both sessions and the complete capture at 1861 seconds; it passed 20/21 checks, including loaded uinput/SPI-HID modules, clean ESP (109 files, 22476/129022 clusters) and unchanged decoy. The userspace-capture assertion failed because the dedicated journal helper reports `<capture failed: exit 1>` when no iptsd instance exists. Fedora `journalctl` returns ENODATA for a unit glob with no match. A populated native journal fixture made with `systemd-journal-remote-259.10-1.fc44.aarch64` confirms exit 0 for its matching fixture service and exit 1 with `Failed to add filter for units: No data available` for `iptsd@*.service` (`out/image-work/m8-journal-unit-fixture/`, `m8-journal-filter-fixtures.log`). The original reports are retained as `.l1-empty-iptsd.{txt,json}` and the work directory as `out/image-work/l1-sp11-fedora44-aarch64-kiwi-m8-20261029T172500Z-empty-iptsd/`.
+
+The host verifier accepts that exact exit-1 capture only for `sp11.entry=vmtest`, with both SP11 controller paths explicitly absent in the captured DT, a valid full boot journal and no iptsd instance/daemon in that journal. Other exit codes, unavailable captures, device entries, missing controller/journal evidence, existing iptsd instances, failed input capture, leaked input properties and addresses still fail; ten negative fixtures exercise these cases. Normal nonempty iptsd journals remain accepted. This corrects only host-side interpretation of an expected hardware absence; the collector and single ISO remain unchanged. The helper's exit-1 marker is retained as evidence, and actual iptsd activation/processing remains a device gate.
 
 ## Requests
 
-- sources/orchestrator (M8 prerequisite): centrally pin the iptsd v3.1.0 source archive and upstream spec before the image consumes them, as required by protocol §2 and the touch dossier. Expected source SHA-256: `af0aab95387a5107dfa8ac1ef90a29289f6b9d06e1a59121c9e5e732b27a266c`; upstream commit `a83bc1232f7096f8b33b50fdbda249cd640de670`. `sources/sources.toml` currently has no iptsd entry. Exact proposed owner patch: `image/iptsd/source-pin-request.patch` (not applied). Image will build a Fedora-native RPM and preserve upstream configuration/udev activation once this pin is available.
+- sources/orchestrator (M8 prerequisite): fulfilled by main `3cd9c9f`. The native RPM consumes the `[iptsd]` table from `sources/sources.toml`; archive/spec hashes and the upstream commit match. The earlier `image/iptsd/source-pin-request.patch` is historical and must not be applied again.
 
 - orchestrator/operator (M8): review and commit the uncommitted image work after validation. Provision `BOOT:/EFI/sp11/bt-address` only after DD-writing, as documented above. The next already-planned GPU-off/speakers-off boot can use the touch-on default, with `SP11 debug, touch off` as the fallback. No additional reboot is requested solely for evidence. Automatic full snapshots include touch, iptsd and input names. Exact read-only manual collectors, if needed:
 

@@ -790,14 +790,21 @@ if [ "$builder" = kiwi ]; then
 	else fail 8.27 "touch helper, permissions, record or collector invocation differs"; fi
 	if [ "$(rpm --root "$ROOT" -q iptsd --qf '%{name}-%{version}-%{release}.%{arch}' 2>/dev/null)" = iptsd-3.1.0-1.fc44.aarch64 ] &&
 	   python3 -I - "$ROOT" "$rec" "$OUT" "$REPO" <<'PY'
-import hashlib, json, pathlib, sys
+import hashlib, json, pathlib, sys, tomllib
 root, rec, out, repo = map(pathlib.Path, sys.argv[1:])
 record = json.loads(rec.read_text())['iptsd']
 source = json.loads((out / 'rpms/iptsd-3.1.0-1.fc44.aarch64.json').read_text())
 digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
+pins_path = repo / 'sources/sources.toml'
+pins = tomllib.loads(pins_path.read_text())['iptsd']
 assert record == source
 assert digest(out / 'rpms/iptsd-3.1.0-1.fc44.aarch64.rpm') == record['rpm_sha256']
 assert digest(repo / 'image/iptsd/iptsd.spec') == record['local_spec_sha256']
+assert digest(pins_path) == record['central_pins_sha256']
+assert record['source_url'] == pins['archive_url']
+assert record['source_sha256'] == pins['archive_sha256']
+assert record['upstream_spec_sha256'] == pins['spec_sha256']
+assert record['upstream_commit'] == pins['upstream_commit']
 assert record['source_sha256'] == 'af0aab95387a5107dfa8ac1ef90a29289f6b9d06e1a59121c9e5e732b27a266c'
 assert (root / 'etc/iptsd.conf').is_file()
 assert any((root / 'usr/share/iptsd').rglob('*.conf'))
