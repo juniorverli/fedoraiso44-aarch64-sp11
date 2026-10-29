@@ -1,3 +1,7 @@
+> Session 3 supersedes the proposed implementation below. See
+> [working-reference evidence](evidence/2026-10-29-working-reference.md)
+> and the selected patch series. This file remains historical design context.
+
 # Minimal touchscreen path on 7.3
 
 Status: **designed**, not an enabled or build-validated patch series. Evidence

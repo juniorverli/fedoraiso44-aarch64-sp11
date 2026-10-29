@@ -1,13 +1,23 @@
 // SPDX-License-Identifier: BSD-3-Clause
-/* Controller-only diagnostic variant; use with RFC 0014, no touch child. */
+/* Controller-only probe diagnostic on the complete session-3 candidate. */
 #include "x1p64100-microsoft-denali.dts"
+
+/ {
+	/delete-node/ regulator-ts;
+};
 
 &qupv3_1 {
 	/delete-property/ firmware-name;
 };
 
 &spi10 {
-	/* Preserve extra data pins' inherited state for the collector. */
+	/* Generic probe samples the personality and may reject protocol 9. */
+	compatible = "qcom,geni-spi";
+	dmas = <&gpi_dma1 0 2 QCOM_GPI_SPI>,
+	       <&gpi_dma1 1 2 QCOM_GPI_SPI>;
+	/* Preserve the extra data pins' inherited state. */
 	pinctrl-0 = <&qup_spi10_data_clk>, <&qup_spi10_cs>;
 	status = "okay";
+
+	/delete-node/ touchscreen@0;
 };

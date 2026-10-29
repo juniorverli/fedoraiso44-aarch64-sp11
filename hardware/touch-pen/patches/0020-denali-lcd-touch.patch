@@ -1,0 +1,97 @@
+From: Dale Whinham <daleyo@gmail.com>
+Date: Thu, 29 Oct 2026 12:00:00 +0000
+Subject: [PATCH] arm64: dts: qcom: denali-lcd: enable the touch digitizer
+
+Adapt Dale Whinham's Denali touch node to the LCD board and spi-hid v7.
+Use QUP1 SE2, the six independently cross-checked mux pins, GPIO51
+falling-edge interrupt, active-low reset GPIO48 and power GPIO64.
+
+Preserve the SSDT's 500 ms cold-power delay. Do not guess the electrical
+settings of GPIO49/50: select only their independently verified mux.
+Use per-device match data instead of v5's address/opcode DT properties.
+The boot firmware must have preloaded SE protocol 9. No firmware-name
+or wake route is added; the second Windows wake resource is unresolved.
+
+Keep this node separate so driver-only and controller-only DTs can be
+tested. Speaker disablement from the integrated base is preserved.
+
+Link: https://github.com/dwhinham/linux-sp11/commit/091886ac74061683ed47c2c054a4fbe2047cdde0
+
+Assisted-by: Codex gpt-6.1-sol
+---
+diff --git a/arch/arm64/boot/dts/qcom/x1p64100-microsoft-denali.dts b/arch/arm64/boot/dts/qcom/x1p64100-microsoft-denali.dts
+--- a/arch/arm64/boot/dts/qcom/x1p64100-microsoft-denali.dts
++++ b/arch/arm64/boot/dts/qcom/x1p64100-microsoft-denali.dts
+@@ -4,6 +4,8 @@
+  */
+ 
+ /dts-v1/;
++
++#include <dt-bindings/dma/qcom-gpi.h>
+ 
+ #include "hamoa.dtsi"
+ #include "x1-microsoft-denali.dtsi"
+@@ -29,6 +31,14 @@
+ 
+ 		pinctrl-0 = <&edp_bl_en>, <&edp_bl_pwm>;
+ 		pinctrl-names = "default";
++	};
++
++	vreg_ts: regulator-ts {
++		compatible = "regulator-fixed";
++		regulator-name = "VREG_TS";
++		gpio = <&tlmm 64 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++		startup-delay-us = <500000>;
+ 	};
+ 
+ 	vreg_edp_bl: regulator-edp-bl {
+@@ -68,3 +78,48 @@
+ &pmk8550_pwm {
+ 	status = "okay";
+ };
++
++&gpi_dma1 {
++	status = "okay";
++};
++
++&spi10 {
++	compatible = "qcom,geni-spi-qspi";
++	dmas = <&gpi_dma1 0 2 QCOM_GPI_QSPI>,
++	       <&gpi_dma1 1 2 QCOM_GPI_QSPI>;
++	pinctrl-0 = <&qup_spi10_data_clk>, <&qup_spi10_data23>, <&qup_spi10_cs>;
++	status = "okay";
++
++	touchscreen@0 {
++		compatible = "microsoft,mshw0484";
++		reg = <0>;
++		interrupts-extended = <&tlmm 51 IRQ_TYPE_EDGE_FALLING>;
++		spi-max-frequency = <40000000>;
++		spi-rx-bus-width = <4>;
++		spi-tx-bus-width = <4>;
++		reset-gpios = <&tlmm 48 GPIO_ACTIVE_LOW>;
++		vdd-supply = <&vreg_ts>;
++		pinctrl-0 = <&ts_int_n>, <&ts_reset_n>;
++		pinctrl-names = "default";
++	};
++};
++
++&tlmm {
++	qup_spi10_data23: qup-spi10-data23-state {
++		pins = "gpio49", "gpio50";
++		function = "qup1_se2";
++	};
++
++	ts_int_n: ts-int-n-state {
++		pins = "gpio51";
++		function = "gpio";
++		bias-disable;
++	};
++
++	ts_reset_n: ts-reset-n-state {
++		pins = "gpio48";
++		function = "gpio";
++		drive-strength = <2>;
++		bias-disable;
++	};
++};

@@ -1,0 +1,58 @@
+From: SP11 contributors
+Date: Thu, 29 Oct 2026 12:00:00 +0000
+Subject: [PATCH] dt-bindings: spi: qcom-geni: describe QSPI engines
+
+The downstream QSPI personality uses GPI channels and requires both
+DMA specifiers. Describe its distinct compatible before enabling the
+board node. The command framing is fixed by the controller driver.
+
+Link: https://github.com/dwhinham/linux-sp11/commit/7ec26d21fff8dbb6de65a143c79159b5397c9bc2
+
+Assisted-by: Codex gpt-6.1-sol
+---
+diff --git a/Documentation/devicetree/bindings/spi/qcom,spi-geni-qcom.yaml b/Documentation/devicetree/bindings/spi/qcom,spi-geni-qcom.yaml
+--- a/Documentation/devicetree/bindings/spi/qcom,spi-geni-qcom.yaml
++++ b/Documentation/devicetree/bindings/spi/qcom,spi-geni-qcom.yaml
+@@ -26,10 +26,20 @@
+ allOf:
+   - $ref: /schemas/spi/spi-controller.yaml#
+   - $ref: /schemas/soc/qcom/qcom,se-common-props.yaml#
++  - if:
++      properties:
++        compatible:
++          const: qcom,geni-spi-qspi
++    then:
++      required:
++        - dmas
++        - dma-names
+ 
+ properties:
+   compatible:
+-    const: qcom,geni-spi
++    enum:
++      - qcom,geni-spi
++      - qcom,geni-spi-qspi
+ 
+   clocks:
+     maxItems: 1
+diff --git a/Documentation/devicetree/bindings/input/hid-over-spi.yaml b/Documentation/devicetree/bindings/input/hid-over-spi.yaml
+--- a/Documentation/devicetree/bindings/input/hid-over-spi.yaml
++++ b/Documentation/devicetree/bindings/input/hid-over-spi.yaml
+@@ -27,6 +27,7 @@
+   compatible:
+     enum:
+       - microsoft,g6-touch-digitizer
++      - microsoft,mshw0484
+ 
+   reg:
+     maxItems: 1
+diff --git a/include/dt-bindings/dma/qcom-gpi.h b/include/dt-bindings/dma/qcom-gpi.h
+--- a/include/dt-bindings/dma/qcom-gpi.h
++++ b/include/dt-bindings/dma/qcom-gpi.h
+@@ -7,5 +7,6 @@
+ #define QCOM_GPI_SPI		1
+ #define QCOM_GPI_UART		2
+ #define QCOM_GPI_I2C		3
++#define QCOM_GPI_QSPI		4
+ 
+ #endif /* __DT_BINDINGS_DMA_QCOM_GPI_H__ */
