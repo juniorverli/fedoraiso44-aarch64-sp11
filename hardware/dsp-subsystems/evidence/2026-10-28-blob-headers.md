@@ -1,5 +1,7 @@
 # Staged DSP images versus what DT and driver request
 
+2026-10-29 correction: section 4's claim that `RADS.bin` is consumed by Windows userspace is unproven. It is registered as a subsystem resource input. No Linux firmware request is known; equivalence of its resource operations remains TBD. See `2026-10-29-windows-loader-inputs.md`. The header/hash results below remain valid.
+
 Reproduced independently of the firmware worker with `hardware/dsp-subsystems/tools/mdtcheck.py` (ELF and program-header fields only; it mirrors `drivers/soc/qcom/mdt_loader.c:22-45,296-319,350-440`, v7.3; no code is decoded, so no Ghidra language applies; `sources/binary-catalog.tsv` rows: the two `.mbn` are `code, Hexagon:LE:32:default`, the two `*_dtbs.elf` are `data, never disassemble`). Run: `python3 -I hardware/dsp-subsystems/tools/mdtcheck.py sources/windows`.
 
 ## 1. Names and paths (Verified)

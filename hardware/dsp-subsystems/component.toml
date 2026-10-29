@@ -1,19 +1,19 @@
 id = "dsp-subsystems"
 name = "ADSP and CDSP remote processors, GLINK, QRTR, protection domains, pmic-glink"
 phase = 1
-status = "testing"
+status = "blocked"
 depends_on = ["soc-boot"]
-updated = "2026-10-28"
+updated = "2026-10-29"
 
 [windows]
 hardware_ids = ["ACPI\\VEN_QCOM&DEV_0C1B&SUBSYS_MSHW0486&REV_000D", "ACPI\\VEN_QCOM&DEV_0CB0", "ACPI\\VEN_QCOM&DEV_06E0", "ACPI\\VEN_QCOM&DEV_06DF", "ACPI\\VEN_QCOM&DEV_0C0D", "ACPI\\VEN_QCOM&DEV_0C8E", "ACPI\\VEN_QCOM&DEV_0C5C", "ACPI\\VEN_QCOM&DEV_0C20"]
-packages = ["qcsubsys8380", "qcpil", "qcpilext8380", "qcpilfilterext", "surfacepro_ext_adsp8380", "qcnspmcdm_ext_cdsp8380", "qcsubsys_ext_cdsp8380", "qcsubsys_ext_spss8380", "qcpdsr", "qcipcrouter8380", "qcpmicglink8380", "qcadsprpc8380", "qcadsprpcd8380"]
+packages = ["qcsubsys8380", "qcpil", "qcpilext8380", "qcpilfilterext", "surfacepro_ext_adsp8380", "qcnspmcdm_ext_cdsp8380", "qcsubsys_ext_cdsp8380", "qcsubsys_ext_spss8380", "qcsubsysthermalmgr", "qcpdsr", "qcipcrouter8380", "qcpmicglink8380", "qcadsprpc8380", "qcadsprpcd8380"]
 
 [linux]
 drivers = ["remoteproc/qcom_q6v5_pas", "rpmsg/qcom_glink_smem", "net/qrtr (ns, smd)", "soc/qcom/qcom_pd_mapper (in kernel, no userspace pd-mapper)", "soc/qcom/pdr_interface", "soc/qcom/pmic_glink (+ pmic_glink_altmode, ucsi_glink, qcom_battmgr)", "misc/fastrpc", "userspace: qrtr-lookup (package qrtr); rmtfs and tqftpserv not needed (no modem)"]
 dt = ["x1-microsoft-denali.dtsi &remoteproc_adsp, &remoteproc_cdsp, pmic-glink"]
 native = "full"
-gaps = ["CDSP GLINK edge does not acknowledge channels Linux opens (IPCRTR, fastrpc: -ENOMEM from a 5 s timeout), root cause TBD, not on the usable-tablet path", "two Battery supplies (SSAM BAT1 and qcom-battmgr-bat) report the same cell: userspace must pick one (ec-sam)", "qcom-battmgr-bat charge_control_* thresholds are writable and the driver does not know the firmware limit (S6)", "ADSP audio framework does not answer APM_CMD_GET_SPF_STATE within 5 s (audio workers; S1 not involved)", "pd-mapper and PDR lookups are pr_debug only: dynamic debug needed for the next boot"]
+gaps = ["M8 CDSP advertises GLINK channels but IPCRTR and FastRPC fail with -12 after 5 s; root cause unproven and no fix released", "REA MCP rejects calls because approval is required under approval policy never; sources must restore usable MCP with forced catalog ARM64 language (R-S1)", "M8 debug entry has no GLINK trace; enable control-handshake events from module load in M9 (R-I2)", "ADSP charger PD and QRTR work in M8; APM_CMD_GET_SPF_STATE still times out (audio owners, speakers off)", "D23 verified in M8: SAM BAT1 only, qcom_battmgr absent, UCSI supplies retained; charging not established because AC was offline and charge.txt contains only a UPower connection failure"]
 
 [firmware]
 needs = ["qcom/x1e80100/microsoft/Denali/qcadsp8380.mbn", "qcom/x1e80100/microsoft/Denali/adsp_dtb.mbn", "qcom/x1e80100/microsoft/Denali/qccdsp8380.mbn", "qcom/x1e80100/microsoft/Denali/cdsp_dtb.mbn"]

@@ -1,5 +1,7 @@
 # Path from PAS probe to working services (Linux v7.3, static)
 
+2026-10-29 correction: absence of `iommus` does not establish that the Windows `RADS.bin` resource operations are unnecessary. Its parser and Linux equivalence remain TBD; see `2026-10-29-windows-loader-inputs.md`. Battery policy is now D23.
+
 Every `file:line` is in `sources/linux` (tag `v7.3`, `c03c1a14507dfaf8b856c2608f9ac216021fc222`). Config facts come from the M5 kernel `.config` (`out/build/kernel/rpmbuild/BUILD/kernel-7.3.0-build/kernel-7.3/linux-7.3.0-65.sp11.3.fc44.aarch64/.config`). Grades follow `agents/protocol.md` section 5. Device facts from the M5 log are in `2026-10-28-m5-device-log.md`.
 
 ## 1. DT nodes (Verified)
