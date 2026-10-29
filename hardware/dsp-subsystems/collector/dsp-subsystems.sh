@@ -9,6 +9,12 @@
 
 T() { timeout 8 "$@" 2>&1; }
 R() { timeout 3 cat "$1" 2>&1 | tr '\n\000' '  '; }
+# readlink -f can succeed for a missing final component and print "driver".
+# Require the link target to exist so an unbound device is explicit.
+D() {
+	link=$(readlink -e "$1/driver" 2>/dev/null) || { echo unbound; return; }
+	basename "$link"
+}
 
 echo "## time"
 date -u +%FT%TZ
@@ -19,7 +25,7 @@ echo "## remoteproc: name state firmware recovery coredump, owner device, driver
 for r in /sys/class/remoteproc/remoteproc*; do
 	[ -d "$r" ] || continue
 	dev=$(basename "$(readlink -f "$r/device" 2>/dev/null)")
-	drv=$(basename "$(readlink -f "$r/device/driver" 2>/dev/null)")
+	drv=$(D "$r/device")
 	echo "$(basename "$r"): name=$(R "$r/name") state=$(R "$r/state") firmware=$(R "$r/firmware") recovery=$(R "$r/recovery") coredump=$(R "$r/coredump") device=$dev driver=$drv"
 done
 
@@ -41,21 +47,21 @@ echo
 echo "## platform devices: remoteproc and pmic-glink, with bound driver"
 for d in /sys/bus/platform/devices/*remoteproc* /sys/bus/platform/devices/pmic-glink; do
 	[ -e "$d" ] || continue
-	echo "$(basename "$d"): driver=$(basename "$(readlink -f "$d/driver" 2>/dev/null)")"
+	echo "$(basename "$d"): driver=$(D "$d")"
 done
 
 echo
 echo "## auxiliary devices (pd-mapper, pmic_glink clients) and drivers"
 for d in /sys/bus/auxiliary/devices/*; do
 	[ -e "$d" ] || continue
-	echo "$(basename "$d"): driver=$(basename "$(readlink -f "$d/driver" 2>/dev/null)")"
+	echo "$(basename "$d"): driver=$(D "$d")"
 done
 
 echo
 echo "## rpmsg devices (GLINK channels): name, driver"
 for d in /sys/bus/rpmsg/devices/*; do
 	[ -e "$d" ] || continue
-	echo "$(basename "$d"): name=$(R "$d/name") driver=$(basename "$(readlink -f "$d/driver" 2>/dev/null)")"
+	echo "$(basename "$d"): name=$(R "$d/name") driver=$(D "$d")"
 done
 
 echo
@@ -79,12 +85,23 @@ echo "## loaded modules of the stack"
 grep -E '^(qcom_q6v5|qcom_q6v5_pas|qcom_pd_mapper|pdr_interface|qcom_pdr_msg|qmi_helpers|qrtr|qrtr_smd|qrtr_mhi|qcom_glink|qcom_glink_smem|qcom_smem|smp2p|qcom_sysmon|qcom_common|qcom_pil_info|mdt_loader|qcom_aoss|qcom_ipcc|pmic_glink|pmic_glink_altmode|qcom_battmgr|ucsi_glink|typec_ucsi|fastrpc|apr|rpmsg_core|rpmsg_char|rpmsg_ctrl|qcom_pmic_pdcharger_ulog|snd_soc_qcom_common|q6apm|q6prm|ps883x) ' /proc/modules 2>&1
 
 echo
+echo "## IPCC, SMP2P and GLINK interrupt counts"
+grep -i -E 'ipcc|glink-smem|smp2p-(adsp|cdsp)|q6v5' /proc/interrupts 2>&1 || true
+
+echo
+echo "## D23 battery policy (configuration and dry run only)"
+T modprobe --showconfig | grep -E '^(blacklist|install) qcom_battmgr( |$)' || true
+T modprobe -n -v qcom_battmgr
+
+echo
 echo "## kernel log, DSP stack and firmware (full dmesg is in dmesg.txt)"
 dmesg --time-format=iso 2>&1 | grep -i -E 'remoteproc|q6v5|qcom_q6v5_pas|glink|qcom_smd_qrtr|qrtr|PDR|PDM:|pd-mapper|pd_mapper|pmic_glink|pmic-glink|qcom_battmgr|battmgr|ucsi|altmode|fastrpc|sysmon|ssctl|smp2p|aoss|mdt_loader|minidump|Direct firmware|request_firmware|failed to create endpoint|failed to announce|failed while handling|handling crash|crash detected|recovering|watchdog received|fatal error|gprsvc|qcom-apm|qcom-prm|CMD timeout|apr' | head -n 400
 
 echo
 echo "## systemd units of the stack"
 T systemctl list-units --all --no-pager --no-legend 'rmtfs*' 'tqftpserv*' 'qrtr*' 'pd-mapper*' 'upower*' 'fastrpc*' 'adsprpcd*' 'cdsprpcd*' 'sdsprpcd*' || true
+T systemctl show upower.service -p LoadState -p ActiveState -p SubState -p Result -p ExecMainStatus
+T journalctl -b -u upower.service --no-pager -n 60
 
 echo
 echo "## power_supply: every supply, the attributes that matter (read only)"
@@ -108,10 +125,27 @@ echo "## typec and PD class devices that pmic-glink creates"
 T ls -l /sys/class/typec /sys/class/usb_power_delivery || true
 
 echo
-echo "## glink trace (only when the entry has trace_event=:mod:qcom_glink on its command line)"
+echo "## GLINK trace configuration (read only; collector never enables or clears tracing)"
+T cat /proc/cmdline
+for f in tracing_on trace_clock buffer_size_kb events/qcom_glink/enable; do
+	[ -r "/sys/kernel/tracing/$f" ] && echo "$f: $(R "/sys/kernel/tracing/$f")"
+done
+for f in /sys/kernel/tracing/events/qcom_glink/qcom_glink_cmd_*/enable; do
+	[ -r "$f" ] && echo "$(basename "$(dirname "$f")"): $(R "$f")"
+done
+for f in /sys/kernel/tracing/per_cpu/cpu*/stats; do
+	[ -r "$f" ] || continue
+	echo "== $f"
+	T cat "$f"
+done
+
+echo
+echo "## GLINK control handshake, separately per edge (no payload data)"
 if [ -r /sys/kernel/tracing/trace ]; then
-	grep -c . /sys/kernel/tracing/trace 2>&1
-	timeout 8 grep -E 'qcom_glink_cmd_(open|open_ack|close|close_ack|version|version_ack)' /sys/kernel/tracing/trace 2>&1 | head -n 300
+	for edge in cdsp lpass; do
+		echo "== $edge"
+		timeout 8 grep -E "qcom_glink_cmd_(open|open_ack|close|close_ack|version|version_ack):.*remote: $edge " /sys/kernel/tracing/trace 2>&1 | head -n 300
+	done
 else
 	echo "(tracefs not readable)"
 fi
