@@ -25,7 +25,7 @@ Produces the Fedora 44 Workstation aarch64 live ISO that boots the Surface Pro 1
 4. **Kernel with BTF** (check `/sys/kernel/btf/vmlinux` in the collector).
 5. Kernel command-line additions are recorded in the build record with the reason for each.
 
-ISO builder: **livemedia-creator** (lorax), decision D11 in `plan/decisions.md`. It runs as `livemedia-creator --no-virt --make-iso --ks image/<name>.ks` inside a privileged Fedora 44 container, because WSL2 has no KVM for the default virt-install mode.
+ISO builder: **kiwi-ng**, using Fedora's pinned f44 Workstation-Live description (D16), inside a privileged Fedora 44 container. The historical livemedia-creator path (D11) is documented below and remains available as `--builder lmc`.
 
 ## GRUB 2 and the kernel command line
 
@@ -50,21 +50,21 @@ Kernel command line, common to all entries:
 | `rd.live.image root=live:CDLABEL=<label>` | Fedora live boot |
 | `console=tty0` | Panel console |
 
-Entries:
+Entries for M6 (D22–D23), in order. Every device entry uses `…-denali-m6.dtb` (speakers and GPU off) and `clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr` in addition to the common verbose/live arguments:
 
-| Entry | Extra arguments | Use |
+| Entry | `sp11.entry` | Additional arguments / purpose |
 |:--|:--|:--|
-| `SP11 debug` (default) | `clk_ignore_unused pd_ignore_unused rootdelay=10`, DTB `…-denali-parity.dtb` | M4 (D20): every difference the comparison with the previous project's GNOME boot found. Supersedes the D19 gate for the default only |
-| `SP11 debug, M3 command line` | none, packaged DTB | M4: the M3 boot, for comparison |
-| `SP11 debug, no early DSP` | as the default, plus `rd.driver.blacklist=qcom_q6v5_pas` | M4: the DSP remoteproc driver stays out of the initramfs (loads in the real root, as in M3) |
-| `SP11 debug + DRM trace` | as the default, plus `drm.debug=0x1ff` | Display problems (very verbose) |
-| `SP11 debug nomodeset` | as the default, plus `nomodeset` | Fallback when the panel goes dark; keeps the firmware framebuffer |
-| `SP11 debug, stop in initramfs` | as the default, plus `rd.break=pre-mount` | Rescue shell before the root is mounted |
-| `VM test (no devicetree)` | `console=ttyAMA0,115200`, no `devicetree` | L1 only, never default |
+| `SP11 debug` (default) | `debug` | Baseline; no radio state change |
+| `SP11 debug, USB + DSP trace` | `usbdbg` | USB-C test-plan C and DSP R-I2, combined (arguments below) |
+| `SP11 debug, no early DSP` | `nodsp` | `rd.driver.blacklist=qcom_battmgr,qcom_q6v5_pas` (replaces the common rd blacklist) |
+| `SP11 debug, Wi-Fi unblock probe` | `wifi-unblock` | `sp11.wifi_unblock=1`; transient rfkill and NetworkManager probe |
+| `SP11 debug nomodeset` | `nomodeset` | `nomodeset` |
+| `SP11 debug, stop in initramfs` | `initramfs` | `rd.break=pre-mount` |
+| `VM test (no devicetree)` | `vmtest` | No DTB or clock/rootdelay overrides; `console=ttyAMA0,115200` |
 
-The `parity` DTB is the M3 DT with the 10-CPU topology (the two fused-off cores, MPIDR `0x10300` and `0x20300`, removed; the kernel worker checked the MADT) and no system SS3 idle (CL4/CL5 kept). The M3 DTBs `…-edponly.dtb` and `…-nobl.dtb` stay on the ISO unreferenced, for manual use at the GRUB prompt (`devicetree`). The D19 entries `keep firmware clocks`, `eDP only` and `DTB without PWM backlight` are not in the M4 menu.
+`usbdbg` adds `pmic_glink_altmode.dyndbg=+p ps883x.dyndbg=+p phy_qcom_qmp_combo.dyndbg=+p ucsi_glink.dyndbg=+p typec_ucsi.dyndbg=+p dwc3.dyndbg=+p dwc3_qcom.dyndbg=+p qcom_pd_mapper.dyndbg=+p pdr_interface.dyndbg=+p trace_event=:mod:qcom_glink trace_buf_size=8M`. DSP tracing is confined to this diagnostic entry to bound console/trace volume (implementation choice permitted by the M6 task). D23 makes the requested `qcom_battmgr.dyndbg=+p` redundant, so it is omitted. The other diagnostic arguments retain the component workers' requested spelling. No GPU-on entry exists (D22).
 
-Every entry also has `sp11.entry=<id>` (`debug`, `m3cmdline`, `nodsp`, `drm-trace`, `nomodeset`, `initramfs`, `vmtest`); the collector writes it to `entry.txt`, so a log says which entry booted. Any further argument needs a request from a component worker with a log that justifies it, and is listed with its reason in the build record. `clk_ignore_unused` never becomes a default without a log that shows H1 (D19).
+The collector writes the selected `sp11.entry` to `entry.txt`. Every selectable device DTB passes L0 2.18 (S1). M6 is published by the kernel worker; its JSON and SHA-256 enter the build record. The packaged DTB remains on the ISO for package comparison, and is never selected by the menu.
 
 ### Secure Boot
 
@@ -96,7 +96,7 @@ Nothing reaches the Surface until levels 0 and 1 pass. Host facts (2026-10-24): 
 4. Kernel: `vmlinux`/`vmlinuz` NEVRA equals the build record; BTF present; every symbol of `kernel/config/sp11.config` has its value in the shipped `config-*`.
 5. Modules: `msm`, `panel-edp`, `phy-qcom-edp` and the rest of phase 1 present in the squashfs and, where needed early, in the initramfs (`lsinitrd`).
 6. Firmware: every `firmware/manifest.toml` entry in scope is at its Linux path with the expected SHA-256; nothing else from `sources/windows` is in the image.
-7. Privacy: no MAC address, serial number or `sources/windows` path in any file of the image, except the local Bluetooth address file when D-bluetooth is active.
+7. Privacy: no MAC address, serial number or `sources/windows` path in any file of the image, including the operator Bluetooth address file (provision it only after DD-writing the stick).
 8. Log collector unit present and enabled for `multi-user.target`.
 
 ### L1 emulated boot
@@ -514,19 +514,124 @@ L1 evidence (QEMU TCG, `--until-session --decoy`, 1295 s): the menu listed 6 ent
 
 ### Collector fixes after the M5 device log (2026-10-28)
 
-- **Debugfs allow-list.** The M5 GPU-off boot's `dmesg.txt` has 36 NULL dereferences in `dpu_crtc_debugfs_state_show+0x4c [msm]` (process `head`, Oops up to `[#9]`, plus a WARNING in `dpu_crtc_get_intf_mode`): the collector's `dump_tree` walked all of `/sys/kernel/debug/dri` and read every `crtc-*/state`. From now on a file below `/sys/kernel/debug` is read only if `debugfs_allowed` in the collector names it: `devices_deferred`, `gpio`, `pwm`, `device_component/*`, `clk/clk_summary`, `pm_genpd/pm_genpd_summary`, `regulator/regulator_summary`, `devfreq/devfreq_summary`, the pinctrl summaries and per-controller `pins`, `pinmux-pins`, `pinmux-functions`, `pinconf-pins`, `pingroups`, `gpio-ranges`, and `dri/<N>/{name,clients,state}` (`state` is DRM core's atomic state, read on every snapshot of the M5 boot without a fault; it is not the DPU file). Every other file, every `crtc-*`, `plane-*`, `encoder-*`, connector and `dp_debug` file included, is skipped, and the skip is written into the log (`=== path (not read: not on the debugfs allow-list)`). `dp-link.txt` is now only a listing. The msm bug itself is for the display-lcd dossier. L0 8.18 runs the collector's own function against the crtc, plane, encoder, `dp_debug`, `..` and other paths (all refused) and the known-safe ones (allowed); 8.19 checks that `dump_tree` is gated and nothing reads `crtc-*` directly.
+- **Debugfs allow-list.** The M5 GPU-off boot's `dmesg.txt` has 36 NULL dereferences in `dpu_crtc_debugfs_state_show+0x4c [msm]` (process `head`, Oops up to `[#9]`, plus a WARNING in `dpu_crtc_get_intf_mode`): the collector's `dump_tree` walked all of `/sys/kernel/debug/dri` and read every `crtc-*/state`. From now on a file below `/sys/kernel/debug` is read only if `debugfs_allowed` in the collector names it: `devices_deferred`, `gpio`, `pwm`, `device_component/*`, `clk/clk_summary`, `pm_genpd/pm_genpd_summary`, `regulator/regulator_summary`, `devfreq/devfreq_summary`, the pinctrl summaries and per-controller `pins`, `pinmux-pins`, `pinmux-functions`, `pinconf-pins`, `pingroups`, `gpio-ranges`, and `dri/<N>/{name,clients}`. All DRM `state` files are refused: DRM core atomic-state dumping calls the driver print hooks too (`sources/linux/drivers/gpu/drm/drm_atomic.c:2124`, `:2202`), so successful earlier reads do not establish safety. Every other file, every `crtc-*`, `plane-*`, `encoder-*`, connector and `dp_debug` file included, is skipped, and the skip is written into the log (`=== path (not read: not on the debugfs allow-list)`). `dp-link.txt` is now only a listing. The msm bug itself is for the display-lcd dossier. L0 8.18 runs the collector's own function against the crtc, plane, encoder, `dp_debug`, `..` and other paths (all refused) and the known-safe ones (allowed); 8.19 checks that `dump_tree` is gated and nothing reads `crtc-*` directly.
 - **GPU speed bin.** The M5 log said `read of 2 bytes at 0x119 failed (got '')`: the nvmem core rejects reads not aligned to the provider's stride. The collector now makes one 4-byte read at `0x118` (`dd bs=4 skip=$((0x118 / 4)) count=1`), cuts the 2-byte cell (`<7 8>` of `0x119`) out of it, and writes only the two cell bytes and the decoded value; the other two bytes of the window are discarded unseen. Tested on a fake nvmem file with distinct neighbouring bytes (not in the output). L0 8.16 checks the single aligned read.
 - Noted for the GPU work, no change: with the GPU on, `msm` probes in the initramfs and `qcom/gen70500_sqe.fw` fails with -2 there (the GPU firmware is not in the initramfs by D21); the devfreq `max_freq` was 1,250,000,000.
 - No ISO was built for this. The M5 ISO still has the old collector, so L0 on it fails exactly 8.16, 8.18 and 8.19; the same checks pass against the repository's collector.
 
+### Debugfs read rationale after M5
+
+The generic collector and image-owned USB-C hook use exact debugfs file patterns; other paths are refused, including every `dri/*/state`, `crtc-*`, connector, `dp_debug` and test attribute. The component-owned DSP/Wi-Fi drop-ins retain their explicit bounded readers; neither reads DRM state. `drm-state.txt` records a refusal. These permitted files are established framework/port readers, do not invoke DPU atomic-state printing, and do not change configuration. This is a bounded source-based safety assessment, not a claim that debugfs can never contain a driver defect. Source paths below are under `sources/linux/` (v7.3).
+
+| Allowed file(s), below `/sys/kernel/debug/` | Why retained |
+|:--|:--|
+| `dri/<N>/name` | `drivers/gpu/drm/drm_debugfs.c:54`: prints identity/bookkeeping under the master mutex, no modeset/atomic print hooks. |
+| `dri/<N>/clients` | `drivers/gpu/drm/drm_debugfs.c:75`: locked client list and process metadata, no modeset/atomic print hooks. |
+| `devices_deferred` | `drivers/base/dd.c:244`: locked deferred-probe list; prints names/reasons. |
+| `device_component/*` | `drivers/base/component.c:83`: locked component binding list; no component driver callback. |
+| `gpio`, `pwm` | `drivers/gpio/gpiolib.c:5418`, `drivers/pwm/core.c:2634`: GPIO read/status and PWM cached/current-state queries, previously captured in M5 without a reported fault; no configuration setter. |
+| `clk/clk_summary` | `drivers/clk/clk.c:3422`: clock topology/rate/status queries under framework locks; does not set rates or enables. |
+| `pm_genpd/pm_genpd_summary` | `drivers/pmdomain/core.c:3877`: locked power-domain status/accounting query; no power transition. |
+| `regulator/regulator_summary` | `drivers/regulator/core.c:6744`: regulator status/voltage/load queries; no voltage/current setter. |
+| `devfreq/devfreq_summary` | `drivers/devfreq/devfreq.c:1965`: device/governor/frequency summary, no governor/target change. |
+| `pinctrl/{pinctrl-devices,pinctrl-handles,pinctrl-maps}` | `drivers/pinctrl/core.c:1894`, `:1937`, `:1974`: framework registrations and mappings; no mux selection. |
+| `pinctrl/<controller>/{pins,pinmux-pins,pinmux-functions,pinconf-pins,pingroups,gpio-ranges}` | `drivers/pinctrl/core.c:1735`, `:1809`, `:1860`, `drivers/pinctrl/pinmux.c:576`, `:619`, `drivers/pinctrl/pinconf.c:304`: pin descriptions/configuration queries needed for the PMIC backlight, previously captured in M5; no configuration write. |
+| `usb/devices`, `usb/xhci/<controller>/ports/port<N>/portsc` | `drivers/usb/core/devices.c:510` device listing and `drivers/usb/host/xhci-debugfs.c:327` port-status show: USB descriptor/topology and PORTSC register reads requested by USB-C; no reset/test/port-control write. |
+
+### Bluetooth operator file and ec-sam tools (M6)
+
+Payloads from merged `main` were read with `git show main:<path>` into `image/component-inputs/`, with commit and file hashes in `sources.json`. The builder stages the Bluetooth helper/service/masked collector unchanged and enables the hci0-triggered service through its wants link and Fedora preset. The hook runs `timeout -k 1 80 /usr/libexec/sp11-bt-collect` into `extra-bluetooth.txt`. Fedora BlueZ startup and generic NVM stay in place. No controller means no helper activation in QEMU. L0 checks actual installed bytes, activation, packages and absence of private inputs.
+
+The operator adds the Windows-observed address **after DD-writing the ISO**, as exactly one colon-formatted address plus an optional newline at **`BOOT:/EFI/sp11/bt-address`**, on the boot stick's FAT32 ESP (not `SP11LOGS`, not the ISO filesystem). The boot helper finds only that ESP as a sibling of the mounted live ISO, mounts it read-only in a private namespace, and unmounts on success/failure. The image, intermediate overlays, build records and git contain no address input. On installed Fedora only, `/etc/sp11/bt-address` may instead be provisioned locally, root-owned mode 0600. Keep the stick and full journals private.
+
+To read the address while Windows is running, use this exact read-only collector from PowerShell in the repository (no administrator rights or reboot required). Disconnect external Bluetooth adapters first so there is exactly one local radio:
+
+```powershell
+$btAddress = & .\image\tools\read-windows-bt-address.ps1
+if ($btAddress -notmatch '^(?:[0-9A-F]{2}:){5}[0-9A-F]{2}$') { throw 'No single valid local radio address' }
+```
+
+The script calls Microsoft's documented [BluetoothFindFirstRadio](https://learn.microsoft.com/en-us/windows/win32/api/bluetoothapis/nf-bluetoothapis-bluetoothfindfirstradio) / next / close functions and [BluetoothGetRadioInfo](https://learn.microsoft.com/en-us/windows/win32/api/bluetoothapis/nf-bluetoothapis-bluetoothgetradioinfo); the returned [BLUETOOTH_RADIO_INFO.address](https://learn.microsoft.com/en-us/windows/win32/api/bluetoothapis/ns-bluetoothapis-bluetooth_radio_info) is the local radio address. It performs no discovery, registry query, pairing, power or firmware operation. It refuses multiple radios and sentinel values. The script has been checked statically here; executing it on Windows remains operator evidence. Keep `$btAddress` private and do not echo it or paste it into a task, command literal or git file.
+
+Once the operator has DD-written the ISO and identified/mounted **the stick's** `BOOT` ESP, replace `E:` below with that ESP's drive letter. This separate provisioning step writes only that local stick:
+
+```powershell
+$usbEsp = 'E:' # replace only after checking this is the USB stick's BOOT ESP
+New-Item -ItemType Directory -Force -Path "$usbEsp\EFI\sp11" | Out-Null
+[System.IO.File]::WriteAllText("$usbEsp\EFI\sp11\bt-address", $btAddress + "`n", [System.Text.Encoding]::ASCII)
+Remove-Variable btAddress
+```
+
+Alternatively, the existing private `sources/windows/live-inventory/sp11-mac.conf` can be converted offline as in `hardware/bluetooth/image-request.md` on main; never mount the Windows partition to get it and never run that conversion during the ISO build. Provisioning modifies the written stick's checksum, which is expected; it does not change the validated ISO file.
+
+The ec-sam R3 early chain is `surface_aggregator`, `surface_aggregator_registry`, `surface_aggregator_hub`, `surface_hid`, `surface_hid_core`, `hid`, `hid_generic` with dracut-resolved dependencies. The modular transport/registry/hub/HID drivers are also in `force_drivers`; built-in UART/serdev, GENI and pinctrl need no module file. `hid_multitouch` stays a root driver: only the keyboard is promised in an initramfs shell. L0 uses `lsinitrd` and checks every early module's `modules.dep` closure or built-in equivalent. Device confirmation at `rd.break=pre-mount` is still required. Fedora `libinput-utils`/`evtest` and unchanged tools are installed under `/usr/libexec/sp11/ec-sam/{collect-input-capabilities.sh,collect-power.sh,ssam-ro.py}`. Manual read-only evidence commands are `sudo /usr/libexec/sp11/ec-sam/collect-input-capabilities.sh` and `sudo /usr/libexec/sp11/ec-sam/collect-power.sh`; they capture capabilities/power fields, never keyboard events or limit writes.
+
+### M6 preparation (2026-10-28, D22–D24)
+
+- D23: `/etc/modprobe.d/50-sp11-battery.conf` contains both `blacklist qcom_battmgr` and `install qcom_battmgr /usr/bin/false`; both dracut configurations omit it and explicitly install the blacklist into the initramfs. Every device menu entry also has the rd/modprobe blacklists (R4). L0 invalidates its extracted-root cache when the ISO SHA-256 changes, so a replaced ISO cannot inherit stale policy checks. `ucsi_glink` stays in the early USB-C bridge chain. L0 5.9–5.11 verifies actual kmod resolution, no built-in/initramfs battery driver, the initramfs policy and a fail-closed audit of threshold references in image text policy (documentation, firmware and modules excluded). The audited DSP collector only reads the thresholds; Fedora's UPower rules only test their existence. Packaged binary APIs are outside the text audit: preventing qcom_battmgr from loading is the enforcement for its writable attributes.
+- DP regression: the allow-list refuses `msm_dp_test_active`, `test_active`, `test_data` and `test_type`, both directly under connectors and below `dp_debug`; L0 8.18 exercises all forms. `dp-link.txt` lists paths only. This covers the M5 `msm_dp_test_active_show` NULL dereference without repeating private log lines.
+- DSP R-I1 and Wi-Fi I1: the original component drop-ins are staged unchanged at build time. USB-C test-plan B is an image-owned drop-in, with USB debugfs reads routed through the allow-list (`usb/devices` and per-port `portsc` only). L0 8.20 verifies the installed scripts.
+- Wi-Fi I3/I4: `sp11-rfkill-events.service` is enabled and preset before NetworkManager; `systemd-modules-load` loads `rfkill` first so the listener can open `/dev/rfkill` even without a radio in QEMU. `options ath12k debug_mask=0x30` is valid without `CONFIG_ATH12K_DEBUG`: the parameter is unconditional at `sources/linux/drivers/net/wireless/ath/ath12k/core.c:28–31`; only its output helpers are conditional (`debug.h:43–64`). L0 checks the shipped module parameter. Existing M6 RPMs may still lack debug output until the kernel worker supplies K2.
+- Wi-Fi I2: the original unblock probe is installed outside the automatic drop-in directory. Only `sp11.wifi_unblock=1` permits sourcing it during full snapshots; its own once-per-boot and 90-second guards remain. L0 checks the gate and the menu disallows that flag on every other entry. It changes only transient radio state.
+- Build scripts read the cached pinned Fedora description without cloning/fetching or any Git writes. They refuse an unpublished M6 DTB before building. Only the M6 variant is copied (historical variants remain outside this ISO).
+- Validation during preparation: shell/Python syntax; S6 fixtures reject direct shell redirection, a separate path variable, `tee`, udev writes and Python writes; menu fixtures reject default Wi-Fi unblocking, a GPU DTB and modified trace arguments. `scripts/index.py --check`: 21 components, 0 errors. L0 and QEMU results follow when the DTB is available.
+
+
+### M6 replacement ISO (2026-10-29, D22–D24)
+
+The earlier `out/iso/sp11-fedora44-aarch64-kiwi-m6-20261028T191900Z.iso` is invalid (142 PASS, 2 FAIL: 5.10 and 8.18). It is retained for the orchestrator to remove after accepting this replacement.
+
+| Item | Value |
+|:--|:--|
+| ISO | `out/iso/sp11-fedora44-aarch64-kiwi-m6-20261028T233509Z.iso` |
+| Record / checksum | `out/iso/sp11-fedora44-aarch64-kiwi-m6-20261028T233509Z.json` / `.iso.sha256` |
+| Size | 2,802,581,504 bytes |
+| SHA-256 | `871b1a4d184670f33411c24665c46d42e34f2556f333760212037cc570aec215` |
+| Kernel | `kernel-core-7.3.0-65.sp11.3.fc44.aarch64`; both BTF options enabled |
+| Build | Fresh kiwi compose, 1763 seconds, 1972 packages |
+| ESP | 64 MiB FAT32, 129022 clusters, direct Fedora GRUB (D17–D18) |
+| L0 | **161 passed, 0 failed, 0 skipped**; report `out/iso/sp11-fedora44-aarch64-kiwi-m6-20261028T233509Z.l0.txt` |
+| QEMU | **PASS, 18/18 checks**, `--until-session --decoy`, 1780 seconds to complete session captures; reports `.l1.txt` / `.l1.json` |
+
+Menu verified from the ISO's build record. Every device entry uses `denali-m6.dtb` (GPU/speakers off) and the common verbose/live arguments plus `clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr`:
+
+| # | Title | `sp11.entry` | DTB | Extra |
+|:--|:--|:--|:--|:--|
+| 1 | `SP11 debug` (default) | `debug` | m6 | none |
+| 2 | `SP11 debug, USB + DSP trace` | `usbdbg` | m6 | USB/DSP trace arguments listed above |
+| 3 | `SP11 debug, no early DSP` | `nodsp` | m6 | rd blacklist is `qcom_battmgr,qcom_q6v5_pas` |
+| 4 | `SP11 debug, Wi-Fi unblock probe` | `wifi-unblock` | m6 | `sp11.wifi_unblock=1` |
+| 5 | `SP11 debug nomodeset` | `nomodeset` | m6 | `nomodeset` |
+| 6 | `SP11 debug, stop in initramfs` | `initramfs` | m6 | `rd.break=pre-mount` |
+| 7 | `VM test (no devicetree)` | `vmtest` | none | common verbose/live arguments and `console=ttyAMA0,115200`; no device overrides |
+
+
+QEMU evidence: the menu showed all seven entries, `vmtest` booted, GDM was active/running, BTF was present, the complete collector capture and both logind session snapshots were written to the boot stick's `BOOT` ESP. After shutdown `fsck.fat -n` found no dirty bit (106 files, 22499/129022 clusters); the fake Windows disk's MD5 remained `bada24dbb8920a71f5854569082197cd`. No QEMU or image-build container remains running. This session-scoped run does not perform the full L1 failed-unit allow-list audit. The Bluetooth capture reports both BlueZ and the address helper inactive with `Result=success`, as expected without a WCN7850 in QEMU; real address application and the SAM keyboard still require device evidence.
+
+Additional checks: Bluetooth's 14 Fedora mock tests passed (including boot-sibling selection, read-only mount options and cleanup); the QEMU driver self-test passed; menu negative fixtures reject a missing D23 flag, a GPU-enabled DTB and default Wi-Fi unblocking. These mock tests do not establish real controller/FAT provisioning behavior. The Windows reader is statically checked and still awaits execution by the operator. All changes remain uncommitted under D24.
+
+
 ## Requests
+
+- orchestrator/operator (M6): review and commit this uncommitted work, provision `BOOT:/EFI/sp11/bt-address` after DD-writing, and batch functional evidence in the next already-planned GPU-off/speakers-off boot. To cover ec-sam R3 in that same boot, choose `SP11 debug, stop in initramfs`, confirm the attached keyboard can type the read-only command below, then use `exit` to continue booting. After login collect `/usr/libexec/sp11-bt-collect` and the two ec-sam capability/power collectors listed above; charging/thermal policy remains unchanged.
+
+  ```bash
+  awk '$1 ~ /^(surface_aggregator|surface_aggregator_registry|surface_aggregator_hub|surface_hid|surface_hid_core|hid|hid_generic)$/ {print $1, "refs=" $3}' /proc/modules
+  ```
+
+  Built-in modules are absent from `/proc/modules`; L0 has already checked their built-in equivalents. Keep addresses, serials and the full journal private. No extra reboot is requested solely for this evidence.
 
 - installer path (R9, future): the installed system must boot `grubaa64.efi` directly. Anaconda installs shim and points the UEFI boot entry at it, and this firmware does not run shim. The installer step (kickstart `%post` of the installed system, or an Anaconda addon / `efibootmgr` call after install) must (a) create the boot entry for `\\EFI\\fedora\\grubaa64.efi` with `efibootmgr -c -d <disk> -p <esp partition> -L Fedora -l '\\EFI\\fedora\\grubaa64.efi'`, and (b) copy `grubaa64.efi` to `EFI/BOOT/BOOTAA64.EFI` on the installed ESP, for firmware that only reads the fallback path. Both must leave `EFI/fedora/shimaa64.efi` in place. Not implemented: this image has no installer step yet; verify on the device (R9).
 - kernel: install `x1p64100-microsoft-denali.dtb` under `/lib/modules/<kver>/dtb/qcom/` in `kernel-core`; build `kernel-modules-core`/`kernel-modules` with `CONFIG_SQUASHFS_ZSTD=y`, `CONFIG_VFAT_FS=m` (or `y`; the collector mounts the FAT log partition), `CONFIG_USB_STORAGE`, `CONFIG_VIRTIO_GPU`, xHCI and virtio drivers for the L1 `VM test` entry (the Fedora config has them; keep them).
+- kernel (Wi-Fi K2): `CONFIG_ATH12K_DEBUG=y` is still needed for `debug_mask=0x30` to emit messages; the parameter itself exists in the current RPMs. Keep M6 DTB publication and its JSON atomic before image build.
 - firmware: none open; request 1-4 are done (see "Kickstart origin" and "Initramfs and firmware").
 - orchestrator: dossiers of `dsp-subsystems` (pd-mapper, qrtr) and `gpu` can cite this file for the answers above.
 
 ## Log
+
+- 2026-10-29: completed the M6 replacement from a fresh kiwi compose: all DRM state reads refused, explicit D23 initramfs policy and every-device-entry blacklists, pinned main Bluetooth/ec-sam payloads, operator-only post-DD address provisioning. ISO `sp11-fedora44-aarch64-kiwi-m6-20261028T233509Z`: L0 161/161, QEMU `--until-session --decoy` 18/18 (menu, VM boot/GDM, sessions, clean ESP, unchanged decoy), Bluetooth mocks 14/14. Invalid earlier ISO retained; all work uncommitted and no task process left running.
+
+- 2026-10-28: Codex continued image under D24; prepared M6 collector requests, DP test-read regression, D23 battery enforcement, combined diagnostics and opt-in Wi-Fi probe; build and QEMU pending the kernel worker DTB.
 
 - 2026-10-24: container, kickstart, lorax templates, collector, `image-build.sh`, L0 and L1 scripts written. L0 passes on a toy ISO; L1 driver verified against a fake QEMU; no ISO build and no QEMU run because the kernel build held `out/.kernel-build.lock`.
 - 2026-10-24 (later): M2 ISO built (SHA-256 above), L0 76/76, L1 reaches GDM with the collector complete, fails only on four TCG start timeouts. Six defects fixed (list in "M2 ISO").
