@@ -1,0 +1,25 @@
+From: juniorverli <25966843+juniorverli@users.noreply.github.com>
+Date: Thu, 29 Oct 2026 12:00:00 +0000
+Subject: [PATCH] arm64: dts: qcom: denali-lcd: disable the GPU for M8
+
+The M5 GPU-off boot reached GNOME; the GPU-on boot reset at session
+start. Keep the accelerated GPU disabled in the packaged LCD DTB, as
+well as the M8 device variants, while GPU bring-up remains deferred
+under D22. The display controller stays enabled for KMS and llvmpipe.
+
+Assisted-by: Codex gpt-6.1-sol
+---
+diff --git a/arch/arm64/boot/dts/qcom/x1p64100-microsoft-denali.dts b/arch/arm64/boot/dts/qcom/x1p64100-microsoft-denali.dts
+--- a/arch/arm64/boot/dts/qcom/x1p64100-microsoft-denali.dts
++++ b/arch/arm64/boot/dts/qcom/x1p64100-microsoft-denali.dts
+@@ -16,6 +16,10 @@
+ 	status = "disabled";
+ };
+ 
++&gpu {
++	status = "disabled";
++};
++
+ / {
+ 	model = "Microsoft Surface Pro 11th Edition (LCD)";
+ 	compatible = "microsoft,denali-lcd", "microsoft,denali",

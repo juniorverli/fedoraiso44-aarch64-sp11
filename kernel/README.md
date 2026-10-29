@@ -79,6 +79,7 @@ The RPM release carries the series revision through Fedora's `buildid`: `65.sp11
 | 0 | empty (M1, vanilla 7.3) | `kernel-7.3.0-65.sp11.fc44.aarch64` (archived in `out/rpms/archive/7.3.0-65.sp11/`) |
 | 3 | display-lcd 0001-0003 (M3, D19) | `kernel-7.3.0-65.sp11.3.fc44.aarch64` |
 | 4 | M7: display 0001–0003, Wi-Fi 0001, USB-C 0001, SAM 0001/0003, touch diagnostic 0014, S1 | `kernel-7.3.0-65.sp11.4.fc44.aarch64` |
+| 5 | M8: retained M7 fixes/S1, GPU off, spi-hid v7 0001–0011 and touch 0016–0020; RFC 0014 retired | `kernel-7.3.0-65.sp11.5.fc44.aarch64` |
 
 - `kernel/base.toml` holds `series_rev` and `series_sha256` (sha256 of the `<path> <patch sha256>` lines of `kernel/series`). Changing `kernel/series` or a patch in it without bumping both makes `scripts/kernel-build.sh` and `scripts/kernel-check` fail and print the new hash.
 - A build that succeeds archives the RPMs of every other `series_rev` from `out/rpms/` into `out/rpms/archive/<ver>-<rel>.sp11[.<rev>]/` before it copies the new ones. The record `out/rpms/<nevra>.json` has `series_rev` and the series hash.
@@ -119,8 +120,9 @@ Against the packaged DTB (`/lib/modules/<kver>/dtb/qcom/x1p64100-microsoft-denal
 - soc-boot (via orchestrator): Q1 is answered by the MADT: MPIDR `0x10300` (UID 7) and `0x20300` (UID 11) are disabled. A real patch for `hardware/soc-boot/patches/` would delete `cpu7`, `cpu11`, `cpu_pd7`, `cpu_pd11` and their `cpu-map` entries; `kernel/dtb-variants/x1p64100-microsoft-denali-parity.dts` shows the working form.
 - soc-boot (via orchestrator): also carry the parity deletion of `domain-idle-states` from `&system_pd` (no system SS3; retain CL4/CL5) in the component patch. M7 carries these changes in its DTB variants until the component patch arrives; the packaged DT retains the upstream CPU/idle description.
 - audio-speakers (via orchestrator): take ownership of `kernel/patches/0001-arm64-dts-qcom-denali-lcd-disable-unprotected-speakers.patch`. The operator explicitly authorized kernel to write this integration patch for M7. It copies the M5/M6 overrides into the packaged LCD DTB: `/sound` and `&swr0` disabled. Preserve both until speaker protection is evidenced, arrange the independent safety cross-check, and validate with `scripts/kernel-dtb-safety.py`.
-- image (via orchestrator): M7 supersedes the M6 staging request. Use revision-4 RPMs and `x1p64100-microsoft-denali-m7.dtb` for the default entry; use `x1p64100-microsoft-denali-m7-touchdiag.dtb` only for the controller diagnostic. Both keep GPU and speakers off. Stage the touch owner's collector and call exactly `shsnap touch-pen.txt 'bash /usr/libexec/sp11-touch-pen-collect'`. No device boot was performed by kernel. Remove RFC 0014 after the diagnostic evidence is captured; it is not a touch driver.
-- orchestrator: the clean worker checkout started at `51a8d66be345f72b0bbdcbdbd9082752a492ad59`, three commits behind main `cc8037d53c488342e7e8b31b30758e1c659a0f0c`. D24 and the operator's explicit no-git-writes rule prohibit a worker rebase; main's kernel plan and all requested inputs were already present. Review/commit the uncommitted changes and reconcile main in the orchestrator session.
+- gpu (via orchestrator): take ownership of `kernel/patches/0002-arm64-dts-qcom-denali-lcd-disable-gpu.patch`. It carries the existing D22 GPU-off policy into the packaged LCD DTB; M8 and its fallback inherit it. No GPU operating point, limit or firmware change is introduced.
+- image (via orchestrator): M8 supersedes M7. Use revision-5 RPMs with `x1p64100-microsoft-denali-m8.dtb` by default and `x1p64100-microsoft-denali-m8-notouch.dtb` as the touch-disabled fallback. Include `fixed` in the initramfs and its L0 display-chain assertion: M8 follows the touch development fragment's `CONFIG_REGULATOR_FIXED_VOLTAGE=m`, while M7 had it built in. Ensure the SPI-HID/OF, GENI, GPI, fixed-regulator and uinput runtime chain is available; stage native iptsd per the touch dossier. Preserve D19–D24 policy, including the qcom_battmgr blacklist. Run image L0/L1 before a device boot. Stage the collector and call exactly `shsnap touch-pen.txt 'bash /usr/libexec/sp11-touch-pen-collect'`. Kernel performed no device test.
+- orchestrator: the M8 checkout started clean at `bd657c2`, already equal to main, so no rebase was needed. Review and commit these worker changes under D24. Triage the unchanged spi-hid v7 strict findings (6 warnings, 11 checks, 0 errors) and commission the touch owner's pending independent Claude cross-check of QSPI constants/TREs and the v7 rebind port before clearing the component/device gates.
 
 ## M5 DTB variants (D21)
 
@@ -211,7 +213,78 @@ The complete labeled source diff of M7 against the packaged DT contains only del
 
 Verification of the new DT checker also rejected three modified fixtures: sound enabled, HID child enabled, and touch supply enabled. Logs stay in `out/build/dtb-m7-checks/negative/`. `scripts/index.py --check`: 21 components, zero errors. Shell syntax and `git diff --check` pass. No kernel/release/dev container remains; both build/source locks are free. No device test was performed. All tracked changes remain uncommitted for the orchestrator under D24.
 
+## M8 series revision 5 (2026-10-29)
+
+The clean worker checkout already matched `main` at `bd657c2`; no rebase or other git write was needed. The release has 25 patches: the revision-4 display, Wi-Fi, USB-C, SAM and S1 changes, a kernel-owned LCD GPU-disable patch, and the exact 16-entry order from `hardware/touch-pen/kernel-series.list` (unchanged v7 0001–0011, then 0016–0020). No component patch was edited. Series SHA-256: `406324e9a22a7dea0bb162e344d14531b620e74088e4366cbf33986bd23dbe0a`.
+
+RFC 0014 is retired because its temporary controller-only probe dump is superseded by the selected QSPI implementation and normal SPI/HID/GPI diagnostics. It is not a driver dependency. All 25 patches apply to the pinned v7.3 export in `out/linux/m8/` with `patch --batch --fuzz=0 -p1`, without conflicts or fuzz. Removing its eight lines causes six 0018 hunks to apply with a -8 line offset; the GPU override causes two 0020 hunks to apply with a +4 offset. The pre-existing Wi-Fi offset is unchanged. The release module check requires the old diagnostic string to be absent. Application log: `out/build/dtb-m8-checks/series-apply.log`.
+
+The fragment pins SPI_MEM, SPI_HID/OF/ACPI, SPI_QCOM_GENI, QCOM_GPI_DMA, REGULATOR_FIXED_VOLTAGE, HID_MULTITOUCH, HIDRAW and INPUT_UINPUT, while retaining both BTF symbols. Patch 0020 enables touch only in the LCD board DTS. All three delivered M8 LCD DTBs (packaged, `m8`, `m8-notouch`) must keep `/sound`, `swr0` and the GPU disabled; the packaged board gains the same GPU isolation as the variants. Display KMS remains enabled. The fixed-regulator driver is modular in this fragment (`=m`, matching the touch development fragment) rather than M7's built-in `=y`; the image request above requires `fixed` in the initramfs and L0 chain check. There is no touch firmware request, limit change or device test.
+
+Strict checkpatch was run on patch content, in Fedora, with `--strict --no-signoff` against the composed source tree: **0 errors, 6 warnings, 11 checks**. All findings are the unchanged v7 baseline's documented new-file/MAINTAINERS, short-help and trace-style findings; all other selected patches are clean. The full-series strict lint gate remains open for orchestrator triage. Logs: `out/build/dtb-m8-checks/checkpatch.{log,json}`. The touch owner's pending independent cross-check of QSPI constants/TREs and the v7 rebind port remains an orchestrator gate; this release build does not promote the hardware component's status.
+
+Before release, `scripts/kernel-dev.sh --check m8 dtbs` completed in **45 s**. All development fragment symbols hold; explicit `dt-validate` has zero diagnostics. Compiled-DTB S1/GPU, Wi-Fi/USB-C and QSPI/touch wiring checks pass. Five modified fixtures are rejected: sound enabled, GPU enabled, touch disabled in the active DT, incorrect GPI DMA selector, and a wrapper firmware request (`out/build/dtb-m8-checks/negative/results.json`).
+
+The release disk guard was retained unchanged. Under the shared build lock, preserved M7 logs/stats/checks in `out/build/kernel/history/m7/`, verified every M7 RPM against its release-record hash, and removed only its reproducible RPM build tree and duplicate build-tree RPMs. All M7 release RPMs and JSON remain in `out/rpms/` until the successful revision-5 build archives them. No other owner's output was removed and no threshold override was used.
+
+### M8 release artifacts
+
+`scripts/kernel-build.sh -j 6` and its automatic `scripts/kernel-check`: **PASS**. RPM build UTC `2026-10-29T15:51:23+00:00` to `2026-10-29T16:46:36+00:00`, **3313 s (55 min 13 s)**; verification record completed `2026-10-29T16:50:22Z`. All 15 delivered RPM copies match the build record's SHA-256 values.
+
+- BTF: `vmlinux` `.BTF` size `0x76c5c4`; **5934/5934** RPM-extracted modules have BTF, zero missing and zero bad magic. All **73** fragment symbols hold in the shipped config, including both BTF settings. Forced `CHECK_DTBS=y`: rc 0, zero warning lines; explicit packaged-DTB `dt-validate`: zero diagnostics.
+- Packaged LCD DTB SHA-256: `005397721c30b4bd6beffd67e50f09f7a2845252292d0e58b1f558899d133ad6`. S1 effective status, explicit card/speaker-bus disablement, GPU off, Wi-Fi/USB-C wiring, QSPI selector4, four-lane touch, IRQ/reset/supply pins and 500 ms cold-power delay pass. No touch-path `firmware-name` is present. The packaged DT retains 12 CPUs and system SS3; the device variants add parity below.
+- `spi-hid`, `spi-hid-of`, `spi-hid-acpi`, `spi-geni-qcom`, `gpi`, `fixed`, `hid-multitouch` and `uinput` are all present in **kernel-modules-core**. The extracted SPI-HID OF module has MSHW0484 SPI/OF aliases; GENI has the QSPI compatible and preloaded-protocol guard; GPI has the QSPI TRE path. The retired RFC logger is absent. Each compressed module hash, ELF hash, alias list and owning RPM is recorded under `m8.touch_modules` in the release JSON.
+- Resource accounting: peak cgroup **9563340800 bytes (9.56 GB)** including file cache; peak anonymous **3283501056 bytes (3.28 GB)** sampled every 3 s. Minimum real headroom: **46 GiB**. Cache: 2242 direct + 24056 preprocessed hits, 325 misses, **98.78%** hit rate.
+- Config SHA-256: fragment `4a34894d4e50150bede28a45c937c2a63fd9fa96724f2291c022a2a8d857ee98`; shipped config `29e8acabb7993605d28cae6a64ebad09ce0e371197f38f6573d4e20dd5b35148`.
+- Nonfatal build diagnostics match the preserved M7 log: 0.35/0.33 s file timestamp skew, unchanged Myricom uninitialized-buffer warning, bpftool compiler-flag probe, debugedit `.debug_names`, and optional `gdb-add-index` failures because BFD lacks zstd support. GDB indexes are not claimed. Fedora also reports its normal absolute `build` symlink. These do not replace the separate successful BTF audit.
+- Release record: [`out/rpms/kernel-7.3.0-65.sp11.5.fc44.aarch64.json`](../out/rpms/kernel-7.3.0-65.sp11.5.fc44.aarch64.json), SHA-256 `1e930020a269c1104bcd0682f1bd463886089e3846b6babdc594f9bb25a1d007`. It contains all input pins, exact build times, resource/cache statistics, BTF/config/schema checks, packaged DT safety/wiring and module payload evidence, and all RPM hashes. Detailed log: `out/build/kernel/m8-driver.log`. M7 RPMs and records are archived in `out/rpms/archive/7.3.0-65.sp11.4/`; preserved build evidence is in `out/build/kernel/history/m7/`.
+
+| RPM (all revision 5, aarch64) | SHA-256 |
+|:--|:--|
+| `kernel-7.3.0-65.sp11.5.fc44.aarch64.rpm` | `eb535ac9e974865174a612e5d004bd93185b3e21a3e18050f394fdfab324d245` |
+| `kernel-core-7.3.0-65.sp11.5.fc44.aarch64.rpm` | `fcd3e00ad38802e828cf35bb36b406971c792ee43358c144fee22ff69da9e2a5` |
+| `kernel-debuginfo-7.3.0-65.sp11.5.fc44.aarch64.rpm` | `0ea7e72f9b147f1f5019229e9178a60b620ca661bce0f2095c578f7750cf384e` |
+| `kernel-debuginfo-common-aarch64-7.3.0-65.sp11.5.fc44.aarch64.rpm` | `de4a8f1d429f0217dadb7192d6c6c7a6c06c6d6f4a28399ecc161f2e329226c3` |
+| `kernel-devel-7.3.0-65.sp11.5.fc44.aarch64.rpm` | `1375cadcfbba69e4b72a1e36e8ed94a21c657f7b4bea40e4c1b3acc606db794f` |
+| `kernel-devel-matched-7.3.0-65.sp11.5.fc44.aarch64.rpm` | `4ba788252fc2bf587263729f4edfc604d13c814220d12638ff02ae5e14e64571` |
+| `kernel-kmap-internal-7.3.0-65.sp11.5.fc44.aarch64.rpm` | `22ede175e253b73eb343d4a9f0785ac7b4ad4f00ab256226e1957f031f52f3f2` |
+| `kernel-modules-7.3.0-65.sp11.5.fc44.aarch64.rpm` | `28d1e9509301588f90e753d5265cd670d4bfe2bbdc19bc293cdf0a29b303afe9` |
+| `kernel-modules-core-7.3.0-65.sp11.5.fc44.aarch64.rpm` | `8ee791a0a44c5d5af94de9304352dffe4c6a98d5dc211003a4326fc9ba417010` |
+| `kernel-modules-extra-7.3.0-65.sp11.5.fc44.aarch64.rpm` | `6f16cbc70e4b15f90a1a69c489005b44112c228472750cf037535814b7a9e964` |
+| `kernel-modules-extra-matched-7.3.0-65.sp11.5.fc44.aarch64.rpm` | `bc279cc1484866625a29a15dc1290e4ef596d56f576f0bcdf2123de200f077a8` |
+| `kernel-modules-internal-7.3.0-65.sp11.5.fc44.aarch64.rpm` | `6411171bf1d9f50b3a41a61cc73e79f99c95e7dea6c3f58133ac6195f66beea5` |
+| `kernel-uki-dtbloader-7.3.0-65.sp11.5.fc44.aarch64.rpm` | `9c79e98b18febe1aab258b98252f12224df9927a3ebed713f886587ee3f1e109` |
+| `kernel-uki-virt-7.3.0-65.sp11.5.fc44.aarch64.rpm` | `40b452cd9d85f9c85ab59e139a7f61bf22536266b96d35d313a6cd055f29ada4` |
+| `kernel-uki-virt-addons-7.3.0-65.sp11.5.fc44.aarch64.rpm` | `ac26d655d97f602777588ab655a122db9c465c1df99425874047757f4145bcd3` |
+
+### M8 DTB variants
+
+`scripts/kernel-dtb-variants.sh` dispatches revision 5 to `scripts/kernel-dtb-m8.sh`. It exports pinned v7.3 without git writes into `out/linux/m8/`, applies the full series with zero fuzz, and builds both variants through `scripts/kernel-dev.sh --check` under the shared lock. Output: `out/dtb-variants/7.3.0-65.sp11.5.fc44.aarch64/qcom/`; logs and normalized source diffs: `out/build/dtb-m8-checks/`.
+
+- **m8:** the packaged LCD DT plus the existing parity include: delete CPU7/CPU11, their PSCI domains and CPU-map entries, and the system SS3 reference. Keep cluster CL4/CL5. Touch stays enabled by 0020; GPU and speakers inherit the packaged disablement.
+- **m8-notouch:** exactly m8 with `/soc@0/geniqup@ac0000/spi@a88000/touchscreen@0:status = "disabled"`. The controller, supply description and pinctrl remain identical. The disabled child is not an active supply consumer, and the regulator has neither boot-on nor always-on.
+
+Both **PASS** `CHECK_DTBS=y`, explicit `dt-validate` with zero diagnostics, S1 effective status, GPU-off, Wi-Fi/USB-C wiring, parity and QSPI/touch checks. Each built DTB matches a standalone recompilation byte for byte, and the reconstructed baseline matches the RPM DTB byte for byte. The complete label-preserving diff confirms only the parity deletions above for m8. The strict compiled-DTB comparison for m8-notouch finds exactly one changed property. A sixth negative fixture (extra root model change in the fallback) is rejected; its log joins the five earlier safety/wiring fixtures under `negative/`.
+
+Full run UTC `2026-10-29T16:50:31.960498+00:00` to `2026-10-29T16:53:55.398864+00:00`; elapsed **214.464 s** measured with the monotonic clock, including preparation, configuration and checks. Individual helper times below exclude preparation and lock waits. Every JSON records the base commit, all patch/overlay/include hashes, the checked release record/hash, BTF config, schema/safety/wiring results and the full source diff. No device behavior is inferred from these static checks.
+
+| DTB | Build time | SHA-256 |
+|:--|--:|:--|
+| `x1p64100-microsoft-denali-m8.dtb` | 63 s | `1ad30d3e3f928a6db5c5b8bf2649bed8f85baaba3cf2adc6ed542bafe502a0e6` |
+| `x1p64100-microsoft-denali-m8-notouch.dtb` | 14 s | `6dbac355db7f081b5f77db4558e646efaef14eff7d90a51ed9afcdd44b4eebb7` |
+
+JSON record SHA-256:
+
+- [`x1p64100-microsoft-denali-m8.json`](../out/dtb-variants/7.3.0-65.sp11.5.fc44.aarch64/qcom/x1p64100-microsoft-denali-m8.json): `4f8cfeede57a6a1b0fed9d568ed83cf8cb723e44e344598b47195ec4797c070c`.
+- [`x1p64100-microsoft-denali-m8-notouch.json`](../out/dtb-variants/7.3.0-65.sp11.5.fc44.aarch64/qcom/x1p64100-microsoft-denali-m8-notouch.json): `f07b0f52487a4ed68e095781c7a3bfd4b30f5d4a628cfba3fb0f652c2e58b8b5`.
+
+Final hand-back checks: `scripts/index.py --check` reports **21 components, 0 errors**; tracked whitespace, shell syntax and new Python blocks pass. Both the shared build lock and M8 source lock are free. No task container, build, sampler or watchdog remains running. Kernel is a service worker and has no `component.toml`; hardware component status remains owner-managed. Changes remain uncommitted for orchestrator review under D24. Image L0/L1, the fixed-module initramfs addition, v7 lint triage and the pending independent touch cross-check remain the open requests above. No device boot was performed.
+
+
+
 ## Log
+
+- 2026-10-29: built M8 revision 5 (25 patches; RFC 0014 retired; spi-hid/QSPI touch and packaged GPU isolation). Release 3313 s; kernel-check PASS with BTF in vmlinux and all 5934 modules, 73 config symbols, packaged schema/S1/GPU/wiring and eight RPM module payload checks. M8/M8-notouch DTBs and JSON pass (63/14 s; complete run 214.464 s). Final index/syntax/whitespace checks pass; build/source locks are free and no task process remains. Recorded hashes/times and explicit image/owner requests; no device test. Changes remain uncommitted for the orchestrator (D24).
 
 - 2026-10-29: built and statically validated M7 revision 4 (nine patches, ATH12K_DEBUG, packaged S1): RPM build 3279 s; BTF in vmlinux and all 5930 modules; config, schema, S1, wiring and RFC message pass. M7/M7-touchdiag DTBs and JSON records pass (43/12 s; complete run 164.110 s). Recorded times/hashes and owner requests; no device test or task process left running. Work remains uncommitted under D24; orchestrator rebase/review/commit and image L0/L1 are next.
 - 2026-10-28: built and statically validated M6/M6GPU DT-only artifacts and JSON records; no RPM, series, revision or config change. Prepared the unbuilt revision 4 plan; component integration requests remain in Requests. Kernel is a service worker with no `component.toml`; hardware component status files are owned by their workers. Changes left uncommitted for the orchestrator (D24).

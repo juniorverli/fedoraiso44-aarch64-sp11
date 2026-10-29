@@ -1,0 +1,3 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/* M8: revision-5 LCD DT (touch on, speakers/GPU off) plus D20 parity. */
+#include "x1p64100-microsoft-denali-parity.dts"

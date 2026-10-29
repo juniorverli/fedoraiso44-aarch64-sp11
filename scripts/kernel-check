@@ -128,6 +128,21 @@ print('M7 packaged DTB S1/wiring and RFC 0014 message: PASS')
 PY
 fi
 
+# M8 checks the packaged LCD DT and the actual RPM payloads for the new
+# transport. The full BTF audit above covers every extracted touch module.
+if [[ $KERNEL_SERIES_REV == 5 ]]; then
+  packaged="$CK/root/lib/modules/$kver/dtb/$dtb"
+  dt-validate -s "$D/Documentation/devicetree/bindings/processed-schema.json" \
+    "$packaged" > "$CK/packaged.dt-validate.log" 2>&1
+  [[ ! -s $CK/packaged.dt-validate.log ]] || die "M8 packaged DTB schema diagnostics"
+  dtc -I dtb -O dts -qq "$packaged" -o "$CK/packaged.dts"
+  python3 -I "$KERNEL_REPO/scripts/kernel-dtb-safety.py" "$CK/packaged.dts" \
+    --also=gpu@3d00000 --also=soundwire@6b10000 > "$CK/packaged.safety.json"
+  python3 -I "$KERNEL_REPO/scripts/kernel-m8-check.py" "$packaged" \
+    --variant packaged > "$CK/packaged.wiring.json"
+  python3 -I "$KERNEL_REPO/scripts/kernel-m8-rpm-check.py" "$CK" "$kver" "$RPMDIR"
+fi
+
 # 4. record
 source "$KERNEL_BUILD_DIR/build-stats.env"
 series_hash=$(kernel_series_hash)
@@ -174,6 +189,7 @@ rec = {
                                          max(1, int("${ccache_direct_cache_hit:-0}") + int("${ccache_preprocessed_cache_hit:-0}") + int("${ccache_cache_miss:-0}")), 4)}},
   'rpm_metadata_sha256': sha("$CK/rpm-metadata.txt"),
   'm7': json.load(open("$CK/m7.json")) if os.path.exists("$CK/m7.json") else None,
+  'm8': json.load(open("$CK/m8.json")) if os.path.exists("$CK/m8.json") else None,
   'rpms': rpms,
 }
 json.dump(rec, open(sys.argv[1], 'w'), indent=2); print('record', sys.argv[1])
