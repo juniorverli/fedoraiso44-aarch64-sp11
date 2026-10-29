@@ -1,0 +1,37 @@
+From: juniorverli <25966843+juniorverli@users.noreply.github.com>
+Date: Thu, 29 Oct 2026 10:00:00 +0000
+Subject: [PATCH] arm64: dts: qcom: denali-lcd: disable unprotected speakers
+
+The inherited Denali sound card and SoundWire controller enable both
+WSA8845 speaker amplifiers. Speaker protection with VI feedback has not
+been evidenced on this unit. Disable the card and its speaker bus in the
+packaged LCD board DT, as required by project safety rule S1 and D21.
+
+This carries the existing M5/M6 safety overrides into the release DTB.
+Keep both disabled until the audio-speakers owner supplies and validates
+speaker protection. Kernel owns this temporary integration patch; the
+audio-speakers owner is requested to take it over.
+
+Assisted-by: Codex gpt-6.1-sol
+---
+ arch/arm64/boot/dts/qcom/x1p64100-microsoft-denali.dts | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/x1p64100-microsoft-denali.dts b/arch/arm64/boot/dts/qcom/x1p64100-microsoft-denali.dts
+--- a/arch/arm64/boot/dts/qcom/x1p64100-microsoft-denali.dts
++++ b/arch/arm64/boot/dts/qcom/x1p64100-microsoft-denali.dts
+@@ -8,6 +8,14 @@
+ #include "hamoa.dtsi"
+ #include "x1-microsoft-denali.dtsi"
+ 
++&{/sound} {
++	status = "disabled";
++};
++
++&swr0 {
++	status = "disabled";
++};
++
+ / {
+ 	model = "Microsoft Surface Pro 11th Edition (LCD)";
+ 	compatible = "microsoft,denali-lcd", "microsoft,denali",

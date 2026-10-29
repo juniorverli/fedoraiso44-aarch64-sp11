@@ -6,7 +6,7 @@ Owner: kernel worker (`agents/workers/kernel.md`).
 |:--|:--|
 | `base.toml` | Pinned base: `sp11-linux` tag `v7.3`, commit `c03c1a14507d` |
 | `config/sp11.config` | Kconfig fragment merged on the Fedora 44 aarch64 config. Carries BTF (D2) |
-| `series` | Ordered list of patch paths. Patches live in `hardware/<component>/patches/`, not here |
+| `series` | Ordered component patch paths plus `kernel/patches/` for kernel-owned integration changes |
 
 ## Build contract
 
@@ -78,6 +78,7 @@ The RPM release carries the series revision through Fedora's `buildid`: `65.sp11
 |--:|:--|:--|
 | 0 | empty (M1, vanilla 7.3) | `kernel-7.3.0-65.sp11.fc44.aarch64` (archived in `out/rpms/archive/7.3.0-65.sp11/`) |
 | 3 | display-lcd 0001-0003 (M3, D19) | `kernel-7.3.0-65.sp11.3.fc44.aarch64` |
+| 4 | M7: display 0001–0003, Wi-Fi 0001, USB-C 0001, SAM 0001/0003, touch diagnostic 0014, S1 | `kernel-7.3.0-65.sp11.4.fc44.aarch64` |
 
 - `kernel/base.toml` holds `series_rev` and `series_sha256` (sha256 of the `<path> <patch sha256>` lines of `kernel/series`). Changing `kernel/series` or a patch in it without bumping both makes `scripts/kernel-build.sh` and `scripts/kernel-check` fail and print the new hash.
 - A build that succeeds archives the RPMs of every other `series_rev` from `out/rpms/` into `out/rpms/archive/<ver>-<rel>.sp11[.<rev>]/` before it copies the new ones. The record `out/rpms/<nevra>.json` has `series_rev` and the series hash.
@@ -116,9 +117,10 @@ Against the packaged DTB (`/lib/modules/<kver>/dtb/qcom/x1p64100-microsoft-denal
 ## Requests
 
 - soc-boot (via orchestrator): Q1 is answered by the MADT: MPIDR `0x10300` (UID 7) and `0x20300` (UID 11) are disabled. A real patch for `hardware/soc-boot/patches/` would delete `cpu7`, `cpu11`, `cpu_pd7`, `cpu_pd11` and their `cpu-map` entries; `kernel/dtb-variants/x1p64100-microsoft-denali-parity.dts` shows the working form.
-- soc-boot (via orchestrator, revision 4 prerequisite): also carry the parity deletion of `domain-idle-states` from `&system_pd` (no system SS3; retain CL4/CL5) in the component patch. Kernel will integrate it once delivered; no patch is invented in the component owner's folder.
-- audio-speakers (via orchestrator, revision 4 prerequisite): deliver a board DT patch disabling both `/sound` and `&swr0`, matching the M5/M6 overrides, so the **packaged** DTB also enforces S1. Keep it disabled until speaker protection is evidenced; validate with `scripts/kernel-dtb-safety.py`.
-- image (via orchestrator): ship `x1p64100-microsoft-denali-m6.dtb` and its JSON for the next default device entry at the unchanged M3 kver. `x1p64100-microsoft-denali-m6gpu.dtb` is staged for later GPU work and gets **no menu entry now**. No device test was performed by kernel; batch any read-only evidence collection in the image collector.
+- soc-boot (via orchestrator): also carry the parity deletion of `domain-idle-states` from `&system_pd` (no system SS3; retain CL4/CL5) in the component patch. M7 carries these changes in its DTB variants until the component patch arrives; the packaged DT retains the upstream CPU/idle description.
+- audio-speakers (via orchestrator): take ownership of `kernel/patches/0001-arm64-dts-qcom-denali-lcd-disable-unprotected-speakers.patch`. The operator explicitly authorized kernel to write this integration patch for M7. It copies the M5/M6 overrides into the packaged LCD DTB: `/sound` and `&swr0` disabled. Preserve both until speaker protection is evidenced, arrange the independent safety cross-check, and validate with `scripts/kernel-dtb-safety.py`.
+- image (via orchestrator): M7 supersedes the M6 staging request. Use revision-4 RPMs and `x1p64100-microsoft-denali-m7.dtb` for the default entry; use `x1p64100-microsoft-denali-m7-touchdiag.dtb` only for the controller diagnostic. Both keep GPU and speakers off. Stage the touch owner's collector and call exactly `shsnap touch-pen.txt 'bash /usr/libexec/sp11-touch-pen-collect'`. No device boot was performed by kernel. Remove RFC 0014 after the diagnostic evidence is captured; it is not a touch driver.
+- orchestrator: the clean worker checkout started at `51a8d66be345f72b0bbdcbdbd9082752a492ad59`, three commits behind main `cc8037d53c488342e7e8b31b30758e1c659a0f0c`. D24 and the operator's explicit no-git-writes rule prohibit a worker rebase; main's kernel plan and all requested inputs were already present. Review/commit the uncommitted changes and reconcile main in the orchestrator session.
 
 ## M5 DTB variants (D21)
 
@@ -148,16 +150,68 @@ Checks and logs live in `out/build/dtb-m6-checks/`; DTBs and JSON records live i
 
 Both built successfully (41 s / 11 s, excluding the shared-lock wait). `CHECK_DTBS=y` and explicit `dt-validate` passed with no diagnostics; `kernel-dtb-safety.py` returned 0 for both (three watched nodes, none enabled). The complete normalized diffs contain only the two component patches. BTF and BTF modules remain enabled in the dev config. These artifacts have not been run on the device.
 
-## Planned series revision 4 (not built)
+## M7 series revision 4 (2026-10-29)
 
-This is a future release plan only. Do not bump `kernel/base.toml`, modify `kernel/series` or `kernel/config/sp11.config`, or start an RPM build as part of M6.
+The operator authorized the M7 release, superseding the M6-only plan. The nine patches in `kernel/series` retain display-lcd 0001–0003 and add Wi-Fi 0001, USB-C 0001, ec-sam 0001/0003, temporary touch diagnostic RFC 0014 and the kernel-owned S1 patch. SAM `hold/` patches, spi-hid and the touch child remain excluded. `CONFIG_ATH12K_DEBUG=y` is the sole added config symbol; both BTF symbols remain enabled.
 
-1. Retain display-lcd 0001–0003; append `hardware/wifi/patches/0001-arm64-dts-qcom-denali-wire-pcie4-perst-wake.patch` and `hardware/usb-typec/patches/0001-arm64-dts-qcom-x1-microsoft-denali-add-the-second-re.patch` to `kernel/series`.
-2. Integrate the audio-speakers S1 patch requested above so the packaged board DTB disables `/sound` and `&swr0`, rather than depending on an extra diagnostic DTB. Delivery and cross-check by the owner are prerequisites.
-3. Once soc-boot delivers its patch, integrate the 10-CPU topology (remove CPU7/11, their CPU-map entries and PSCI domains) and no-system-SS3 change. Keep cluster CL4/CL5. Use the existing parity variant as the comparison reference.
-4. Add `CONFIG_ATH12K_DEBUG=y` to `kernel/config/sp11.config` (Wi-Fi K2; symbol: `sources/linux/drivers/net/wireless/ath/ath12k/Kconfig`). **A config change invalidates the whole ccache**; budget for a full compilation even with the persistent cache and `CCACHE_NOHASHDIR=1`. Keep `CONFIG_DEBUG_INFO_BTF=y` and `CONFIG_DEBUG_INFO_BTF_MODULES=y`.
-5. After the component patches arrive and the series order is final, set `series_rev = 4` and recompute `series_sha256` together. Expected kver: `7.3.0-65.sp11.4.fc44.aarch64`. Check patch application/checkpatch (without signoff), config survival, DT validation and S1 on the packaged DTB, then perform the authorized release build under the build lock and run `scripts/kernel-check` (including kernel/module BTF). The image default must continue to disable the GPU per D22.
+- Series SHA-256: `3650a885706d4ced42f9391ee0f9535ef10108428df42066b3a21837a703f75c`.
+- All nine patches pass `perl sources/linux/scripts/checkpatch.pl --strict --no-signoff - < PATCH` (0 errors/warnings/checks). Passing patch content on stdin avoids checkpatch treating tracked project patch files as source files.
+- S1 source facts: the inherited card and speaker routes are in `sources/linux/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi:309` and its speaker controller at `:1079` (Verified from pinned v7.3). The new patch disables only the LCD board's card and `swr0`; no amplifier parameters or firmware are changed. Ownership transfer is requested above.
+- The initial guard refused the build with 37 GiB real headroom. Under `out/.kernel-build.lock`, removed only reproducible M3 RPM build output and duplicate build-tree RPMs after checking their hashes against preserved `out/rpms/` copies. Historical logs, BTF/config checks and timings are retained in `out/build/kernel/history/m3/`. No guard threshold override was used.
+- A first 11 s attempt failed in `%prep` because the S1 hunk used context changed by display 0003. The corrected hunk dry-runs on the other eight patches; the failed attempt is retained in `out/build/kernel/history/m7-prep-fail/`. The build wrapper now replaces Fedora spec's `git apply` with Fedora `patch --batch --fuzz=0 -p1`, and always stops/reaps its watchdog after a failed build.
+- Build warnings: one transient 0.78 s `modules.order` clock-skew warning; the unchanged Myricom `myri10ge_dummy_rdma` uninitialized-buffer warning; unprivileged dracut `ldconfig`; and optional `gdb-add-index` failures because BFD lacks zstd support. The latter three also occur in the preserved successful M3 log. GDB indexes are therefore not claimed; the separate ELF BTF audit remains mandatory. The completed module build and forced DT schema check are recorded below.
+- Release `scripts/kernel-build.sh -j 6`: **PASS**, UTC `2026-10-29T00:56:08+00:00` to `2026-10-29T01:50:47+00:00`, **3279 s (54 min 39 s)**, rpmbuild rc 0. `scripts/kernel-check` completed at `2026-10-29T01:53:22Z` and returned **PASS**.
+- BTF: `vmlinux` `.BTF` size `0x76c7e2`; **5930/5930** packaged modules have valid BTF (zero missing, zero bad magic). All **63** fragment symbols hold, including ATH12K_DEBUG and both BTF settings. Forced `CHECK_DTBS=y`: rc 0, zero warning lines.
+- Packaged DTB: SHA-256 `57264ad0188cebc9c284624edc2e387d54e3a5b5317f2a94608e5c4f25aa8414`. S1 passes: `/sound` and `swr0` explicitly disabled; the card and both WSA8845 speakers effectively disabled. Wi-Fi: PCIe4 `pcie4_default`, active-low PERST# GPIO146 and WAKE# GPIO148. USB-C: the second retimer consumes `rtmr1_default` (GPIO176, GPIO function, drive strength 2, bias disabled).
+- RFC 0014: the full `touch-pen-diag: proto=...` format string is present in the RPM-extracted `kernel/drivers/spi/spi-geni-qcom.ko.xz`. Compressed module SHA-256 `444271a8f857fc7e4f25a6699d0f1e946cbb2fc0a7f2efa94bcbd86cd4f0655d`; decompressed ELF SHA-256 `aba05e29f947ed2e96b863459c9d6d7aea7e74e099f11d78b49d27b8ce7b7eac`.
+- Resource accounting: peak cgroup **9496682496 bytes (9.50 GB)** including file cache; peak anonymous **3387310080 bytes (3.39 GB)** sampled every 3 s; minimum real headroom **37 GiB**. Cache: 2242 direct + 24244 preprocessed hits, 130 misses, **99.51%** hit rate. This config change did not invalidate the entire cache.
+- Config SHA-256: fragment `3bf10e3ee53a1568bbe9b74e5c91372116ae8308f586a378a041d401afeb1ef7`; shipped config `15be3d2bbe1fc57ef16ac5a953228c64bf5898bdefc0432e2c0bf7150f92517d`.
+- Build record: [`out/rpms/kernel-7.3.0-65.sp11.4.fc44.aarch64.json`](../out/rpms/kernel-7.3.0-65.sp11.4.fc44.aarch64.json), SHA-256 `8abc7fc04c9fa19df60abd2a5b9eb202807322515796e9d2103cb90662d2e704`. It contains the base/spec pins, config and series hashes, exact build times, BTF audit, packaged S1/wiring/message evidence and all 15 RPM hashes. Detailed log: `out/build/kernel/m7-driver.log`.
+
+| RPM (all revision 4, aarch64) | SHA-256 |
+|:--|:--|
+| `kernel-7.3.0-65.sp11.4.fc44.aarch64.rpm` | `9f712f276d0c12b90f48478df212b92d2b967207f6d6cbce7f5cd5aff8f38761` |
+| `kernel-core-7.3.0-65.sp11.4.fc44.aarch64.rpm` | `426cc65fbc6a16a59a359c36a273a31a13f4ae217d5b1db141dc358e8e5654a0` |
+| `kernel-debuginfo-7.3.0-65.sp11.4.fc44.aarch64.rpm` | `76328e8f1f3bf24ab2ad469cfb8d2c05075b60e27044c7ab83c612a72b412be6` |
+| `kernel-debuginfo-common-aarch64-7.3.0-65.sp11.4.fc44.aarch64.rpm` | `293325927d38f5a053e4995724053ac884484595a88c88725ab9d7c8e915d930` |
+| `kernel-devel-7.3.0-65.sp11.4.fc44.aarch64.rpm` | `d02fd64c3ce2852e1a572a60416df000b57bd1cfb38f3f1b28dae58cfd29892b` |
+| `kernel-devel-matched-7.3.0-65.sp11.4.fc44.aarch64.rpm` | `740d32ceb34aa3cc3fef0c1e23699ebf228f01030e163f913de970457148c0d0` |
+| `kernel-kmap-internal-7.3.0-65.sp11.4.fc44.aarch64.rpm` | `3dcd24e9d290c260197cf9a6ac7131cc63bb40555bcaea5e8050054faef290c7` |
+| `kernel-modules-7.3.0-65.sp11.4.fc44.aarch64.rpm` | `81849fda0475f65bb4e1d532e47b56e8238961f92e59986f39595479d3d2a05e` |
+| `kernel-modules-core-7.3.0-65.sp11.4.fc44.aarch64.rpm` | `e54e0aa81515ad080cfb5f3d131b28262cf19d454a7671167710cf0bf899d2be` |
+| `kernel-modules-extra-7.3.0-65.sp11.4.fc44.aarch64.rpm` | `7190f561bf5e4014e448b99cdeff2dfe9f7fd34fb826da0e3a71e41dcd06eea0` |
+| `kernel-modules-extra-matched-7.3.0-65.sp11.4.fc44.aarch64.rpm` | `1d19034d16bc53091abff66819adc683716fc370d4a849e95bee56dc694463c7` |
+| `kernel-modules-internal-7.3.0-65.sp11.4.fc44.aarch64.rpm` | `92ffac9d575236cb56785f17a249fe870d06e26bc24b55b439d28564e656230e` |
+| `kernel-uki-dtbloader-7.3.0-65.sp11.4.fc44.aarch64.rpm` | `89fff973c8aef4a4600093a7771922cb7221f46283a6147c5ef15af427131e81` |
+| `kernel-uki-virt-7.3.0-65.sp11.4.fc44.aarch64.rpm` | `86c8c7dc9e5870e4c7e88bf8b5ac1f56a7c268671a6cd818512b88f646449df0` |
+| `kernel-uki-virt-addons-7.3.0-65.sp11.4.fc44.aarch64.rpm` | `bc2fe273205a3abc4484cc51bafbed4c06bdeb7b1e64d6d0edcce5321b04e8ed` |
+
+### M7 DTB variants
+
+`scripts/kernel-dtb-m7.sh` (also selected by `scripts/kernel-dtb-variants.sh` for revision 4) exports the pinned source into disposable `out/linux/m7/`, applies exactly `kernel/series` with `patch --fuzz=0`, and builds through `scripts/kernel-dev.sh --check` under the shared lock. It requires the checked RPM release and compares a standalone source recompilation byte-for-byte with the packaged DTB and each new variant. DTBs and JSON records go to `out/dtb-variants/7.3.0-65.sp11.4.fc44.aarch64/qcom/`.
+
+- `m7`: the rev-4 packaged DT plus the existing parity include (10 CPUs; no system SS3; keep CL4/CL5), with GPU disabled.
+- `m7-touchdiag`: M7 plus the complete body of `hardware/touch-pen/touch-pen-state.dts`, with only its redundant board include removed into a generated `.dtsi`. This enables QUP1 SE2 (`spi10`, `spi@a88000`), retains stock GPIO40–43 pinctrl and deletes wrapper `firmware-name`. It adds no HID child or supply. The source file and transformation are recorded in JSON.
+
+The variant checks require zero schema diagnostics, S1 effective status, Wi-Fi PERST#/WAKE# and USB-C retimer pinctrl, ten CPUs with the fused-off PSCI/map nodes absent, no system SS3 reference, cluster idle states retained, GPU off, no enabled HID child and no enabled touch supply/consumer. The diagnostic DT must differ from M7 in exactly the SE2 `status` property. Logs and source-form diffs live in `out/build/dtb-m7-checks/`. No hardware behavior is claimed from these static checks.
+
+Both variants **PASS** `CHECK_DTBS=y`, explicit `dt-validate` (zero diagnostic lines), byte-identical standalone source recompilation, S1, wiring and touch exclusion gates. The reconstructed base DTB also matches the packaged DTB byte for byte. Full variant-run UTC `2026-10-29T01:53:42.667744+00:00` to `2026-10-29T01:56:19.581096+00:00`: **164.110 s**, including source export, patching, dev configuration, compilation and checks. Individual build times below exclude preparation and lock waits.
+
+| DTB | Build time | SHA-256 |
+|:--|--:|:--|
+| `x1p64100-microsoft-denali-m7.dtb` | 43 s | `290d7f4957673822ad04c66a47724f1c21ca333948e24802b5cb42226c590ab6` |
+| `x1p64100-microsoft-denali-m7-touchdiag.dtb` | 12 s | `3b97decd8bde2831e725b22ed80c038cdf5bf043ea81f438de9aa46850bb3554` |
+
+JSON record SHA-256:
+
+- [`x1p64100-microsoft-denali-m7.json`](../out/dtb-variants/7.3.0-65.sp11.4.fc44.aarch64/qcom/x1p64100-microsoft-denali-m7.json): `96a466706ed4235fd08a9cee79492fc3ea93f8a50620a6b9300ce0659d916420`.
+- [`x1p64100-microsoft-denali-m7-touchdiag.json`](../out/dtb-variants/7.3.0-65.sp11.4.fc44.aarch64/qcom/x1p64100-microsoft-denali-m7-touchdiag.json): `076f2668c1cf63594417c03d1dcaedb8b827565816e140debbc30e7bb0429d71`.
+
+The complete labeled source diff of M7 against the packaged DT contains only deletion of CPU7/CPU11, their CPU-map entries and PSCI domains, deletion of the system SS3 reference, and GPU disable. M7 is byte-identical to the M6 default DTB (`290d7f49...`); the new kernel code/config are in the revision-4 RPMs. The diagnostic differs from M7 in exactly `/soc@0/geniqup@ac0000/spi@a88000:status` (`disabled` to `okay`). Both have ten CPUs, retain cluster CL4/CL5, disable the GPU/card/speaker bus, and contain no touch supply node or enabled HID child/consumer. The diagnostic retains only stock SE2 data/clock/CS pinctrl; wrapper `firmware-name` is absent.
+
+Verification of the new DT checker also rejected three modified fixtures: sound enabled, HID child enabled, and touch supply enabled. Logs stay in `out/build/dtb-m7-checks/negative/`. `scripts/index.py --check`: 21 components, zero errors. Shell syntax and `git diff --check` pass. No kernel/release/dev container remains; both build/source locks are free. No device test was performed. All tracked changes remain uncommitted for the orchestrator under D24.
 
 ## Log
 
+- 2026-10-29: built and statically validated M7 revision 4 (nine patches, ATH12K_DEBUG, packaged S1): RPM build 3279 s; BTF in vmlinux and all 5930 modules; config, schema, S1, wiring and RFC message pass. M7/M7-touchdiag DTBs and JSON records pass (43/12 s; complete run 164.110 s). Recorded times/hashes and owner requests; no device test or task process left running. Work remains uncommitted under D24; orchestrator rebase/review/commit and image L0/L1 are next.
 - 2026-10-28: built and statically validated M6/M6GPU DT-only artifacts and JSON records; no RPM, series, revision or config change. Prepared the unbuilt revision 4 plan; component integration requests remain in Requests. Kernel is a service worker with no `component.toml`; hardware component status files are owned by their workers. Changes left uncommitted for the orchestrator (D24).

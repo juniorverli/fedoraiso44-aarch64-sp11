@@ -97,6 +97,37 @@ if [[ -d $D/arch/arm64/boot/dts/qcom ]]; then
   echo "CHECK_DTBS=y $dtb: rc=$dtb_rc, $dtb_warn warning lines"
 fi
 
+# M7 release gates use the RPM-extracted DTB and module, not just build-tree
+# inputs. The RFC message is temporary and required only for revision 4.
+if [[ $KERNEL_SERIES_REV == 4 ]]; then
+  packaged="$CK/root/lib/modules/$kver/dtb/$dtb"
+  dtc -I dtb -O dts -qq "$packaged" -o "$CK/packaged.dts"
+  python3 -I "$KERNEL_REPO/scripts/kernel-dtb-safety.py" "$CK/packaged.dts" \
+    --also=soundwire@6b10000 > "$CK/packaged.safety.json"
+  python3 -I "$KERNEL_REPO/scripts/kernel-m7-check.py" "$packaged" --variant packaged > "$CK/packaged.wiring.json"
+  python3 -I - "$CK" "$kver" <<'PY'
+from pathlib import Path
+import hashlib, json, lzma, sys
+checks = Path(sys.argv[1])
+root = checks / 'root/lib/modules' / sys.argv[2]
+modules = list(root.rglob('spi-geni-qcom.ko.xz'))
+assert len(modules) == 1, 'Expected exactly one packaged spi-geni-qcom module'
+module = modules[0]
+data = lzma.decompress(module.read_bytes())
+message = b'touch-pen-diag: proto=%u fw=%#010x if_disable=%#x clk=%#x hw0=%#x hw1=%#x hw2=%#x\n'
+assert message in data, 'RFC 0014 diagnostic message missing from packaged module'
+dtb = root / 'dtb/qcom/x1p64100-microsoft-denali.dtb'
+record = dict(packaged_dtb_sha256=hashlib.sha256(dtb.read_bytes()).hexdigest(),
+              s1_effective_status=json.loads((checks / 'packaged.safety.json').read_text()),
+              wiring=json.loads((checks / 'packaged.wiring.json').read_text()),
+              touch_diagnostic=dict(module=str(module.relative_to(root)), message=message.decode(),
+                                    present=True, module_sha256=hashlib.sha256(module.read_bytes()).hexdigest(),
+                                    elf_sha256=hashlib.sha256(data).hexdigest()))
+(checks / 'm7.json').write_text(json.dumps(record, indent=2) + '\n')
+print('M7 packaged DTB S1/wiring and RFC 0014 message: PASS')
+PY
+fi
+
 # 4. record
 source "$KERNEL_BUILD_DIR/build-stats.env"
 series_hash=$(kernel_series_hash)
@@ -133,6 +164,8 @@ rec = {
   'dtb_in_kernel_core': "$dtb_pkg",
   'dtb_check': {'target': "$dtb", 'rc': "$dtb_rc", 'warning_lines': int("$dtb_warn")},
   'build': {'seconds': int("$seconds"), 'jobs': int("$jobs"), 'rpmbuild_rc': int("$rpmbuild_rc"),
+            'started_utc': datetime.datetime.fromtimestamp(int("$start"), datetime.timezone.utc).isoformat(),
+            'finished_utc': datetime.datetime.fromtimestamp(int("$end"), datetime.timezone.utc).isoformat(),
             'peak_memory_cgroup_bytes': int("$mem_cgroup_peak_bytes"),
             'peak_memory_anon_bytes_sampled_3s': int("$mem_anon_peak_bytes"),
             'ccache': {'direct_hit': int("${ccache_direct_cache_hit:-0}"), 'preprocessed_hit': int("${ccache_preprocessed_cache_hit:-0}"),
@@ -140,12 +173,14 @@ rec = {
                        'hit_rate': round((int("${ccache_direct_cache_hit:-0}") + int("${ccache_preprocessed_cache_hit:-0}")) /
                                          max(1, int("${ccache_direct_cache_hit:-0}") + int("${ccache_preprocessed_cache_hit:-0}") + int("${ccache_cache_miss:-0}")), 4)}},
   'rpm_metadata_sha256': sha("$CK/rpm-metadata.txt"),
+  'm7': json.load(open("$CK/m7.json")) if os.path.exists("$CK/m7.json") else None,
   'rpms': rpms,
 }
 json.dump(rec, open(sys.argv[1], 'w'), indent=2); print('record', sys.argv[1])
 PY
 cp "$CK/dtbs-check.log" "$KERNEL_RPMS_DIR/$nevra.dtbs-check.log" 2>/dev/null || true
 [[ $btf_vmlinux == ok && $cfg_ok == ok && $dtb_pkg == ok ]] || die "check failed: vmlinux BTF $btf_vmlinux, config $cfg_ok, dtb in kernel-core $dtb_pkg"
+[[ $dtb_rc == 0 && $dtb_warn == 0 ]] || die "DTB schema check failed: rc=$dtb_rc, warning lines=$dtb_warn"
 python3 -I -c "import json,sys; m=json.load(open('$CK/modules.json')); sys.exit(0 if m['missing_count']==0 and not m['bad_magic'] and m['modules']>0 else 1)" \
   || die "modules without .BTF, see $CK/modules.json"
 echo "kernel-check: PASS"

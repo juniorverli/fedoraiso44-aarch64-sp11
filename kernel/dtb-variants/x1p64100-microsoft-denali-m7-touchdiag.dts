@@ -1,0 +1,5 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/* M7 controller-only diagnostic: no HID child and no touch supply consumer. */
+#include "x1p64100-microsoft-denali-m7.dts"
+/* Generated from the owner's DTS with only its board include removed. */
+#include "touch-pen-state.dtsi"
