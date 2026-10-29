@@ -34,3 +34,12 @@ early hid_generic
 early phy-qcom-qmp-combo
 early typec_ucsi
 early ucsi_glink
+# M8: fixed supply provider is modular; touch is available before switch-root.
+early fixed
+early gpi
+early spi-geni-qcom
+early spi-hid
+early spi-hid-of
+early hid-multitouch
+early uinput
+late spi-hid-acpi

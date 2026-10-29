@@ -4,4 +4,4 @@ phase = 1
 status = "testing"
 depends_on = []
 updated = "2026-10-29"
-gaps = ["M7 software image checks passed; operator Bluetooth provisioning and Surface touch diagnostic/keyboard/radio/power evidence pending"]
+gaps = ["M8 integration staged; central iptsd source pin, native RPM, single ISO compose and L0/QEMU pending; device functional evidence remains pending"]

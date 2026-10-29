@@ -376,6 +376,8 @@ snapshot() {
 
 	# Touch-pen section 8: debugfs setup above precedes this stdout-only capture.
 	shsnap touch-pen.txt 'bash /usr/libexec/sp11-touch-pen-collect'
+	snap iptsd-journal.txt /usr/libexec/sp11-touch-userspace-collect journal
+	snap libinput-device-names.txt /usr/libexec/sp11-touch-userspace-collect devices
 
 	# --- kernel, boot
 	display_set

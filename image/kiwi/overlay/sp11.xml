@@ -39,6 +39,8 @@
 		<!-- ec-sam R3 and Bluetooth boot-time configuration / masked capture. -->
 		<package name="libinput-utils"/>
 		<package name="evtest"/>
+		<!-- Local Fedora-native RPM; upstream udev rule activates iptsd@.service. -->
+		<package name="iptsd"/>
 		<package name="bluez"/>
 		<!-- SP11 change 4/5: ausearch for the SELinux AVC capture of the log collector (D15) -->
 		<package name="audit"/>

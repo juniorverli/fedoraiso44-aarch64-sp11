@@ -50,7 +50,7 @@ Kernel command line, common to all entries:
 | `rd.live.image root=live:CDLABEL=<label>` | Fedora live boot |
 | `console=tty0` | Panel console |
 
-Entries for M7 (D22–D24), in order. Device entries use `…-denali-m7.dtb`, except `touchdiag` uses `…-denali-m7-touchdiag.dtb` (both keep speakers and GPU off) and `clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr` in addition to the common verbose/live arguments:
+Entries for M8 (D22–D24), in order. Device entries use `…-denali-m8.dtb`, except `notouch` uses `…-denali-m8-notouch.dtb` (both keep speakers and GPU off) and `clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr` in addition to the common verbose/live arguments:
 
 | Entry | `sp11.entry` | Additional arguments / purpose |
 |:--|:--|:--|
@@ -60,12 +60,12 @@ Entries for M7 (D22–D24), in order. Device entries use `…-denali-m7.dtb`, ex
 | `SP11 debug, Wi-Fi unblock probe` | `wifi-unblock` | `sp11.wifi_unblock=1`; transient rfkill and NetworkManager probe |
 | `SP11 debug nomodeset` | `nomodeset` | `nomodeset` |
 | `SP11 debug, stop in initramfs` | `initramfs` | `rd.break=pre-mount` |
-| `SP11 debug, touch SE2 diagnostic` | `touchdiag` | Same arguments as `debug`; only SE2 enabled, no HID child or touch supply |
+| `SP11 debug, touch off` | `notouch` | Same arguments as `debug`; touch child disabled |
 | `VM test (no devicetree)` | `vmtest` | No DTB or clock/rootdelay overrides; `console=ttyAMA0,115200` |
 
 `usbdbg` adds `pmic_glink_altmode.dyndbg=+p ps883x.dyndbg=+p phy_qcom_qmp_combo.dyndbg=+p ucsi_glink.dyndbg=+p typec_ucsi.dyndbg=+p dwc3.dyndbg=+p dwc3_qcom.dyndbg=+p qcom_pd_mapper.dyndbg=+p pdr_interface.dyndbg=+p trace_event=:mod:qcom_glink trace_buf_size=8M`. DSP tracing is confined to this diagnostic entry to bound console/trace volume (implementation choice permitted by the M6 task). D23 makes the requested `qcom_battmgr.dyndbg=+p` redundant, so it is omitted. The other diagnostic arguments retain the component workers' requested spelling. No GPU-on entry exists (D22).
 
-The collector writes the selected `sp11.entry` to `entry.txt`. Every selectable device DTB passes L0 2.18 (S1). Both M7 variants are published by the kernel worker; their JSON and SHA-256 enter the build record. The packaged DTB remains on the ISO for package comparison, and is never selected by the menu.
+The collector writes the selected `sp11.entry` to `entry.txt`. Every selectable device DTB passes L0 2.18 (S1). Both M8 variants are published by the kernel worker; their JSON and SHA-256 enter the build record. The packaged DTB remains on the ISO for package comparison, and is never selected by the menu.
 
 ### Secure Boot
 
@@ -667,17 +667,40 @@ The QEMU verifier now checks the actual capture source: the boot copy's identity
 
 Final QEMU evidence: all eight menu entries displayed; the VM entry booted the M7 kernel; BTF, the full collector capture, touch helper sections and both logind session snapshots were present on the boot copy's GPT ESP. GDM started. The read-only `fsck.fat -n` check found no dirty bit (107 files, 22508/129022 clusters); decoy MD5 before/after was `1f302d2e52d77eee6fd0469bbd583e5e`. This is the requested session-scoped run; the full failed-unit allow-list audit and device behavior were not tested. The ISO checksum remained unchanged after both QEMU runs. No image/QEMU process or task container remains. Changes are uncommitted under D24.
 
+### M8 integration (2026-10-29)
+
+M8 pins the revision-5 kernel `7.3.0-65.sp11.5.fc44.aarch64` and the published `m8` / `m8-notouch` DTB/JSON pairs. The packaged DTB remains available for RPM comparison. Menu order follows the M7 table with the old `touchdiag` entry replaced in place by `SP11 debug, touch off` (`notouch`). All other device entries use `m8`, including the touch-on default. Existing verbose arguments, clock/domain overrides, root delay, D23 blacklists, USB/DSP trace spelling and opt-in Wi-Fi unblock gate remain.
+
+The Fedora-native iptsd spec in `image/iptsd/iptsd.spec` is based on the upstream 3.1.0 spec; it replaces the CI source placeholder, disables Meson fallback downloads and adds standard Fedora systemd/udev package macros. `scripts/image-build-iptsd.sh` requires the central source pin, verifies archive/spec hashes, rechecks the official Fedora repositories and builds `iptsd-3.1.0-1.fc44.aarch64.rpm`. The image installs that RPM through its normal local-repository transaction, with upstream `/etc/iptsd.conf`, presets, udev rule and static `iptsd@.service`. Service activation is enabled by the packaged `SYSTEMD_WANTS` rule for the detected escaped hidraw path; there is no hardcoded device instance. Dimensions/orientation remain metadata-driven, with no speculative SP11 preset.
+
+`fixed`, `gpi`, `spi-geni-qcom`, `spi-hid`, `spi-hid-of`, `hid-multitouch` and `uinput` are explicitly included/forced in dracut and listed in the live modules-load policy. `fixed` is also required by the existing display supply path now that M8 makes it modular. L0 checks the complete early dependency closure, all eight touch module hashes against the kernel release JSON, the M8 release/variant JSON, iptsd RPM/config/presets/udev activation, and installed capture code. The Bluetooth helper, early SAM chain and DRM atomic-state read refusal remain.
+
+Each full snapshot still runs exactly `shsnap touch-pen.txt 'bash /usr/libexec/sp11-touch-pen-collect'`. It adds `iptsd-journal.txt` (the journal for `iptsd@*.service`) and `libinput-device-names.txt` (only `Device:` values from `libinput list-devices`, without properties, serial fields, kernel paths, groups or seats). The shared helper masks address patterns and labeled serial/unique identifiers before exporting either new capture. Privacy fixtures exercise the actual installed helper. QEMU requires these files and loaded uinput/SPI-HID modules, in addition to the existing menu/VM/session/ESP/decoy checks.
+
+Preflight: both DTBs pass the kernel owner's compiled wiring/S1/GPU/parity checker, including the exact one-property fallback difference. Menu fixtures pass and reject a wrong fallback DTB, missing battery blacklist, default radio unblock and trace drift. The QEMU driver regression passes with the eighth entry selected. Source pin, RPM build, compose and ISO L0/L1 results are pending.
+
 ## Requests
 
-- orchestrator/operator (M7): review and commit this uncommitted work, provision `BOOT:/EFI/sp11/bt-address` after DD-writing, and batch functional evidence in the next already-planned GPU-off/speakers-off boot. The next diagnostic boot uses `touchdiag` as requested below. ec-sam R3's initramfs keyboard check remains pending for an already-planned initramfs boot: confirm the attached keyboard can type the read-only command below, then use `exit` to continue. After login collect `/usr/libexec/sp11-bt-collect` and the two ec-sam capability/power collectors listed above; charging/thermal policy remains unchanged.
+- sources/orchestrator (M8 prerequisite): centrally pin the iptsd v3.1.0 source archive and upstream spec before the image consumes them, as required by protocol §2 and the touch dossier. Expected source SHA-256: `af0aab95387a5107dfa8ac1ef90a29289f6b9d06e1a59121c9e5e732b27a266c`; upstream commit `a83bc1232f7096f8b33b50fdbda249cd640de670`. `sources/sources.toml` currently has no iptsd entry. Exact proposed owner patch: `image/iptsd/source-pin-request.patch` (not applied). Image will build a Fedora-native RPM and preserve upstream configuration/udev activation once this pin is available.
+
+- orchestrator/operator (M8): review and commit the uncommitted image work after validation. Provision `BOOT:/EFI/sp11/bt-address` only after DD-writing, as documented above. The next already-planned GPU-off/speakers-off boot can use the touch-on default, with `SP11 debug, touch off` as the fallback. No additional reboot is requested solely for evidence. Automatic full snapshots include touch, iptsd and input names. Exact read-only manual collectors, if needed:
+
+  ```bash
+  sudo bash /usr/libexec/sp11-touch-pen-collect
+  sudo /usr/libexec/sp11-touch-userspace-collect journal
+  sudo /usr/libexec/sp11-touch-userspace-collect devices
+  sudo /usr/libexec/sp11-bt-collect
+  sudo /usr/libexec/sp11/ec-sam/collect-input-capabilities.sh
+  sudo /usr/libexec/sp11/ec-sam/collect-power.sh
+  ```
+
+  For ec-sam R3 during an already-planned initramfs boot, confirm the attached keyboard can type this read-only command and then use `exit` to continue:
 
   ```bash
   awk '$1 ~ /^(surface_aggregator|surface_aggregator_registry|surface_aggregator_hub|surface_hid|surface_hid_core|hid|hid_generic)$/ {print $1, "refs=" $3}' /proc/modules
   ```
 
-  Built-in modules are absent from `/proc/modules`; L0 has already checked their built-in equivalents. Keep addresses, serials and the full journal private. No extra reboot is requested solely for this evidence.
-
-- orchestrator/operator (touch diagnostic): for the next planned diagnostic boot, select `SP11 debug, touch SE2 diagnostic`. The automatic full snapshot records `touch-pen.txt` alongside the complete private journal. If interactive collection is needed, run exactly `sudo bash /usr/libexec/sp11-touch-pen-collect`; it writes stdout only. Preserve private output outside git and give sanitized evidence to touch-pen/kernel before removing RFC 0014. No standalone extra reboot is requested.
+  Built-in modules are absent from `/proc/modules`; L0 checks their built-in equivalents. Keep full journals and all device identifiers outside git. Functional touch/metadata/orientation, keyboard, Bluetooth and radio/power behavior remain device gates.
 
 - installer path (R9, future): the installed system must boot `grubaa64.efi` directly. Anaconda installs shim and points the UEFI boot entry at it, and this firmware does not run shim. The installer step (kickstart `%post` of the installed system, or an Anaconda addon / `efibootmgr` call after install) must (a) create the boot entry for `\\EFI\\fedora\\grubaa64.efi` with `efibootmgr -c -d <disk> -p <esp partition> -L Fedora -l '\\EFI\\fedora\\grubaa64.efi'`, and (b) copy `grubaa64.efi` to `EFI/BOOT/BOOTAA64.EFI` on the installed ESP, for firmware that only reads the fallback path. Both must leave `EFI/fedora/shimaa64.efi` in place. Not implemented: this image has no installer step yet; verify on the device (R9).
 - kernel: install `x1p64100-microsoft-denali.dtb` under `/lib/modules/<kver>/dtb/qcom/` in `kernel-core`; build `kernel-modules-core`/`kernel-modules` with `CONFIG_SQUASHFS_ZSTD=y`, `CONFIG_VFAT_FS=m` (or `y`; the collector mounts the FAT log partition), `CONFIG_USB_STORAGE`, `CONFIG_VIRTIO_GPU`, xHCI and virtio drivers for the L1 `VM test` entry (the Fedora config has them; keep them).
@@ -686,6 +709,8 @@ Final QEMU evidence: all eight menu entries displayed; the VM entry booted the M
 - orchestrator: dossiers of `dsp-subsystems` (pd-mapper, qrtr) and `gpu` can cite this file for the answers above.
 
 ## Log
+
+- 2026-10-29: prepared M8 revision-5 release/DTB gates, touch-on default and touch-off fallback, early fixed/QSPI/HID/uinput modules, native iptsd spec/build path and masked userspace captures. Compiled DTB/menu/privacy/QEMU-driver preflight and index/syntax/whitespace checks pass. Fresh official Fedora query still finds no iptsd. Blocked before RPM/source consumption and the single ISO compose because the required central iptsd source pin is absent; exact source-owner patch recorded under Requests. No ISO/L0/L1 result claimed, no git writes, and no task process left running. Resume with the pin, native RPM, one compose, L0 and QEMU session/ESP/decoy checks.
 
 - 2026-10-29: built one M7 ISO (`sp11-fedora44-aarch64-kiwi-m7-20261029T090813Z`, kiwi 1576 s): revision-4 kernel, published m7/m7-touchdiag DTBs and exact touch collector; M6 policy/helpers retained. L0 176/176; final QEMU `--until-session --decoy` 19/19 in 1900 s to captures, clean ESP and unchanged decoy. Preserved the first run's STATUS-metadata false failure; added physical capture-target verification and GPT/FAT regression fixtures, then reran the same ISO successfully. No device test, git writes or task process left running; orchestrator review/commit and planned touchdiag evidence are next.
 

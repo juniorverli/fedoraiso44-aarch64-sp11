@@ -25,6 +25,7 @@ while [ $# -gt 0 ]; do
 	esac
 	shift
 done
+
 id=${post_only:-$(date -u +%Y%m%dT%H%M%SZ)}
 kind=kiwi; [ "$smoke" = 1 ] && kind=kiwi-smoke
 name=${name_arg:-sp11-fedora44-aarch64-$kind-$id}
@@ -33,6 +34,15 @@ isodir=$OUT/iso
 mkdir -p "$work/tmp" "$isodir" "$OUT/kiwi"
 cd "$work"   # /sp11 is a worktree whose .git file points outside the container
 log() { echo "image-build[kiwi]: $*" >&2; }
+
+# The local Fedora-native iptsd RPM must be prepared before the single compose.
+iptsd_rpm=$OUT/rpms/iptsd-3.1.0-1.fc44.aarch64.rpm
+iptsd_record=${iptsd_rpm%.rpm}.json
+[ -s "$iptsd_rpm" ] && [ -s "$iptsd_record" ] &&
+[ "$(sha256sum "$iptsd_rpm" | cut -d' ' -f1)" = "$(jq -r .rpm_sha256 "$iptsd_record")" ] &&
+[ "$(sha256sum "$REPO/image/iptsd/iptsd.spec" | cut -d' ' -f1)" = "$(jq -r .local_spec_sha256 "$iptsd_record")" ] || {
+	log "REFUSED: build the pinned Fedora-native iptsd RPM with scripts/image-build-iptsd.sh first"; exit 6;
+}
 
 if [ -z "$post_only" ]; then
 # ---- 0. the kernel RPMs. Only the top level of out/rpms counts (older builds live in out/rpms/archive/):
@@ -61,19 +71,19 @@ if [ "$(rpm --eval "%{lua:print(rpm.vercmp('$newest_vr', '$min'))}")" -le 0 ]; t
 fi
 log "kernel $kver_full (newer than $min, the only kernel NEVRA at the top level of out/rpms)"
 
-# M7 requires revision-4 RPMs and both atomically published DTB/JSON pairs.
-[ "$kver_full" = 7.3.0-65.sp11.4.fc44.aarch64 ] || {
-	log "REFUSED: M7 requires kernel 7.3.0-65.sp11.4.fc44.aarch64, found $kver_full"; exit 6;
+# M8 requires revision-5 RPMs and both atomically published DTB/JSON pairs.
+[ "$kver_full" = 7.3.0-65.sp11.5.fc44.aarch64 ] || {
+	log "REFUSED: M8 requires kernel 7.3.0-65.sp11.5.fc44.aarch64, found $kver_full"; exit 6;
 }
 patch_series_sha=$( . "$REPO/scripts/kernel-common.sh"; kernel_series_hash )
-for v in m7 m7-touchdiag; do
+for v in m8 m8-notouch; do
 	vsrc=$OUT/dtb-variants/$kver_full/qcom/x1p64100-microsoft-denali-$v
 	[ -s "$vsrc.dtb" ] && [ -s "$vsrc.json" ] || {
 		log "REFUSED: $v DTB and JSON not yet published by the kernel worker"; exit 6;
 	}
 	[ "$(sha256sum "$vsrc.dtb" | cut -d' ' -f1)" = "$(jq -r .sha256 "$vsrc.json")" ] &&
 	[ "$(jq -r .kver "$vsrc.json")" = "$kver_full" ] &&
-	[ "$(jq -r .series_rev "$vsrc.json")" = 4 ] &&
+	[ "$(jq -r .series_rev "$vsrc.json")" = 5 ] &&
 	[ "$(jq -r .series_hash_sha256 "$vsrc.json")" = "$patch_series_sha" ] || {
 		log "REFUSED: $v DTB hash/release/series differs from the kernel worker JSON"; exit 6;
 	}
@@ -103,6 +113,7 @@ rm -f "$desc/root/etc/sp11-log-collector.conf"   # lmc-only; the kiwi overlay ha
 cp -a "$REPO/image/kiwi/overlay/root/." "$desc/root/"
 cp -a "$REPO/image/kiwi/overlay/sp11.xml" "$REPO/image/kiwi/overlay/grub-arm.cfg.iso-template" "$desc/"
 chmod 0755 "$desc/root/usr/libexec/sp11-log-collector"
+chmod 0755 "$desc/root/usr/libexec/sp11-touch-userspace-collect"
 # D19 / display-lcd request: the DPCD reader of the display worker, shipped unchanged and run by the
 # collector as root against every /dev/drm_dp_aux*
 cp "$REPO/hardware/display-lcd/tools/collect-dpcd.py" "$desc/root/usr/libexec/sp11-collect-dpcd.py"
@@ -150,6 +161,7 @@ for n in kernel kernel-core kernel-modules kernel-modules-core kernel-modules-ex
 	[ -f "$f" ] || { log "no $n-$kver_full.rpm in $OUT/rpms"; exit 1; }
 	cp "$f" "$OUT/repo/"
 done
+cp "$iptsd_rpm" "$OUT/repo/"
 createrepo_c -q "$OUT/repo"
 kcore=$(ls "$OUT"/repo/kernel-core-*.rpm)
 kver=$(rpm -qp --qf '%{version}-%{release}.%{arch}' "$kcore")
@@ -161,10 +173,10 @@ mkdir -p "$dtbtmp/boot/dtb/qcom"
 rpm2cpio "$kcore" | cpio -i --quiet --to-stdout "./lib/modules/$kver/dtb/qcom/x1p64100-microsoft-denali.dtb" \
 	>"$dtbtmp/boot/dtb/qcom/x1p64100-microsoft-denali.dtb"
 [ -s "$dtbtmp/boot/dtb/qcom/x1p64100-microsoft-denali.dtb" ] || { log "DTB not in $kcore"; exit 1; }
-# M7: the kernel worker variants next to the packaged DTB. The build fails without
+# M8: the kernel worker variants next to the packaged DTB. The build fails without
 # it; with --smoke a copy of the packaged DTB stands in (recorded, never for the device).
 variants_smoke_copy=0
-for v in m7 m7-touchdiag; do
+for v in m8 m8-notouch; do
 	vf=x1p64100-microsoft-denali-$v.dtb
 	vsrc=$OUT/dtb-variants/$kver/qcom/$vf
 	if [ -s "$vsrc" ]; then
@@ -268,9 +280,9 @@ mcopy -i "$chk/bi/eltorito_img1_uefi.img" ::EFI/BOOT/grub.cfg "$chk/esp-grub.cfg
 for f in "$chk"/_* "$chk/esp-grub.cfg"; do
 	if grep -v '^[[:space:]]*#' "$f" | grep -w -E 'quiet|rhgb|splash' >/dev/null; then log "FAIL: quiet/rhgb/splash in $f"; exit 1; fi
 done
-n=$(grep -c "^menuentry '" "$chk/_boot_grub2_grub.cfg"); [ "$n" = 8 ] || { log "FAIL: $n menu entries, expected 8 (M7)"; exit 1; }
-for e in debug usbdbg nodsp wifi-unblock nomodeset initramfs touchdiag vmtest; do grep -q "sp11.entry=$e\$" "$chk/_boot_grub2_grub.cfg" || { log "FAIL: no entry with sp11.entry=$e"; exit 1; }; done
-for f in x1p64100-microsoft-denali-m7 x1p64100-microsoft-denali-m7-touchdiag; do
+n=$(grep -c "^menuentry '" "$chk/_boot_grub2_grub.cfg"); [ "$n" = 8 ] || { log "FAIL: $n menu entries, expected 8 (M8)"; exit 1; }
+for e in debug usbdbg nodsp wifi-unblock nomodeset initramfs notouch vmtest; do grep -q "sp11.entry=$e\$" "$chk/_boot_grub2_grub.cfg" || { log "FAIL: no entry with sp11.entry=$e"; exit 1; }; done
+for f in x1p64100-microsoft-denali-m8 x1p64100-microsoft-denali-m8-notouch; do
 	xorriso -indev "$iso" -find "/boot/dtb/qcom/$f.dtb" -type f 2>/dev/null | grep -q . || { log "FAIL: /boot/dtb/qcom/$f.dtb not on the ISO"; exit 1; }
 done
 
@@ -312,6 +324,7 @@ for m in re.finditer(r"menuentry '([^']*)'.*?\{(.*?)\n\}", cfg, re.S):
                     "devicetree": bool(re.search(r"^\s*devicetree ", m.group(2), re.M))})
 series = f"{repo}/kernel/series"
 manifest = f"{repo}/firmware/manifest.toml"
+kernel_record_path = f"{out}/rpms/{read(f'{out}/image-work/kernel-nevra.txt').strip().replace('kernel-core-', 'kernel-')}.json"
 patches = sorted(os.listdir(f"{repo}/image/kiwi/patches"))
 series_paths = [''.join(line.split('#', 1)[0].split()) for line in read(series).splitlines()]
 patch_series = ''.join(f"{p} {sha256(f'{repo}/{p}')}\n" for p in series_paths if p)
@@ -332,15 +345,19 @@ record = {
     "dtb_variant_records": {f: json.load(open(f"{work}/dtb-records/{f}")) for f in sorted(os.listdir(f"{work}/dtb-records"))} if os.path.isdir(f"{work}/dtb-records") else {},
     "kernel_cmdline_reasons": "image/README.md, GRUB 2 and the kernel command line",
     "grub_entries": entries,
-    "milestone": "M7",
+    "milestone": "M8",
+    "kernel_release_record_sha256": sha256(kernel_record_path),
+    "kernel_touch_modules": json.load(open(kernel_record_path))["m8"]["touch_modules"],
     "module_policy": {"qcom_battmgr": "blacklist + install false + dracut omit_drivers (D23)",
                       "ucsi_glink": "retained early", "ath12k.debug_mask": "0x30; CONFIG_ATH12K_DEBUG=y; output checked by L0"},
     "diagnostic_args_reason": {"usbdbg": "USB-C test-plan C + DSP R-I2, combined to contain trace volume",
-                               "touchdiag": "touch-pen section 8: controller-only SE2 diagnostic; debug arguments",
+                               "notouch": "touch-pen section 8: touch child disabled; debug arguments",
                                "nodsp": "DSP R-I3: PAS deferred until switch-root",
                                "wifi-unblock": "Wi-Fi I2: opt-in transient rfkill/NM probe"},
     "collector_sources": {c: sha256(f"{repo}/hardware/{c}/collector/{c}.sh") for c in ("dsp-subsystems", "wifi")},
     "touch_collector_sha256": sha256(f"{repo}/hardware/touch-pen/collect-read-only.sh"),
+    "touch_userspace_collector_sha256": sha256(f"{repo}/image/overlay/usr/libexec/sp11-touch-userspace-collect"),
+    "iptsd": json.load(open(f"{out}/rpms/iptsd-3.1.0-1.fc44.aarch64.json")),
     "component_inputs": json.load(open(f"{repo}/image/component-inputs/sources.json")),
     "kiwi_description": {"url": "https://pagure.io/fedora-kiwi-descriptions.git", "branch": "f44", "pinned_commit": pin,
                          "branch_head_at_build": head, "profile": "Workstation-Live", "kiwi_file": "Fedora.kiwi",

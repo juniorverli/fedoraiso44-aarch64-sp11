@@ -182,8 +182,8 @@ else
 fi
 titles=$(grep -o "^menuentry '[^']*'" "$cfg_esp" | sed "s/menuentry '//;s/'\$//")
 if [ "$builder" = kiwi ]; then
-	# M7: M6 menu plus controller-only touch diagnostic, no GPU-on entry
-	expect=$'SP11 debug\nSP11 debug, USB + DSP trace\nSP11 debug, no early DSP\nSP11 debug, Wi-Fi unblock probe\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nSP11 debug, touch SE2 diagnostic\nVM test (no devicetree)'
+	# M8: touch-on default plus touch-off fallback, no GPU-on entry
+	expect=$'SP11 debug\nSP11 debug, USB + DSP trace\nSP11 debug, no early DSP\nSP11 debug, Wi-Fi unblock probe\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nSP11 debug, touch off\nVM test (no devicetree)'
 	nentries=8
 else
 	expect=$'SP11 debug\nSP11 debug + DRM trace\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)'
@@ -206,7 +206,7 @@ ids_ok=1
 awk '/^menuentry /{t=$0} /^[[:space:]]+linux /{print t "\t" $0}' "$cfg_esp" >"$W/linux-lines.txt"
 while IFS=$'\t' read -r t l; do
 	id=$(echo "$t" | sed -n "s/.*--id sp11-\([a-z0-9-]*\).*/\1/p")
-	case $id in debug | usbdbg | nodsp | wifi-unblock | nomodeset | initramfs | touchdiag | vmtest) ;; *) ids_ok=0; fail 2.12 "unknown entry id '$id' ($t)" ;; esac
+	case $id in debug | usbdbg | nodsp | wifi-unblock | nomodeset | initramfs | notouch | vmtest) ;; *) ids_ok=0; fail 2.12 "unknown entry id '$id' ($t)" ;; esac
 	want=$id
 	case $l in *" sp11.entry=$want"*) ;; *) ids_ok=0; fail 2.12 "entry '$t' lacks sp11.entry=$want" ;; esac
 	case $l in *console=ttyAMA0*) [ "$id" = vmtest ] || { ids_ok=0; fail 2.12 "serial console on a device entry: $t"; } ;; *) [ "$id" != vmtest ] || { ids_ok=0; fail 2.12 "VM entry lacks the serial console"; } ;; esac
@@ -217,10 +217,10 @@ vm=$(awk '/^menuentry .VM test/{f=1} f&&/^[[:space:]]+devicetree /{print "x"}' "
 [ -z "$vm" ] && pass 2.8 "VM test entry has no devicetree" || fail 2.8 "VM test entry has a devicetree line"
 [ "$(grep -c "^menuentry '" "$cfg_esp")" = "$nentries" ] && [ "$(grep '^set default' "$cfg_esp")" = "set default=0" ] && pass 2.9 "VM test entry is not the default"
 if [ "$builder" = kiwi ]; then
-	if python3 -I "$REPO/image/tools/check-m7-menu.py" "$cfg_esp" >"$W/m7-menu.txt" 2>&1; then
-		pass 2.17 "M7 menu: correct DTBs, touchdiag has debug arguments, M6 diagnostics preserved"
+	if python3 -I "$REPO/image/tools/check-m8-menu.py" "$cfg_esp" >"$W/m8-menu.txt" 2>&1; then
+		pass 2.17 "M8 menu: correct DTBs, notouch has debug arguments, M6 diagnostics preserved"
 	else
-		fail 2.17 "M7 menu: $(cat "$W/m7-menu.txt")"
+		fail 2.17 "M8 menu: $(cat "$W/m8-menu.txt")"
 	fi
 fi
 if [ "$builder" = kiwi ]; then
@@ -323,7 +323,7 @@ fi
 if [ "$builder" = kiwi ]; then
 	# D19: DTB variants next to the packaged one. Same SoC and board (root compatible), different from the
 	# packaged DTB, hashes as in the build record and as in out/dtb-variants (the kernel worker's output).
-	for v in m7 m7-touchdiag; do
+	for v in m8 m8-notouch; do
 		vf=x1p64100-microsoft-denali-$v.dtb
 		vd=$W/$vf
 		x "/boot/dtb/qcom/$vf" "$vd"
@@ -335,9 +335,9 @@ if [ "$builder" = kiwi ]; then
 		gpu_status=$(fdtget "$vd" /soc@0/gpu@3d00000 status 2>/dev/null)
 		[ "$gpu_status" = disabled ] && pass 3.12 "D22: $v GPU node disabled" || fail 3.12 "D22: $v GPU status '$gpu_status'"
 		check_args=(--variant "$v")
-		[ "$v" = m7-touchdiag ] && check_args+=(--baseline "$W/x1p64100-microsoft-denali-m7.dtb")
-		if python3 -I "$REPO/scripts/kernel-m7-check.py" "$vd" "${check_args[@]}" >"$W/$v-wiring.json" 2>"$W/$v-wiring.err"; then
-			pass 3.13 "$v: S1, parity, wiring, no HID/supply; touchdiag differs only in SE2 status"
+		[ "$v" = m8-notouch ] && check_args+=(--baseline "$W/x1p64100-microsoft-denali-m8.dtb")
+		if python3 -I "$REPO/scripts/kernel-m8-check.py" "$vd" "${check_args[@]}" >"$W/$v-wiring.json" 2>"$W/$v-wiring.err"; then
+			pass 3.13 "$v: S1, parity, wiring and QSPI touch; fallback differs only in touch child status"
 		else fail 3.13 "$v: $(cat "$W/$v-wiring.err")"; fi
 		rc=$(fdtget "$vd" / compatible 2>/dev/null)
 		case " $rc " in *" microsoft,denali-lcd "*) pass 3.7 "variant $v root compatible has microsoft,denali-lcd" ;; *) fail 3.7 "variant $v root compatible is '$rc'" ;; esac
@@ -352,7 +352,7 @@ if [ "$builder" = kiwi ]; then
 		if [ -n "$rsha" ]; then [ "$vsha" = "$rsha" ] && pass 3.11 "variant $v SHA-256 equals the kernel worker's JSON record" || fail 3.11 "variant $v SHA-256 differs from the kernel worker's JSON record ($rsha)"; else fail 3.11 "no JSON record of the kernel worker for variant $v in the build record"; fi
 		vr=$OUT/dtb-variants/$kver/qcom/${vf%.dtb}.json
 		if [ -f "$vr" ] && [ "$vsha" = "$(jq -r .sha256 "$vr")" ] &&
-		   [ "$(jq -r .kver "$vr")" = "$kver" ] && [ "$(jq -r .series_rev "$vr")" = 4 ] &&
+		   [ "$(jq -r .kver "$vr")" = "$kver" ] && [ "$(jq -r .series_rev "$vr")" = 5 ] &&
 		   [ "$(jq -r .series_hash_sha256 "$vr")" = "$(jq_ .kernel_patch_series_sha256)" ] &&
 		   jq -e --arg f "$vf.json" --slurpfile source "$vr" '.dtb_variant_records[$f] == $source[0]' "$rec" >/dev/null; then
 			pass 3.14 "variant $v matches published JSON hash/release/series and embedded record"
@@ -369,9 +369,9 @@ if [ "$smoke" = false ]; then
 	ls "$OUT"/rpms/kernel-core-*.rpm >/dev/null 2>&1 && { rpm -qp --qf '%{name}-%{version}-%{release}.%{arch}\n' "$OUT"/rpms/kernel-core-*.rpm | grep -qx "$got_nevra" && pass 4.2 "kernel-core is the RPM of out/rpms" || fail 4.2 "kernel-core is not in out/rpms"; }
 fi
 if [ "$builder" = kiwi ] && [ "$smoke" = false ]; then
-	if [ "$kver" = 7.3.0-65.sp11.4.fc44.aarch64 ] && [ "$got_nevra" = kernel-core-7.3.0-65.sp11.4.fc44.aarch64 ] && [ "$(jq_ .milestone)" = M7 ]; then
-		pass 4.9 "M7: required revision-4 kernel release and milestone"
-	else fail 4.9 "M7 requires revision-4 kernel and milestone (found $kver / $got_nevra)"; fi
+	if [ "$kver" = 7.3.0-65.sp11.5.fc44.aarch64 ] && [ "$got_nevra" = kernel-core-7.3.0-65.sp11.5.fc44.aarch64 ] && [ "$(jq_ .milestone)" = M8 ]; then
+		pass 4.9 "M8: required revision-5 kernel release and milestone"
+	else fail 4.9 "M8 requires revision-5 kernel and milestone (found $kver / $got_nevra)"; fi
 fi
 cmp -s "$kimg" "$ROOT/lib/modules/$kver/vmlinuz" && pass 4.3 "ISO kernel image equals lib/modules/$kver/vmlinuz" || fail 4.3 "ISO kernel image differs from the package"
 kimg_ver=$(python3 -I - "$kimg" <<'PY'
@@ -441,9 +441,22 @@ if [ "$builder" = kiwi ]; then
 	case $spiko in *.xz) dec="xz -dc" ;; *.zst) dec="zstd -dc" ;; *.gz) dec="gzip -dc" ;; *) dec=cat ;; esac
 	if [ -n "$spiko" ] && $dec "$spiko" >"$W/spi-geni-qcom.ko" &&
 	   strings "$W/spi-geni-qcom.ko" >"$W/spi-geni-strings.txt" &&
-	   grep -Fq 'touch-pen-diag: proto=' "$W/spi-geni-strings.txt"; then
-		pass 4.11 "RFC 0014 pre-initialization diagnostic format exists in shipped spi-geni-qcom module"
-	else fail 4.11 "RFC 0014 diagnostic format absent from shipped module"; fi
+	   ! grep -Fq 'touch-pen-diag: proto=' "$W/spi-geni-strings.txt"; then
+		pass 4.11 "retired RFC 0014 diagnostic absent from shipped M8 GENI module"
+	else fail 4.11 "retired RFC 0014 logger remains or GENI module missing"; fi
+	if python3 -I - "$ROOT" "$rec" "$OUT/rpms/kernel-$kver.json" <<'PY'
+import hashlib, json, pathlib, sys
+root, record, release = map(pathlib.Path, sys.argv[1:])
+rec = json.loads(record.read_text())
+digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
+assert digest(release) == rec['kernel_release_record_sha256']
+modules = json.loads(release.read_text())['m8']['touch_modules']
+assert modules == rec['kernel_touch_modules'] and len(modules) == 8
+for name, module in modules.items():
+    assert digest(root / module['path'].lstrip('/')) == module['module_sha256'], name
+PY
+	then pass 4.12 "all eight M8 touch module payload hashes match the pinned kernel release JSON"
+	else fail 4.12 "M8 touch module bytes or kernel release record differ"; fi
 fi
 
 # ---------------------------------------------------------------- check 5 ----
@@ -775,6 +788,51 @@ if [ "$builder" = kiwi ]; then
 	   grep -qxF "$(printf '\t')shsnap touch-pen.txt 'bash /usr/libexec/sp11-touch-pen-collect'" "$ROOT/usr/libexec/sp11-log-collector"; then
 		pass 8.27 "touch helper installed unchanged at mode 0755, recorded hash and exact shsnap invocation"
 	else fail 8.27 "touch helper, permissions, record or collector invocation differs"; fi
+	if [ "$(rpm --root "$ROOT" -q iptsd --qf '%{name}-%{version}-%{release}.%{arch}' 2>/dev/null)" = iptsd-3.1.0-1.fc44.aarch64 ] &&
+	   python3 -I - "$ROOT" "$rec" "$OUT" "$REPO" <<'PY'
+import hashlib, json, pathlib, sys
+root, rec, out, repo = map(pathlib.Path, sys.argv[1:])
+record = json.loads(rec.read_text())['iptsd']
+source = json.loads((out / 'rpms/iptsd-3.1.0-1.fc44.aarch64.json').read_text())
+digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
+assert record == source
+assert digest(out / 'rpms/iptsd-3.1.0-1.fc44.aarch64.rpm') == record['rpm_sha256']
+assert digest(repo / 'image/iptsd/iptsd.spec') == record['local_spec_sha256']
+assert record['source_sha256'] == 'af0aab95387a5107dfa8ac1ef90a29289f6b9d06e1a59121c9e5e732b27a266c'
+assert (root / 'etc/iptsd.conf').is_file()
+assert any((root / 'usr/share/iptsd').rglob('*.conf'))
+PY
+	then pass 8.28 "iptsd native Fedora RPM/config/presets present; source, RPM and spec pins match record"
+	else fail 8.28 "iptsd RPM, default configuration, presets or provenance missing"; fi
+	if rpm --root "$ROOT" -V --nomtime --nouser --nogroup iptsd >"$W/iptsd-verify.txt" 2>&1 &&
+	   grep -Fq 'ENV{SYSTEMD_WANTS}+="iptsd@$result.service"' "$ROOT/usr/lib/udev/rules.d/50-iptsd.rules" &&
+	   grep -Fq 'iptsd-check-device --quiet' "$ROOT/usr/lib/udev/rules.d/50-iptsd.rules" &&
+	   grep -qx 'ExecStart=/usr/bin/iptsd /%I' "$ROOT/usr/lib/systemd/system/iptsd@.service" &&
+	   systemd-analyze --root="$ROOT" verify iptsd@dev-hidraw0.service >"$W/iptsd-unit-verify.txt" 2>&1; then
+		pass 8.29 "unmodified iptsd defaults/binaries; packaged udev rule activates valid static template service"
+	else fail 8.29 "iptsd payload changed or udev/service activation invalid"; fi
+	if python3 -I - "$ROOT" "$W" <<'PY'
+import pathlib, re, sys
+root, work = map(pathlib.Path, sys.argv[1:])
+modules = (root / 'etc/modules-load.d/sp11-touch.conf').read_text().splitlines()
+early = (root / 'etc/dracut.conf.d/91-sp11-drivers.conf').read_text()
+for module in ('fixed', 'gpi', 'spi-geni-qcom', 'spi-hid', 'spi-hid-of', 'hid-multitouch', 'uinput'):
+    assert module in modules, module
+    assert any(module in line.split() for line in re.findall(r'force_drivers\+="([^"]*)"', early)), module
+    assert module.replace('-', '_') in (work / 'initrd-ko.txt').read_text().splitlines(), module
+PY
+	then pass 8.30 "M8 touch/uinput modules installed, forced early and configured for live module loading"
+	else fail 8.30 "M8 touch/uinput module loading or initramfs contents incomplete"; fi
+	if cmp -s "$ROOT/usr/libexec/sp11-touch-userspace-collect" "$REPO/image/overlay/usr/libexec/sp11-touch-userspace-collect" &&
+	   [ -x "$ROOT/usr/libexec/sp11-touch-userspace-collect" ] &&
+	   [ "$(sha256sum "$ROOT/usr/libexec/sp11-touch-userspace-collect" | cut -d' ' -f1)" = "$(jq_ .touch_userspace_collector_sha256)" ] &&
+	   grep -qxF "$(printf '\t')snap iptsd-journal.txt /usr/libexec/sp11-touch-userspace-collect journal" "$ROOT/usr/libexec/sp11-log-collector" &&
+	   grep -qxF "$(printf '\t')snap libinput-device-names.txt /usr/libexec/sp11-touch-userspace-collect devices" "$ROOT/usr/libexec/sp11-log-collector"; then
+		pass 8.31 "iptsd journal and libinput names-only collectors installed and invoked"
+	else fail 8.31 "touch userspace collector bytes, permissions, hash or invocation differs"; fi
+	if python3 -I "$REPO/image/tools/touch-userspace-selftest.py" "$ROOT/usr/libexec/sp11-touch-userspace-collect" >"$W/touch-userspace-fixtures.txt" 2>&1; then
+		pass 8.32 "S5 fixtures: libinput exports only names; addresses/serial fields masked in new captures"
+	else fail 8.32 "touch userspace privacy fixtures failed"; fi
 fi
 for t in dmesg journalctl lspci lsusb dtc timeout blkid findmnt mount python3 lsmod rfkill iw ethtool qrtr-lookup upower btmgmt bluetoothctl libinput evtest; do
 	[ -x "$ROOT/usr/bin/$t" ] || [ -x "$ROOT/usr/sbin/$t" ] || fail 8.5 "collector needs $t, not in the image"

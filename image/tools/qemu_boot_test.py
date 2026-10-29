@@ -21,14 +21,14 @@ import time
 
 import pexpect
 
-ENTRIES = [   # M7 menu order; VM entry last (selected by counting Down keys)
+ENTRIES = [   # M8 menu order; VM entry last (selected by counting Down keys)
     "SP11 debug",
     "SP11 debug, USB + DSP trace",
     "SP11 debug, no early DSP",
     "SP11 debug, Wi-Fi unblock probe",
     "SP11 debug nomodeset",
     "SP11 debug, stop in initramfs",
-    "SP11 debug, touch SE2 diagnostic",
+    "SP11 debug, touch off",
     "VM test (no devicetree)",
 ]
 LEGACY_ENTRIES = ["SP11 debug", "SP11 debug + DRM trace", "SP11 debug nomodeset", "SP11 debug, stop in initramfs", "VM test (no devicetree)"]
@@ -451,11 +451,21 @@ def main():
             miss = [n for n in need if n not in lf]
             check("D19 display files are in the log directory", not miss, ("missing: " + ", ".join(miss)) if miss else f"{len(need)} files")
             touch = read_log(a.logs, bd, "touch-pen.txt") or ""
-            check("M7 touch helper captured kernel, DT, pinctrl and firmware sections",
-                  all(section in touch for section in ("7.3.0-65.sp11.4.fc44.aarch64",
+            check("M8 touch helper captured kernel, DT, pinctrl and firmware sections",
+                  all(section in touch for section in ("7.3.0-65.sp11.5.fc44.aarch64",
                       "=== live DT and platform driver state ===",
                       "=== pinctrl ownership and configuration ===",
                       "=== installed firmware package and file")))
+            iptsd = read_log(a.logs, bd, "iptsd-journal.txt") or ""
+            devices = read_log(a.logs, bd, "libinput-device-names.txt") or ""
+            check("M8 iptsd journal and libinput names-only captures present without identifiers",
+                  bool(iptsd.strip()) and bool(devices.strip()) and
+                  not any(bad in iptsd + devices for bad in ("<capture unavailable>", "<capture failed:", "Kernel:", "Group:", "Seat:")) and
+                  not re.search(r"(?i)(?<![0-9a-f])(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}(?![0-9a-f])", iptsd + devices))
+            modules = read_log(a.logs, bd, "lsmod.txt") or ""
+            check("M8 live uinput and SPI-HID modules loaded",
+                  all(re.search(r"^" + name + r"\s", modules, re.M)
+                      for name in ("uinput", "spi_hid", "spi_hid_of")))
             ent = read_log(a.logs, bd, "entry.txt") or ""
             check("entry.txt names the booted entry (sp11.entry=vmtest)", "sp11.entry=vmtest" in ent, ent.strip().splitlines()[0] if ent.strip() else "empty")
         gdm = read_log(a.logs, bd, "gdm-status.txt") or ""
