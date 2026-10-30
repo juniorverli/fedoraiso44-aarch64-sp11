@@ -1,0 +1,3 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/* M11: packaged parity DT; touch on, GPU and speakers off. */
+#include "x1p64100-microsoft-denali-parity.dts"

@@ -49,13 +49,15 @@ def read_tree(dtb):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('dtb', type=Path)
-    parser.add_argument('--variant', choices=['packaged', 'm8', 'm8-notouch', 'm9', 'm9-notouch', 'm10', 'm10-notouch'],
+    parser.add_argument('--variant', choices=['packaged', 'm8', 'm8-notouch', 'm9', 'm9-notouch', 'm10', 'm10-notouch', 'm11', 'm11-notouch', 'm11-audio'],
                         required=True)
     parser.add_argument('--baseline', type=Path)
     parser.add_argument('--previous', type=Path, help='M8 DTB: require only the CMA range addition')
     parser.add_argument('--previous-unchanged', action='store_true',
                         help='With --previous (M9 DTB): require no DT difference at all')
     parser.add_argument('--cma-dma32', action='store_true', help='Require the M9 DMA32 CMA window')
+    parser.add_argument('--parity-in-base', action='store_true',
+                        help='Require integrated LCD parity in the packaged board')
     args = parser.parse_args()
     fallback = args.variant.endswith('-notouch')
     require(not fallback or args.baseline is not None, 'Fallback check requires its baseline DTB')
@@ -63,7 +65,7 @@ def main():
     symbols = {k: strings(v)[0] for k, v in nodes['/__symbols__'].items()}
 
     cma_record = None
-    if args.cma_dma32 or args.variant.startswith(('m9', 'm10')):
+    if args.cma_dma32 or args.variant.startswith(('m9', 'm10', 'm11')):
         pools = [(p, props) for p, props in nodes.items() if 'linux,cma-default' in props]
         require(len(pools) == 1, 'Missing/ambiguous default CMA pool')
         path, pool = pools[0]
@@ -93,12 +95,20 @@ def main():
     def phandle(label):
         return cells(node(label)['phandle'])[0]
 
-    # S1 must disable both the card and the speaker bus, not only the codecs.
-    require(nodes['/sound'].get('status') == '"disabled"', '/sound is not disabled')
-    require(node('swr0').get('status') == '"disabled"', 'swr0 is not disabled')
-    watched = [p for p, props in nodes.items() if any(
-        w in props.get('compatible', '') for w in ('wsa884', 'sdw20217020400', 'x1e80100-sndcard'))]
-    require(len(watched) == 3 and all(not enabled(p) for p in watched), 'S1 effective-status failure')
+    # The only enabled-card exception is the explicitly selected microphone DT.
+    safety = subprocess.run(['python3', '-I', str(Path(__file__).with_name('kernel-dtb-safety.py')),
+                             '/dev/stdin'], input=source, capture_output=True, text=True)
+    require(safety.returncode == 0, 'S1 effective-status failure: ' + safety.stdout)
+    watched = json.loads(safety.stdout)['watched']
+    require(len(watched) == 3, 'Unexpected S1 watched-node count')
+    require(node('swr0').get('status') == '\"disabled\"', 'swr0 is not disabled')
+    if args.variant == 'm11-audio':
+        require(enabled('/sound'), 'Microphone sound card disabled')
+        require('/sound/wsa-dai-link' not in nodes, 'WSA playback link retained')
+        require(strings(nodes['/sound']['audio-routing']) ==
+                ['VA DMIC0', 'vdd-micb', 'VA DMIC1', 'vdd-micb'], 'Non-microphone audio routes')
+    else:
+        require(nodes['/sound'].get('status') == '\"disabled\"', '/sound is not disabled')
 
     tlmm = phandle('tlmm')
     require(node('pcie4')['pinctrl-names'] == '"default"', 'PCIe4 pinctrl names')
@@ -118,7 +128,7 @@ def main():
 
     cpus = [p for p, props in nodes.items() if p.startswith('/cpus/')
             and props.get('device_type') == '"cpu"']
-    parity = args.variant != 'packaged'
+    parity = args.parity_in_base or args.variant != 'packaged'
     require(len(cpus) == (10 if parity else 12), 'CPU count')
     if parity:
         require(all(label not in symbols for label in ('cpu7', 'cpu11', 'cpu_pd7', 'cpu_pd11')),
@@ -221,6 +231,7 @@ def main():
                           usb_typec=dict(reset_gpio=176, pinctrl='rtmr1_default', drive_strength=2),
                           cpu_count=len(cpus), no_system_ss3=parity,
                           gpu_enabled=enabled(symbols['gpu']),
+                          microphone_only=args.variant == 'm11-audio',
                           se2_enabled=enabled(spi_path), enabled_hid_children=hid,
                           enabled_touch_supply_consumers=consumers,
                           touch_enabled=active_touch, touch_supply_startup_us=500000,

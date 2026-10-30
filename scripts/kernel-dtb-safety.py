@@ -1,53 +1,98 @@
 #!/usr/bin/env python3
-"""Effective-status check of a DTB (S1: no speaker may be enabled).
+"""Check effective speaker status in dtc-decompiled DTS (S1).
 
-  kernel-dtb-safety.py FILE.dts-from-dtc [--json]
-
-Reads the text `dtc -I dtb -O dts` prints, walks the node tree, and reports every node whose
-`compatible` contains one of the watched strings with its own status and its effective status.
-A node is effective-enabled only if it and every ancestor has status absent, "okay" or "ok";
-a disabled parent bus therefore disables its children. Also reports the effective status of
-the nodes named by --also (path suffix match, for example gpu@3d00000).
-Exit 0 if no watched node is effectively enabled, 1 otherwise, 2 on usage error.
+An enabled x1e80100 card is allowed only with no WSA link and an effectively
+disabled swr0. All WSA884x amplifiers must remain effectively disabled.
+Usage: kernel-dtb-safety.py FILE [--json] [--also=PATH-SUFFIX]
 Owner: kernel worker.
 """
-import json, re, sys
+import argparse
+import json
+from pathlib import Path
+import re
 
-WATCH = ("wsa884", "sdw20217020400", "x1e80100-sndcard")   # WSA8845 speakers enumerate as sdw20217020400
-args = [a for a in sys.argv[1:] if not a.startswith("--")]
-also = [a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--also=")]
-if len(args) != 1:
-    print(__doc__); sys.exit(2)
+WATCH = ('wsa884', 'sdw20217020400', 'x1e80100-sndcard')
 
-stack = []        # [name, status|None, compatible-list]
-nodes = []        # (path, own_status, effective_enabled, compatibles)
-open_re = re.compile(r'^\s*(?:[\w$.+-]+:\s*)?([^\s{;=]*)\s*\{\s*$')
-for line in open(args[0]):
-    m = open_re.match(line)
-    if m and not line.strip().startswith(("/*", "*")):
-        stack.append([m.group(1) or "/", None, []])
-        continue
-    s = line.strip()
-    if s == "};":
-        n = stack.pop()
-        path = "/".join(x[0] for x in stack[1:] + [n]) if stack else "/"
-        enabled = all(x[1] in (None, "okay", "ok") for x in stack + [n])
-        nodes.append(("/" + path.strip("/"), n[1], enabled, n[2]))
-        continue
-    if stack:
-        ms = re.match(r'status = "([^"]*)";', s)
-        if ms: stack[-1][1] = ms.group(1)
-        mc = re.match(r'compatible = (.*);', s)
-        if mc: stack[-1][2] = re.findall(r'"([^"]*)"', mc.group(1))
 
-watched = [n for n in nodes if any(w in c for c in n[3] for w in WATCH)]
-report = {
-    "watched": [{"path": p, "own_status": st or "(absent=okay)", "effective_enabled": en, "compatible": c}
-                for p, st, en, c in watched],
-    "also": [{"path": p, "own_status": st or "(absent=okay)", "effective_enabled": en}
-             for p, st, en, c in nodes if any(p.endswith("/" + a) or p == a for a in also)],
-}
-report["s1_ok"] = bool(watched) and not any(n[2] for n in watched)
-report["watched_count"] = len(watched)
-print(json.dumps(report, indent=1))
-sys.exit(0 if report["s1_ok"] else 1)
+def check(source, also=()):
+    nodes, stack = {}, []
+    for line in source.splitlines():
+        s = line.strip()
+        match = re.match(r'^(?:[\w$.+-]+:\s*)?([^\s{;=]*)\s*\{$', s)
+        if match and not s.startswith(('/*', '*')):
+            name = match[1] or '/'
+            path = stack[-1].rstrip('/') + '/' + name if stack else '/'
+            if path in nodes:
+                raise ValueError(f'Duplicate node: {path}')
+            nodes[path] = {}
+            stack.append(path)
+        elif s == '};':
+            stack.pop()
+        elif stack and s.endswith(';'):
+            key, sep, value = s[:-1].partition(' = ')
+            nodes[stack[-1]][key] = value if sep else ''
+    if stack or '/' not in nodes:
+        raise ValueError('Incomplete DT tree')
+
+    def enabled(path):
+        while True:
+            if nodes[path].get('status', '"okay"') not in ('"okay"', '"ok"'):
+                return False
+            if path == '/':
+                return True
+            path = path.rsplit('/', 1)[0] or '/'
+
+    def compatibles(path):
+        return re.findall(r'"([^"]*)"', nodes[path].get('compatible', ''))
+
+    def report_node(path):
+        status = nodes[path].get('status')
+        return dict(path=path, own_status=status.strip('"') if status else '(absent=okay)',
+                    effective_enabled=enabled(path))
+
+    # Symbols are present in our DTBs. Accept an unambiguous physical path too,
+    # so decompiled fixtures and DTBs without symbols can still be checked.
+    swr = nodes.get('/__symbols__', {}).get('swr0', '').strip('"')
+    candidates = [p for p in nodes if p.endswith('/soundwire@6b10000')]
+    if not swr and len(candidates) == 1:
+        swr = candidates[0]
+    swr_off = swr in nodes and not enabled(swr)
+    watched, failures, microphones = [], [], []
+    for path in nodes:
+        cs = compatibles(path)
+        if not any(w in c for c in cs for w in WATCH):
+            continue
+        item = report_node(path)
+        item['compatible'] = cs
+        watched.append(item)
+        if not enabled(path):
+            continue
+        card = any('x1e80100-sndcard' in c for c in cs)
+        amplifier = any(w in c for c in cs for w in WATCH[:2])
+        links = [p for p in nodes if p.startswith(path + '/')
+                 and ('wsa' in p.rsplit('/', 1)[-1].lower()
+                      or 'wsa' in nodes[p].get('link-name', '').lower())]
+        if card and not amplifier and not links and swr_off:
+            microphones.append(path)
+        else:
+            failures.append(path)
+    return dict(watched=watched, watched_count=len(watched),
+                also=[report_node(p) for p in nodes
+                      if any(p.endswith('/' + a) or p == a for a in also)],
+                microphone_only_cards=microphones, swr0_effectively_disabled=swr_off,
+                s1_failures=failures, s1_ok=bool(watched) and not failures)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('dts', type=Path)
+    parser.add_argument('--json', action='store_true')
+    parser.add_argument('--also', action='append', default=[])
+    args = parser.parse_args()
+    result = check(args.dts.read_text(), args.also)
+    print(json.dumps(result, indent=1))
+    return 0 if result['s1_ok'] else 1
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
