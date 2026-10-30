@@ -1,0 +1,48 @@
+From 9d5f8b5a552aaf57e7426271ffe29ebd95265325 Mon Sep 17 00:00:00 2001
+From: juniorverli <25966843+juniorverli@users.noreply.github.com>
+Date: Fri, 30 Oct 2026 22:51:14 +0000
+Subject: [PATCH 3/5] media: qcom: camss: csid-680: select the C-PHY input
+ type
+
+Bit 24 of CSID_CSI2_RX_CFG0 selects the type of the PHY that feeds the
+CSID: 0 for D-PHY, 1 for C-PHY. The driver defines the bit but never
+sets it, so a CSID cannot receive from a C-PHY link.
+
+Set the bit when the CSIPHY link is C-PHY. D-PHY links, and the test
+pattern generator path, keep the bit clear as before.
+
+The Qualcomm camera-kernel reference for the same CSID register layout
+(cam_ife_csid680.h, cam_ife_csid_hw_ver2.c) programs the lane type into
+this field, 0 for D-PHY and 1 for C-PHY, together with the lane count
+minus one and the PHY number, which the driver already writes.
+
+Assisted-by: Claude Sonnet 5.5
+---
+ drivers/media/platform/qcom/camss/camss-csid-680.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/media/platform/qcom/camss/camss-csid-680.c b/drivers/media/platform/qcom/camss/camss-csid-680.c
+index 345a67c8f..710bb7994 100644
+--- a/drivers/media/platform/qcom/camss/camss-csid-680.c
++++ b/drivers/media/platform/qcom/camss/camss-csid-680.c
+@@ -102,7 +102,7 @@
+ #define		CSI2_RX_CFG0_DL3_INPUT_SEL			16
+ #define		CSI2_RX_CFG0_PHY_NUM_SEL			20
+ #define		CSI2_RX_CFG0_PHY_SEL_BASE_IDX			1
+-#define		CSI2_RX_CFG0_PHY_TYPE_SEL			24
++#define		CSI2_RX_CFG0_PHY_TYPE_SEL			BIT(24)
+ #define		CSI2_RX_CFG0_TPG_MUX_EN				BIT(27)
+ #define		CSI2_RX_CFG0_TPG_MUX_SEL			GENMASK(29, 28)
+ 
+@@ -200,6 +200,8 @@ static void __csid_configure_rx(struct csid_device *csid,
+ 	} else {
+ 		val |= (phy->csiphy_id + CSI2_RX_CFG0_PHY_SEL_BASE_IDX)
+ 			<< CSI2_RX_CFG0_PHY_NUM_SEL;
++		if (phy->cphy)
++			val |= CSI2_RX_CFG0_PHY_TYPE_SEL;
+ 	}
+ 
+ 	writel(val, csid->base + CSID_CSI2_RX_CFG0);
+-- 
+2.43.0
+

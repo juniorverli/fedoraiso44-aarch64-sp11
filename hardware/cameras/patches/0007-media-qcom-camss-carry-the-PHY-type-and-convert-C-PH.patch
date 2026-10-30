@@ -1,0 +1,225 @@
+From 61e3ace8d27aaff3ee837ce6c38300c825425ccf Mon Sep 17 00:00:00 2001
+From: juniorverli <25966843+juniorverli@users.noreply.github.com>
+Date: Fri, 30 Oct 2026 22:51:14 +0000
+Subject: [PATCH 2/5] media: qcom: camss: carry the PHY type and convert
+ C-PHY link rates
+
+CAMSS only knows D-PHY links. Prepare the common code for C-PHY without
+changing D-PHY behaviour.
+
+Add a cphy flag to the CSIPHY lane configuration and to the CSID PHY
+configuration, and pass it to camss_get_link_freq().
+
+V4L2_CID_LINK_FREQ is defined as 1 / (2 * UI). On C-PHY the UI is one
+symbol time, so the symbol rate is twice the link frequency, and one
+trio carries 16 bits in 7 symbols, which is 2.28 bits per symbol. When a
+sensor offers only a pixel rate, derive the link frequency with that
+factor (57/25) instead of the one bit per UI of D-PHY.
+
+The CSIPHY and CSID clock rates are derived from the bit rate of a lane.
+Add camss_get_bit_clock(), which scales a C-PHY link frequency to the
+D-PHY link frequency that carries the same number of bits, and use it
+for both clock calculations. For D-PHY it returns the link frequency
+unchanged.
+
+Nothing sets the flag yet: the endpoint parser still rejects C-PHY.
+
+Assisted-by: Claude Sonnet 5.5
+---
+ .../media/platform/qcom/camss/camss-csid.c    |  7 +--
+ .../media/platform/qcom/camss/camss-csid.h    |  1 +
+ .../media/platform/qcom/camss/camss-csiphy.c  | 10 ++--
+ .../media/platform/qcom/camss/camss-csiphy.h  |  4 +-
+ drivers/media/platform/qcom/camss/camss.c     | 52 +++++++++++++++++--
+ drivers/media/platform/qcom/camss/camss.h     |  3 +-
+ 6 files changed, 65 insertions(+), 12 deletions(-)
+
+diff --git a/drivers/media/platform/qcom/camss/camss-csid.c b/drivers/media/platform/qcom/camss/camss-csid.c
+index 48459b46a..5dbdfba10 100644
+--- a/drivers/media/platform/qcom/camss/camss-csid.c
++++ b/drivers/media/platform/qcom/camss/camss-csid.c
+@@ -547,9 +547,8 @@ static int csid_set_clock_rates(struct csid_device *csid)
+ 	fmt = csid_get_fmt_entry(csid->res->formats->formats, csid->res->formats->nformats,
+ 				 csid->fmt[MSM_CSIPHY_PAD_SINK].code);
+ 	link_freq = camss_get_link_freq(&csid->subdev.entity, fmt->bpp,
+-					csid->phy.lane_cnt);
+-	if (link_freq < 0)
+-		link_freq = 0;
++					csid->phy.lane_cnt, csid->phy.cphy);
++	link_freq = camss_get_bit_clock(link_freq, csid->phy.cphy);
+ 
+ 	for (i = 0; i < csid->nclocks; i++) {
+ 		struct camss_clock *clock = &csid->clock[i];
+@@ -1278,6 +1277,7 @@ static int csid_link_setup(struct media_entity *entity,
+ 			csid->phy.lane_cnt = tpg->res->lane_cnt;
+ 			csid->phy.csiphy_id = tpg->id;
+ 			csid->phy.lane_assign = csid_get_lane_assign(NULL, csid->phy.lane_cnt);
++			csid->phy.cphy = false;
+ 			csid->tpg_linked = true;
+ 		} else {
+ 			csiphy = v4l2_get_subdevdata(sd);
+@@ -1292,6 +1292,7 @@ static int csid_link_setup(struct media_entity *entity,
+ 			lane_cfg = &csiphy->cfg.csi2->lane_cfg;
+ 			csid->phy.lane_cnt = lane_cfg->num_data;
+ 			csid->phy.lane_assign = csid_get_lane_assign(lane_cfg, lane_cfg->num_data);
++			csid->phy.cphy = lane_cfg->cphy;
+ 			csid->tpg_linked = false;
+ 		}
+ 	}
+diff --git a/drivers/media/platform/qcom/camss/camss-csid.h b/drivers/media/platform/qcom/camss/camss-csid.h
+index 5296b10f6..2f08dfc76 100644
+--- a/drivers/media/platform/qcom/camss/camss-csid.h
++++ b/drivers/media/platform/qcom/camss/camss-csid.h
+@@ -68,6 +68,7 @@ struct csid_phy_config {
+ 	u8 csiphy_id;
+ 	u8 lane_cnt;
+ 	u32 lane_assign;
++	bool cphy;
+ 	u32 en_vc;
+ 	u8 need_vc_update;
+ };
+diff --git a/drivers/media/platform/qcom/camss/camss-csiphy.c b/drivers/media/platform/qcom/camss/camss-csiphy.c
+index 539ac4888..a0a1e04d0 100644
+--- a/drivers/media/platform/qcom/camss/camss-csiphy.c
++++ b/drivers/media/platform/qcom/camss/camss-csiphy.c
+@@ -145,9 +145,10 @@ static int csiphy_set_clock_rates(struct csiphy_device *csiphy)
+ 				csiphy->fmt[MSM_CSIPHY_PAD_SINK].code);
+ 	u8 num_lanes = csiphy->cfg.csi2->lane_cfg.num_data;
+ 
+-	link_freq = camss_get_link_freq(&csiphy->subdev.entity, bpp, num_lanes);
+-	if (link_freq < 0)
+-		link_freq  = 0;
++	link_freq = camss_get_link_freq(&csiphy->subdev.entity, bpp, num_lanes,
++					csiphy->cfg.csi2->lane_cfg.cphy);
++	link_freq = camss_get_bit_clock(link_freq,
++					csiphy->cfg.csi2->lane_cfg.cphy);
+ 
+ 	for (i = 0; i < csiphy->nclocks; i++) {
+ 		struct camss_clock *clock = &csiphy->clock[i];
+@@ -272,7 +273,8 @@ static int csiphy_stream_on(struct csiphy_device *csiphy)
+ 	u8 num_lanes = csiphy->cfg.csi2->lane_cfg.num_data;
+ 	u8 val;
+ 
+-	link_freq = camss_get_link_freq(&csiphy->subdev.entity, bpp, num_lanes);
++	link_freq = camss_get_link_freq(&csiphy->subdev.entity, bpp, num_lanes,
++					cfg->csi2->lane_cfg.cphy);
+ 
+ 	if (link_freq < 0) {
+ 		dev_err(csiphy->camss->dev,
+diff --git a/drivers/media/platform/qcom/camss/camss-csiphy.h b/drivers/media/platform/qcom/camss/camss-csiphy.h
+index 9d9657b82..257cb74a3 100644
+--- a/drivers/media/platform/qcom/camss/camss-csiphy.h
++++ b/drivers/media/platform/qcom/camss/camss-csiphy.h
+@@ -30,14 +30,16 @@ struct csiphy_lane {
+ 
+ /**
+  * struct csiphy_lanes_cfg - CSIPHY lanes configuration
+- * @num_data: number of data lanes
++ * @num_data: number of data lanes (trios for C-PHY)
+  * @data:     data lanes configuration
+  * @clk:      clock lane configuration (only for D-PHY)
++ * @cphy:     the link is C-PHY, otherwise D-PHY
+  */
+ struct csiphy_lanes_cfg {
+ 	int num_data;
+ 	struct csiphy_lane *data;
+ 	struct csiphy_lane clk;
++	bool cphy;
+ };
+ 
+ struct csiphy_csi2_cfg {
+diff --git a/drivers/media/platform/qcom/camss/camss.c b/drivers/media/platform/qcom/camss/camss.c
+index 2123f6388..0885c10b5 100644
+--- a/drivers/media/platform/qcom/camss/camss.c
++++ b/drivers/media/platform/qcom/camss/camss.c
+@@ -4619,24 +4619,70 @@ struct media_pad *camss_find_sensor_pad(struct media_entity *entity)
+ 	}
+ }
+ 
++/*
++ * A C-PHY trio carries 16 bits in 7 symbols, which is 2.28 bits per symbol
++ * (57/25 to keep the arithmetic exact).
++ */
++#define CAMSS_CPHY_BITS_PER_SYMBOL_NUM		57
++#define CAMSS_CPHY_BITS_PER_SYMBOL_DEN		25
++
+ /**
+  * camss_get_link_freq - Get link frequency from sensor
+  * @entity: Media entity in the current pipeline
+  * @bpp: Number of bits per pixel for the current format
+- * @lanes: Number of lanes in the link to the sensor
++ * @lanes: Number of lanes (D-PHY) or trios (C-PHY) in the link to the sensor
++ * @cphy: The link is C-PHY
++ *
++ * The link frequency is 1 / (2 * UI) as defined for V4L2_CID_LINK_FREQ. On
++ * D-PHY the UI is one bit time, on C-PHY it is one symbol time, so the C-PHY
++ * symbol rate is twice the link frequency.
+  *
+  * Return link frequency on success or a negative error code otherwise
+  */
+ s64 camss_get_link_freq(struct media_entity *entity, unsigned int bpp,
+-			unsigned int lanes)
++			unsigned int lanes, bool cphy)
+ {
+ 	struct media_pad *sensor_pad;
++	unsigned int mul = bpp;
++	unsigned int div = 2 * lanes;
+ 
+ 	sensor_pad = camss_find_sensor_pad(entity);
+ 	if (!sensor_pad)
+ 		return -ENODEV;
+ 
+-	return v4l2_get_link_freq(sensor_pad, bpp, 2 * lanes);
++	/*
++	 * Without a link frequency control the frequency is derived from the
++	 * pixel rate. On C-PHY one symbol carries 2.28 bits.
++	 */
++	if (cphy) {
++		mul *= CAMSS_CPHY_BITS_PER_SYMBOL_DEN;
++		div *= CAMSS_CPHY_BITS_PER_SYMBOL_NUM;
++	}
++
++	return v4l2_get_link_freq(sensor_pad, mul, div);
++}
++
++/**
++ * camss_get_bit_clock - Convert a link frequency to the equivalent D-PHY one
++ * @link_freq: Link frequency as returned by camss_get_link_freq()
++ * @cphy: The link is C-PHY
++ *
++ * The CSIPHY and CSID clock rates are derived from the bit rate of a lane.
++ * On C-PHY that is the symbol rate times 2.28 bits per symbol, which is the
++ * link frequency a D-PHY would need for the same bit rate.
++ *
++ * Return the equivalent D-PHY link frequency, or 0 if @link_freq is not valid
++ */
++u64 camss_get_bit_clock(s64 link_freq, bool cphy)
++{
++	if (link_freq <= 0)
++		return 0;
++
++	if (!cphy)
++		return link_freq;
++
++	return div_u64(link_freq * CAMSS_CPHY_BITS_PER_SYMBOL_NUM,
++		       CAMSS_CPHY_BITS_PER_SYMBOL_DEN);
+ }
+ 
+ /*
+diff --git a/drivers/media/platform/qcom/camss/camss.h b/drivers/media/platform/qcom/camss/camss.h
+index 93d691c8a..d667f3f03 100644
+--- a/drivers/media/platform/qcom/camss/camss.h
++++ b/drivers/media/platform/qcom/camss/camss.h
+@@ -169,7 +169,8 @@ int camss_enable_clocks(int nclocks, struct camss_clock *clock,
+ void camss_disable_clocks(int nclocks, struct camss_clock *clock);
+ struct media_pad *camss_find_sensor_pad(struct media_entity *entity);
+ s64 camss_get_link_freq(struct media_entity *entity, unsigned int bpp,
+-			unsigned int lanes);
++			unsigned int lanes, bool cphy);
++u64 camss_get_bit_clock(s64 link_freq, bool cphy);
+ int camss_get_pixel_clock(struct media_entity *entity, u64 *pixel_clock);
+ int camss_pm_domain_on(struct camss *camss, int id);
+ void camss_pm_domain_off(struct camss *camss, int id);
+-- 
+2.43.0
+

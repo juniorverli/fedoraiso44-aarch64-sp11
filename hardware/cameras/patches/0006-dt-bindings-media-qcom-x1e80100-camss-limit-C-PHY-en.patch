@@ -1,0 +1,47 @@
+From 2cea937996d1d3b35a3243c17c06679b4e17040a Mon Sep 17 00:00:00 2001
+From: juniorverli <25966843+juniorverli@users.noreply.github.com>
+Date: Fri, 30 Oct 2026 22:51:14 +0000
+Subject: [PATCH 1/5] dt-bindings: media: qcom,x1e80100-camss: limit C-PHY
+ endpoints to three trios
+
+The binding already lists MEDIA_BUS_TYPE_CSI2_CPHY as a valid bus-type
+but allows up to four data-lanes entries for any bus type. A C-PHY
+CSIPHY has three trios, so a C-PHY endpoint with four entries describes
+hardware that does not exist.
+
+Limit data-lanes to three entries when bus-type is the C-PHY type. D-PHY
+endpoints, and endpoints without a bus-type, keep up to four entries.
+
+Assisted-by: Claude Sonnet 5.5
+---
+ .../bindings/media/qcom,x1e80100-camss.yaml        | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/media/qcom,x1e80100-camss.yaml b/Documentation/devicetree/bindings/media/qcom,x1e80100-camss.yaml
+index 2d1662ef5..775c66ceb 100644
+--- a/Documentation/devicetree/bindings/media/qcom,x1e80100-camss.yaml
++++ b/Documentation/devicetree/bindings/media/qcom,x1e80100-camss.yaml
+@@ -158,6 +158,20 @@ properties:
+             required:
+               - data-lanes
+ 
++            allOf:
++              - if:
++                  properties:
++                    bus-type:
++                      const: 1
++                  required:
++                    - bus-type
++                then:
++                  properties:
++                    data-lanes:
++                      description:
++                        Trios of the C-PHY link. A CSIPHY has three trios.
++                      maxItems: 3
++
+ required:
+   - compatible
+   - reg
+-- 
+2.43.0
+
