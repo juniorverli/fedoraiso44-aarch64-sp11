@@ -83,19 +83,19 @@ if [ "$(rpm --eval "%{lua:print(rpm.vercmp('$newest_vr', '$min'))}")" -le 0 ]; t
 fi
 log "kernel $kver_full (newer than $min, the only kernel NEVRA at the top level of out/rpms)"
 
-# M11 requires revision-8 RPMs and all three atomically published DTB/JSON pairs.
-[ "$kver_full" = 7.3.0-65.sp11.8.fc44.aarch64 ] || {
-	log "REFUSED: M11 requires kernel 7.3.0-65.sp11.8.fc44.aarch64, found $kver_full"; exit 6;
+# M11 requires revision-9 RPMs and all three atomically published DTB/JSON pairs.
+[ "$kver_full" = 7.3.0-65.sp11.9.fc44.aarch64 ] || {
+	log "REFUSED: M12 requires kernel 7.3.0-65.sp11.9.fc44.aarch64, found $kver_full"; exit 6;
 }
 patch_series_sha=$( . "$REPO/scripts/kernel-common.sh"; kernel_series_hash )
-for v in m11 m11-notouch m11-audio; do
+for v in m12 m12-notouch m12-audio; do
 	vsrc=$OUT/dtb-variants/$kver_full/qcom/x1p64100-microsoft-denali-$v
 	[ -s "$vsrc.dtb" ] && [ -s "$vsrc.json" ] || {
 		log "REFUSED: $v DTB and JSON not yet published by the kernel worker"; exit 6;
 	}
 	[ "$(sha256sum "$vsrc.dtb" | cut -d' ' -f1)" = "$(jq -r .sha256 "$vsrc.json")" ] &&
 	[ "$(jq -r .kver "$vsrc.json")" = "$kver_full" ] &&
-	[ "$(jq -r .series_rev "$vsrc.json")" = 8 ] &&
+	[ "$(jq -r .series_rev "$vsrc.json")" = 9 ] &&
 	[ "$(jq -r .series_hash_sha256 "$vsrc.json")" = "$patch_series_sha" ] || {
 		log "REFUSED: $v DTB hash/release/series differs from the kernel worker JSON"; exit 6;
 	}
@@ -217,7 +217,7 @@ rpm2cpio "$kcore" | cpio -i --quiet --to-stdout "./lib/modules/$kver/dtb/qcom/x1
 # M11: the kernel worker variants next to the packaged DTB. The build fails without
 # it; with --smoke a copy of the packaged DTB stands in (recorded, never for the device).
 variants_smoke_copy=0
-for v in m11 m11-notouch m11-audio; do
+for v in m12 m12-notouch m12-audio; do
 	vf=x1p64100-microsoft-denali-$v.dtb
 	vsrc=$OUT/dtb-variants/$kver/qcom/$vf
 	if [ -s "$vsrc" ]; then
@@ -321,10 +321,10 @@ mcopy -i "$chk/bi/eltorito_img1_uefi.img" ::EFI/BOOT/grub.cfg "$chk/esp-grub.cfg
 for f in "$chk"/_* "$chk/esp-grub.cfg"; do
 	if grep -v '^[[:space:]]*#' "$f" | grep -w -E 'quiet|rhgb|splash' >/dev/null; then log "FAIL: quiet/rhgb/splash in $f"; exit 1; fi
 done
-n=$(grep -c "^menuentry '" "$chk/_boot_grub2_grub.cfg"); [ "$n" = 9 ] || { log "FAIL: $n menu entries, expected 9 (M11)"; exit 1; }
+n=$(grep -c "^menuentry '" "$chk/_boot_grub2_grub.cfg"); [ "$n" = 9 ] || { log "FAIL: $n menu entries, expected 9 (M12)"; exit 1; }
 for e in debug usbdbg nodsp wifi-unblock nomodeset initramfs notouch audio vmtest; do grep -q "sp11.entry=$e\$" "$chk/_boot_grub2_grub.cfg" || { log "FAIL: no entry with sp11.entry=$e"; exit 1; }; done
 python3 -I "$REPO/image/tools/check-m8-menu.py" "$chk/_boot_grub2_grub.cfg"
-for f in x1p64100-microsoft-denali-m11 x1p64100-microsoft-denali-m11-notouch x1p64100-microsoft-denali-m11-audio; do
+for f in x1p64100-microsoft-denali-m12 x1p64100-microsoft-denali-m12-notouch x1p64100-microsoft-denali-m12-audio; do
 	xorriso -indev "$iso" -find "/boot/dtb/qcom/$f.dtb" -type f 2>/dev/null | grep -q . || { log "FAIL: /boot/dtb/qcom/$f.dtb not on the ISO"; exit 1; }
 done
 
@@ -387,9 +387,9 @@ record = {
     "dtb_variant_records": {f: json.load(open(f"{work}/dtb-records/{f}")) for f in sorted(os.listdir(f"{work}/dtb-records"))} if os.path.isdir(f"{work}/dtb-records") else {},
     "kernel_cmdline_reasons": "image/README.md, GRUB 2 and the kernel command line",
     "grub_entries": entries,
-    "milestone": "M11",
+    "milestone": "M12",
     "kernel_release_record_sha256": sha256(kernel_record_path),
-    "kernel_touch_modules": json.load(open(kernel_record_path))["m11"]["touch_modules"],
+    "kernel_touch_modules": json.load(open(kernel_record_path))["m12"]["touch_modules"],
     "module_policy": {"qcom_battmgr": "blacklist + install false + dracut omit_drivers (D23)",
                       "ucsi_glink": "retained early", "ath12k.debug_mask": "0x70; CONFIG_ATH12K_DEBUG=y; output checked by L0"},
     "diagnostic_args_reason": {"usbdbg": "USB-C test-plan C + DSP R-I2, combined to contain trace volume",

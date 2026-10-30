@@ -325,7 +325,7 @@ fi
 if [ "$builder" = kiwi ]; then
 	# D19: DTB variants next to the packaged one. Same SoC and board (root compatible), different from the
 	# packaged DTB, hashes as in the build record and as in out/dtb-variants (the kernel worker's output).
-	for v in m11 m11-notouch m11-audio; do
+	for v in m12 m12-notouch m12-audio; do
 		vf=x1p64100-microsoft-denali-$v.dtb
 		vd=$W/$vf
 		x "/boot/dtb/qcom/$vf" "$vd"
@@ -337,7 +337,7 @@ if [ "$builder" = kiwi ]; then
 		gpu_status=$(fdtget "$vd" /soc@0/gpu@3d00000 status 2>/dev/null)
 		[ "$gpu_status" = disabled ] && pass 3.12 "D22: $v GPU node disabled" || fail 3.12 "D22: $v GPU status '$gpu_status'"
 		check_args=(--variant "$v")
-		[ "$v" = m11-notouch ] && check_args+=(--baseline "$W/x1p64100-microsoft-denali-m11.dtb")
+		[ "$v" = m12-notouch ] && check_args+=(--baseline "$W/x1p64100-microsoft-denali-m12.dtb")
 		if python3 -I "$REPO/scripts/kernel-m8-check.py" "$vd" "${check_args[@]}" >"$W/$v-wiring.json" 2>"$W/$v-wiring.err"; then
 			pass 3.13 "$v: S1, parity, wiring and QSPI touch; fallback differs only in touch child status"
 		else fail 3.13 "$v: $(cat "$W/$v-wiring.err")"; fi
@@ -347,8 +347,8 @@ if [ "$builder" = kiwi ]; then
 		if [ "$(jq_ ".dtb_variants_smoke_copy // false")" = true ]; then
 			skip 3.8 "smoke build: variant $v is a copy of the packaged DTB, not a real variant"
 		else
-			if [ "$v" = m11 ]; then
-				cmp -s "$vd" "$dtbf" && pass 3.8 "M11 default equals the packaged parity DTB" || fail 3.8 "M11 default differs from the packaged DTB"
+			if [ "$v" = m12 ]; then
+				cmp -s "$vd" "$dtbf" && pass 3.8 "M12 default equals the packaged parity DTB" || fail 3.8 "M12 default differs from the packaged DTB"
 			else
 				cmp -s "$vd" "$dtbf" && fail 3.8 "variant $v is identical to the packaged DTB" || pass 3.8 "variant $v differs from the packaged DTB"
 			fi
@@ -358,7 +358,7 @@ if [ "$builder" = kiwi ]; then
 		if [ -n "$rsha" ]; then [ "$vsha" = "$rsha" ] && pass 3.11 "variant $v SHA-256 equals the kernel worker's JSON record" || fail 3.11 "variant $v SHA-256 differs from the kernel worker's JSON record ($rsha)"; else fail 3.11 "no JSON record of the kernel worker for variant $v in the build record"; fi
 		vr=$OUT/dtb-variants/$kver/qcom/${vf%.dtb}.json
 		if [ -f "$vr" ] && [ "$vsha" = "$(jq -r .sha256 "$vr")" ] &&
-		   [ "$(jq -r .kver "$vr")" = "$kver" ] && [ "$(jq -r .series_rev "$vr")" = 8 ] &&
+		   [ "$(jq -r .kver "$vr")" = "$kver" ] && [ "$(jq -r .series_rev "$vr")" = 9 ] &&
 		   [ "$(jq -r .series_hash_sha256 "$vr")" = "$(jq_ .kernel_patch_series_sha256)" ] &&
 		   jq -e --arg f "$vf.json" --slurpfile source "$vr" '.dtb_variant_records[$f] == $source[0]' "$rec" >/dev/null; then
 			pass 3.14 "variant $v matches published JSON hash/release/series and embedded record"
@@ -375,9 +375,9 @@ if [ "$smoke" = false ]; then
 	ls "$OUT"/rpms/kernel-core-*.rpm >/dev/null 2>&1 && { rpm -qp --qf '%{name}-%{version}-%{release}.%{arch}\n' "$OUT"/rpms/kernel-core-*.rpm | grep -qx "$got_nevra" && pass 4.2 "kernel-core is the RPM of out/rpms" || fail 4.2 "kernel-core is not in out/rpms"; }
 fi
 if [ "$builder" = kiwi ] && [ "$smoke" = false ]; then
-	if [ "$kver" = 7.3.0-65.sp11.8.fc44.aarch64 ] && [ "$got_nevra" = kernel-core-7.3.0-65.sp11.8.fc44.aarch64 ] && [ "$(jq_ .milestone)" = M11 ]; then
-		pass 4.9 "M11: required revision-8 kernel release and milestone"
-	else fail 4.9 "M11 requires revision-8 kernel and milestone (found $kver / $got_nevra)"; fi
+	if [ "$kver" = 7.3.0-65.sp11.9.fc44.aarch64 ] && [ "$got_nevra" = kernel-core-7.3.0-65.sp11.9.fc44.aarch64 ] && [ "$(jq_ .milestone)" = M12 ]; then
+		pass 4.9 "M12: required revision-9 kernel release and milestone"
+	else fail 4.9 "M12 requires revision-9 kernel and milestone (found $kver / $got_nevra)"; fi
 fi
 cmp -s "$kimg" "$ROOT/lib/modules/$kver/vmlinuz" && pass 4.3 "ISO kernel image equals lib/modules/$kver/vmlinuz" || fail 4.3 "ISO kernel image differs from the package"
 kimg_ver=$(python3 -I - "$kimg" <<'PY'
@@ -456,12 +456,12 @@ root, record, release = map(pathlib.Path, sys.argv[1:])
 rec = json.loads(record.read_text())
 digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
 assert digest(release) == rec['kernel_release_record_sha256']
-modules = json.loads(release.read_text())['m11']['touch_modules']
+modules = json.loads(release.read_text())['m12']['touch_modules']
 assert modules == rec['kernel_touch_modules'] and len(modules) == 8
 for name, module in modules.items():
     assert digest(root / module['path'].lstrip('/')) == module['module_sha256'], name
 PY
-	then pass 4.12 "all eight M11 touch module payload hashes match the pinned kernel release JSON"
+	then pass 4.12 "all eight M12 touch module payload hashes match the pinned kernel release JSON"
 	else fail 4.12 "M11 touch module bytes or kernel release record differ"; fi
 fi
 

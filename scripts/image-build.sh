@@ -74,10 +74,10 @@ if [ "$inside" = 0 ]; then
 	if [ "$builder" = kiwi ]; then
 		ls "$out"/rpms/kernel-core-*.rpm >/dev/null 2>&1 || { echo "image-build: no kernel-core RPM in $out/rpms/" >&2; exit 1; }
 		[ -d "$out/firmware-root/lib/firmware" ] || { echo "image-build: $out/firmware-root missing; run scripts/firmware-stage.sh" >&2; exit 1; }
-		for v in m11 m11-notouch m11-audio; do
+		for v in m12 m12-notouch m12-audio; do
 			for ext in dtb json; do
-				[ -s "$out/dtb-variants/7.3.0-65.sp11.8.fc44.aarch64/qcom/x1p64100-microsoft-denali-$v.$ext" ] || {
-					echo "image-build: REFUSED: kernel worker has not published the M11 $v $ext" >&2; exit 6;
+				[ -s "$out/dtb-variants/7.3.0-65.sp11.9.fc44.aarch64/qcom/x1p64100-microsoft-denali-$v.$ext" ] || {
+					echo "image-build: REFUSED: kernel worker has not published the M12 $v $ext" >&2; exit 6;
 				}
 			done
 		done

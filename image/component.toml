@@ -4,4 +4,4 @@ phase = 1
 status = "testing"
 depends_on = []
 updated = "2026-10-30"
-gaps = ["M11 private ISO compose and L0/QEMU validation in progress; Wi-Fi firmware fallback, keyboard reboot mitigation and microphones require device evidence"]
+gaps = ["M12 private ISO built, L0 and QEMU L1 pass; Wi-Fi firmware fallback, keyboard reboot mitigation and microphones require device evidence"]

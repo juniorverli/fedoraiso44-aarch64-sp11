@@ -825,6 +825,24 @@ The single M11 compose uses revision-8 kernel `7.3.0-65.sp11.8.fc44.aarch64` and
 
 Preflight passed: three compiled DTB wiring/S1/parity/CMA checks, positive nine-entry menu and four negative fixtures, private staging 27/27 plus actual valid/invalid board override cases, QEMU driver/target/capture regressions, and systemd unit verification. The disk guard initially refused at 26 GiB headroom. After inspecting each candidate, only the superseded M8/M9 ISOs/checksums, L0/L1 reports and corresponding L0/L1 work directories were deleted (`out/image-work/m11-cleanup.txt`). Headroom at compose start was 75 GiB. M10, device logs, firmware/private board inputs, DTB variants, reference trees, sources and all RPM archives were retained.
 
+### M12 private ISO (2026-10-30)
+
+One private ISO for the operator's device (D25/S5); never share it. Same nine-entry menu and content as M11 with the M12 kernel and DTBs. The extracted L0 `root` and the private staging tree were removed. Two earlier compose attempts were discarded: a WSL crash on a full C: and a menu-checker miss (`check-m8-menu.py` still named the M11 default DTB). Both partial work directories (they held private files) were deleted.
+
+| Item | Value |
+|:--|:--|
+| ISO | `out/iso/sp11-fedora44-aarch64-kiwi-20261030T185301Z-private.iso` (the name has no milestone token) |
+| Record / checksum | `out/iso/sp11-fedora44-aarch64-kiwi-20261030T185301Z-private.json` / `.iso.sha256`; hashes only, distribution forbidden |
+| Size | 2,802,253,824 bytes |
+| SHA-256 | `cfb772e05939ace425f6646477b6803873c8afd6e33ce4c46f48cf3303f54ac1` |
+| Kernel | `kernel-core-7.3.0-65.sp11.9.fc44.aarch64`; series revision 9, both BTF settings enabled |
+| Build | One fresh kiwi compose, 1281 s, build id `20261030T185301Z` |
+| Menu | Unchanged from the M11 table above with `m12`, `m12-notouch`, `m12-audio` in place of the `m11` DTBs |
+| L0 | **215 passed, 0 failed, 0 skipped**, including private checks 7.6-7.10, 4.9, 4.12, 3.14, 8.35, 8.36; `.l0.txt` |
+| QEMU L1 | **21 PASS, 0 FAIL** with `--until-session --decoy` (`.l1.txt` / `.l1.json`); ESP clean, decoy disk checked |
+
+Changes against M11: the builder, L0 and the L1 touch-helper check require kver `7.3.0-65.sp11.9.fc44.aarch64`, series revision 9, milestone `M12`, the `m12*` DTB/JSON pairs and the `m12` entries of the kernel release record (touch modules, new modules). The shutdown unit stays opt-in (`sp11.ssam_shutdown`, `Before=sp11-log-collector.service`) and `ssam-unbind.sh` is shipped; L0 8.35/8.36 check both. Private-stage trap and checks 7.6-7.10 unchanged; no value is printed or recorded. Not verified: anything on hardware (touch, microphones, SAM shutdown, Wi-Fi/Bluetooth). The pinned `m11.json` input record and `check-m11-payload.py` keep their M11 names.
+
 ## Private build mode (operator device only)
 
 `scripts/image-build.sh --private` (or `SP11_PRIVATE=1`) builds an ISO for the operator's own Surface Pro 11 with device identities embedded, avoiding the post-write address provisioning of the M6 procedure. This does not establish radio functionality; the M10 board crash requires the I9 fallback below. Kiwi builder only. The default build stays public: no address, no derived blob, L0 checks 7.5 unchanged.
