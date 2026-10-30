@@ -263,3 +263,39 @@ with the `qcom_glink` tracepoints enabled
 OPEN_ACK ever arrives for `IPCRTR` on the cdsp edge. A diagnostic patch that
 returns the real error from `rpmsg_create_ept` would also help but is not
 Windows-derived and was not written.
+
+### 7.4 Diagnostic patch and collector greps (2026-10-30)
+
+`hardware/dsp-subsystems/patches/0001-rpmsg-glink-log-open-ack-timeout.patch`
+adds ratelimited `sp11-glink:` lines in `drivers/rpmsg/qcom_glink_native.c`
+and changes no behaviour, return value or Kconfig. `rpmsg_dev_probe` is not
+touched (its existing "failed to create endpoint" line stays; the new
+`create_ept ... failed err=` line ties the real error to the channel name
+just before it). Requested from the kernel worker as R-K1; remove after the
+handshake evidence is captured. Not built or run on the device.
+
+Line forms (device is the GLINK edge `dev_name`, e.g. the CDSP remoteproc
+child):
+
+- `sp11-glink: tx|rx VERSION|VERSION_ACK version=N features=0xN`
+- `sp11-glink: tx|rx OPEN|OPEN_ACK name=NAME lcid=N rcid=N`
+- `sp11-glink: tx|rx RX_INTENT name=NAME lcid=N rcid=N ...`
+- `sp11-glink: OPEN_ACK wait timed out after 5 s name=NAME lcid=N rcid=N err=-110`
+- `sp11-glink: create_ept remote|local name=NAME failed err=N`
+
+Exact collector commands (read-only; both journal and ring buffer, since
+ratelimiting may drop lines in the journal only if bursts exceed the limit):
+
+```bash
+dmesg | grep sp11-glink
+journalctl -k -b --no-pager | grep sp11-glink
+dmesg | grep 'sp11-glink: OPEN_ACK wait timed out'
+dmesg | grep -E 'sp11-glink: (tx|rx) OPEN(_ACK)? name=(IPCRTR|FASTRPCGLINK)'
+dmesg | grep -E 'sp11-glink: create_ept .* failed'
+dmesg | grep -c 'sp11-glink:'; dmesg | grep -c 'callbacks suppressed'
+```
+
+Reading: an `rx OPEN name=X` followed by `tx OPEN_ACK`, `tx OPEN` and no
+`rx OPEN_ACK name=X` before the timeout line means the CDSP never acked our
+open (peer side); an `rx OPEN_ACK` that never appears while Windows would
+have sent it points to the missing resource/wake step still open in section 6.
