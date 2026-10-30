@@ -11,6 +11,11 @@
  *     so the system-wide collapse state SS3 (GIC powered down, PDC-only wakeup) is not used.
  *
  * Built by scripts/kernel-dtb-variants.sh; not a patch, not part of the RPM.
+ *
+ * Valid only on a tree WITHOUT hardware/soc-boot/patches/0001 (the M3..M10 trees). With the integrated
+ * series (M11 on), x1p64100-microsoft-denali.dts already deletes these nodes and dtc fails here with
+ * "Label or path cpu_pd7 not found"; scripts/kernel-dtb-m11.sh stages a pass-through include instead.
+ * Do not compile this file against the integrated series.
  */
 #include "x1p64100-microsoft-denali.dts"
 
