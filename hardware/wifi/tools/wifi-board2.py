@@ -17,6 +17,13 @@ Usage (inspect the Fedora file; or build):
                        [--board-id 255] [--sha256 <Windows SHA-256>]
                        [--fedora-sha256 <decompressed Fedora SHA-256>]
   wifi-board2.py selftest <board-2.bin[.xz]>      # re-encode and compare structure and length
+  wifi-board2.py verify <board-2.bin> [--fedora <board-2.bin[.xz]>] [--board-id 255] [--sha256 <Windows SHA-256>]
+                                                  # parse back; exit 0 only if well-formed (see cmd_verify)
+
+verify and build checks are structural only. They cannot show that the firmware accepts the payload:
+the M10 private image passed them and the WCN7850 firmware still crashed (MHI_CB_EE_RDDM) after
+board data was selected; see evidence/2026-10-30-m10-board-crash.md. Image rule: install the derived
+file only if verify exits 0, otherwise keep Fedora's generic file.
 
 Run with python3 -I. No third-party modules.
 """
@@ -120,6 +127,75 @@ def cmd_selftest(a):
     sys.exit(0 if ok else 1)
 
 
+BOARD_SIZE_MAX = 256 * 1024          # wifi7/hw.c:455 fw.board_size; ath12k truncates larger payloads
+
+
+def check_elf(p):
+    """Return an error string, or None if p is a well-formed 32-bit LE ELF whose segments fit in p."""
+    if len(p) < 52 or p[:4] != b"\x7fELF":
+        return "payload is not an ELF"
+    if p[4] != 1 or p[5] != 1:
+        return "not ELF32 little endian"
+    phoff, = struct.unpack_from("<I", p, 28)
+    phentsize, phnum = struct.unpack_from("<HH", p, 42)
+    if phnum == 0 or phentsize != 32 or phoff + phnum * phentsize > len(p):
+        return "program header table outside payload"
+    for i in range(phnum):
+        _t, off, _va, _pa, filesz, _msz, _fl, _al = struct.unpack_from("<8I", p, phoff + i * phentsize)
+        if off + filesz > len(p):
+            return "segment %d outside payload" % i
+    return None
+
+
+def verify(path, fedora=None, board_id=255, win_sha=None):
+    """Parse a derived board-2.bin back. Returns a list of problems (empty = well-formed)."""
+    errs = []
+    d = read(path)
+    try:
+        header, ies = parse(d)               # exits on truncated headers/bodies
+    except SystemExit as e:
+        return ["malformed IE structure: %s" % e]
+    if encode(header, ies) != d and len(encode(header, ies)) != len(d):
+        errs.append("re-encoded length differs")
+    seen_names = set()
+    first_board = None
+    for tid, names, data in groups(ies):
+        if tid not in (BD_IE_BOARD, BD_IE_REGDB):
+            errs.append("unknown top-level IE %d" % tid)
+        if not names:
+            errs.append("data element without a name element")
+        if tid == BD_IE_BOARD:
+            if len(data) > BOARD_SIZE_MAX:
+                errs.append("board payload %d B exceeds board_size" % len(data))
+            e = check_elf(data)
+            if e:
+                errs.append("board payload for %s: %s" % (names[:1], e))
+            if first_board is None:
+                first_board = (names, data)
+        for n in names:
+            seen_names.add((tid, n))
+    if not any(t == BD_IE_REGDB for t, _ in seen_names):
+        errs.append("no REGDB entry")
+    target = NAME_FMT % board_id
+    if first_board is None or target not in first_board[0]:
+        errs.append("first BOARD entry is not the target name")
+    elif win_sha and hashlib.sha256(first_board[1]).hexdigest() != win_sha:
+        errs.append("first BOARD payload is not the expected Windows file")
+    if fedora:
+        fed = {(t, n) for t, ns, _ in groups(parse(read(fedora))[1]) for n in ns}
+        if not fed <= seen_names:
+            errs.append("%d Fedora names missing" % len(fed - seen_names))
+    return errs
+
+
+def cmd_verify(a):
+    errs = verify(a.file, a.fedora, a.board_id, a.sha256)
+    for e in errs:
+        print("FAIL:", e)
+    print("verify:", "FAIL" if errs else "OK (structure only; firmware acceptance is not tested)")
+    sys.exit(1 if errs else 0)
+
+
 def cmd_build(a):
     output = Path(a.out).resolve()
     if not output.is_relative_to(LOCAL_OUT.resolve()):
@@ -154,6 +230,11 @@ def cmd_build(a):
             os.replace(temporary, output)
         finally:
             temporary.unlink(missing_ok=True)
+    errs = verify(str(output), a.fedora, a.board_id, got)
+    if errs:
+        output.unlink()
+        sys.exit("derived file failed verification, removed: " + "; ".join(errs))
+    print("verify: OK (structure only; M10 showed firmware can still crash, see evidence 2026-10-30)")
     print("sha256(output)", hashlib.sha256(out).hexdigest())
     print("wrote %s: %d bytes, shadowed fedora entries=%d, windows sha256 %s, name %s"
           % (a.out, len(out), len(shadowed), got, target))
@@ -164,6 +245,9 @@ def main():
     sp = p.add_subparsers(dest="cmd", required=True)
     s = sp.add_parser("list"); s.add_argument("file"); s.set_defaults(f=cmd_list)
     s = sp.add_parser("selftest"); s.add_argument("file"); s.set_defaults(f=cmd_selftest)
+    s = sp.add_parser("verify"); s.add_argument("file"); s.add_argument("--fedora")
+    s.add_argument("--board-id", type=int, default=255); s.add_argument("--sha256")
+    s.set_defaults(f=cmd_verify)
     s = sp.add_parser("build")
     s.add_argument("--fedora", required=True); s.add_argument("--windows", required=True)
     s.add_argument("--out", required=True); s.add_argument("--board-id", type=int, default=255)
