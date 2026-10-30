@@ -52,3 +52,23 @@ hardware/audio-speakers/patches/0003-arm64-dts-qcom-x1-microsoft-denali-add-opt-
 # M12: follow-up safety patches; required in any kernel that boots a speaker-enabled DTB. Speakers stay off in every DTB (S1).
 hardware/audio-speakers/patches/0004-ASoC-codecs-wsa884x-write-the-cached-PA-gain-when-th.patch
 hardware/audio-speakers/patches/0005-ASoC-codecs-lpass-wsa-macro-keep-EAR-SPKR-PA-Gain-be.patch
+# M13 (rev 10): audio-speakers GPR callback race fix, D26 marker DT fragment and speaker gate.
+# 0006 precedes 0007: 0007 installs the GPR callback before probe, so 0006 must first make q6apm/q6prm
+# ignore responses until driver data exists. 0008 (marker dtsi) is included by nothing in the packaged tree;
+# 0009 (WSA playback refusal on Denali) goes with it. Any kernel booting m13-spk needs 0001, 0002, 0004, 0005, 0009.
+hardware/audio-speakers/patches/0006-ASoC-qcom-q6apm-ignore-GPR-responses-until-the-drive.patch
+hardware/audio-speakers/patches/0007-soc-qcom-apr-install-the-GPR-callback-before-probing.patch
+hardware/audio-speakers/patches/0008-arm64-dts-qcom-x1-microsoft-denali-add-a-marked-D26-.patch
+hardware/audio-speakers/patches/0009-ASoC-qcom-x1e80100-refuse-WSA-playback-on-Surface-Pr.patch
+# M13: dsp-subsystems R-K4, keep_proxy_pds diagnostic (module parameter, default off); touches only qcom_q6v5_pas.c.
+hardware/dsp-subsystems/patches/0003-remoteproc-qcom_q6v5_pas-add-keep_proxy_pds-diagnostic.patch
+# M13: ec-sam R11, surface_aggregator.shutdown_mode (default behaviour unchanged); touches only aggregator/core.c.
+# hardware/ec-sam/patches/hold/0006 stays out.
+hardware/ec-sam/patches/0007-platform-surface-aggregator-add-a-shutdown_mode-param.patch
+# M13: cameras R1, the five checked patches in dependency order. Everything is status = "disabled" in the
+# packaged DT: binding first, then the ov13858 OF/power driver, hamoa camera blocks, Denali LED, Denali rear sensor.
+hardware/cameras/patches/0001-dt-bindings-media-i2c-add-OmniVision-OV13858.patch
+hardware/cameras/patches/0002-media-i2c-ov13858-add-devicetree-power-management.patch
+hardware/cameras/patches/0003-arm64-dts-qcom-hamoa-describe-disabled-camera-blocks.patch
+hardware/cameras/patches/0004-arm64-dts-qcom-x1-microsoft-denali-describe-the-came.patch
+hardware/cameras/patches/0005-arm64-dts-qcom-x1-microsoft-denali-describe-the-rear.patch

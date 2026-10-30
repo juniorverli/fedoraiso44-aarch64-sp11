@@ -1,0 +1,12 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * M13 speaker variant (decision D26, operator-authorised), staged behind a gate: the M12 board DT
+ * plus the full sound card, the WSA bus and both WSA8845 amplifiers, marked with
+ * /chosen/sp11,speaker-policy = "d26-open-loop-v1" (audio-speakers patch 0008).
+ * Playback on the WSA links is refused by the machine driver (patch 0009) until the closed-loop
+ * protection is validated, so enumerating the amplifiers does not make the speakers audible.
+ * Any kernel that boots this DTB MUST contain audio-speakers patches 0001, 0002, 0004, 0005 and 0009.
+ * The packaged default DTB and the M13 microphone variant never include the marker.
+ */
+#include "x1p64100-microsoft-denali-m12.dts"
+#include "x1-microsoft-denali-audio-d26.dtsi"

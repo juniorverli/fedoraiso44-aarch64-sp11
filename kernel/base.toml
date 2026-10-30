@@ -34,5 +34,5 @@ dist = ".fc44"
 # scripts/kernel-build.sh prints (sha256 of the "<path> <patch sha256>" lines of kernel/series).
 # 0 = M1 (empty series), 3 = M3 (display-lcd 0001-0003), 4 = M7 (nine patches), 5 = M8 (touch/QSPI, GPU off), 6 = M9 (rfkill, DMA32 CMA, USB-C diagnostics), 7 = M10 (GLINK OPEN_ACK diagnostic), 8 = M11 (FIFO diagnostic, packaged parity, audio safety/fragments), 9 = M12 (spi-hid-of supply fix F-09, audio safety 0004/0005).
 # kernel-build.sh and kernel-check fail on a mismatch.
-series_rev = 9
-series_sha256 = "e3a9dbac6f7efbb10e7b3105e13787e60726f92d4048dab010ac7d967bfdc49e"
+series_rev = 10
+series_sha256 = "e92fb485d5a6aaa64fe64b272005f2ba0ddaafee4c26285a65afe0d2c1e9c7aa"

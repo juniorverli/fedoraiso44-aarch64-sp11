@@ -49,12 +49,15 @@ def read_tree(dtb):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('dtb', type=Path)
-    parser.add_argument('--variant', choices=['packaged', 'm8', 'm8-notouch', 'm9', 'm9-notouch', 'm10', 'm10-notouch', 'm11', 'm11-notouch', 'm11-audio', 'm12', 'm12-notouch', 'm12-audio'],
+    parser.add_argument('--variant', choices=['packaged', 'm8', 'm8-notouch', 'm9', 'm9-notouch', 'm10', 'm10-notouch', 'm11', 'm11-notouch', 'm11-audio', 'm12', 'm12-notouch', 'm12-audio',
+                                 'm13', 'm13-nosnd', 'm13-notouch', 'm13-spk', 'm13-gpu', 'm13-cam'],
                         required=True)
     parser.add_argument('--baseline', type=Path)
     parser.add_argument('--previous', type=Path, help='M8 DTB: require only the CMA range addition')
     parser.add_argument('--previous-unchanged', action='store_true',
                         help='With --previous (M9 DTB): require no DT difference at all')
+    parser.add_argument('--previous-m12', type=Path,
+                        help='M12-behaviour DTB: require only disabled camera nodes added (M13 camera patches)')
     parser.add_argument('--cma-dma32', action='store_true', help='Require the M9 DMA32 CMA window')
     parser.add_argument('--parity-in-base', action='store_true',
                         help='Require integrated LCD parity in the packaged board')
@@ -65,7 +68,7 @@ def main():
     symbols = {k: strings(v)[0] for k, v in nodes['/__symbols__'].items()}
 
     cma_record = None
-    if args.cma_dma32 or args.variant.startswith(('m9', 'm10', 'm11', 'm12')):
+    if args.cma_dma32 or args.variant.startswith(('m9', 'm10', 'm11', 'm12', 'm13')):
         pools = [(p, props) for p, props in nodes.items() if 'linux,cma-default' in props]
         require(len(pools) == 1, 'Missing/ambiguous default CMA pool')
         path, pool = pools[0]
@@ -95,14 +98,31 @@ def main():
     def phandle(label):
         return cells(node(label)['phandle'])[0]
 
-    # The only enabled-card exception is the explicitly selected microphone DT.
-    safety = subprocess.run(['python3', '-I', str(Path(__file__).with_name('kernel-dtb-safety.py')),
-                             '/dev/stdin'], input=source, capture_output=True, text=True)
-    require(safety.returncode == 0, 'S1 effective-status failure: ' + safety.stdout)
-    watched = json.loads(safety.stdout)['watched']
-    require(len(watched) == 3, 'Unexpected S1 watched-node count')
-    require(node('swr0').get('status') == '\"disabled\"', 'swr0 is not disabled')
-    if args.variant in ('m11-audio', 'm12-audio'):
+    # The only enabled-card exceptions are the microphone DTs and, under the d26 profile, m13-spk.
+    spk = args.variant == 'm13-spk'
+    profile = 'd26' if spk else 'default'
+    safety_tool = str(Path(__file__).with_name('kernel-dtb-safety.py'))
+    safety = subprocess.run(['python3', '-I', safety_tool, '/dev/stdin', '--profile', profile],
+                            input=source, capture_output=True, text=True)
+    require(safety.returncode == 0, f'S1 effective-status failure ({profile}): ' + safety.stdout)
+    safety_json = json.loads(safety.stdout)
+    watched = safety_json['watched']
+    if spk:
+        # m13-spk must be refused by the default profile, and pass d26 only through the marker.
+        denied = subprocess.run(['python3', '-I', safety_tool, '/dev/stdin', '--profile', 'default'],
+                                input=source, capture_output=True, text=True)
+        require(denied.returncode != 0, 'm13-spk unexpectedly passes the default profile')
+        require(safety_json['speaker_marker'] == '"d26-open-loop-v1"' and safety_json['d26_speaker_paths'],
+                'm13-spk lacks the d26 marker or speaker paths')
+        require(enabled(symbols['swr0']), 'm13-spk: swr0 not enabled')
+    else:
+        require(len(watched) == 3, 'Unexpected S1 watched-node count')
+        require(safety_json['speaker_marker'] is None, 'Speaker policy marker in a non-speaker DTB')
+        require(node('swr0').get('status') == '\"disabled\"', 'swr0 is not disabled')
+    mic_variants = ('m11-audio', 'm12-audio', 'm13', 'm13-notouch', 'm13-cam')
+    if spk:
+        require(enabled('/sound'), 'm13-spk: sound card disabled')
+    elif args.variant in mic_variants:
         require(enabled('/sound'), 'Microphone sound card disabled')
         require('/sound/wsa-dai-link' not in nodes, 'WSA playback link retained')
         require(strings(nodes['/sound']['audio-routing']) ==
@@ -138,7 +158,29 @@ def main():
         require('domain-idle-states' not in node('system_pd'), 'System SS3 still referenced')
         # Keep both cluster idle states in the DT.
         require('cluster_cl4' in symbols and 'cluster_cl5' in symbols, 'Cluster idle state removed')
-    require(not enabled(symbols['gpu']), 'GPU enabled in LCD DTB')
+    if args.variant == 'm13-gpu':
+        require(enabled(symbols['gpu']), 'm13-gpu: GPU not enabled')
+    else:
+        require(not enabled(symbols['gpu']), 'GPU enabled in LCD DTB')
+
+    # Rear camera chain (cameras 0003-0005): disabled everywhere except the m13-cam diagnostic.
+    camera_labels = ('camss', 'cci0', 'cci0_i2c0', 'cci0_i2c1', 'cci1', 'cci1_i2c0', 'cci1_i2c1')
+    camera_paths = [symbols[l] for l in camera_labels if l in symbols]
+    camera_paths += [p for p in nodes if p == '/camera-leds' or p.endswith('/regulators-8')]
+    camera_present = bool(camera_paths)
+    camera_on = [p for p in camera_paths if enabled(p)]
+    rear = [p for p in nodes if p.endswith('/camera@10') and 'ovti,ov13858' in nodes[p].get('compatible', '')]
+    if args.variant == 'm13-cam':
+        require(len(rear) == 1 and enabled(rear[0]), 'm13-cam: rear OV13858 not effectively enabled')
+        for label in ('camss', 'cci0', 'cci0_i2c1'):
+            require(enabled(symbols[label]), f'm13-cam: {label} disabled')
+        require(enabled('/camera-leds'), 'm13-cam: indicator LED bank disabled')
+        for label in ('cci1', 'cci0_i2c0', 'cci1_i2c0', 'cci1_i2c1'):
+            require(not enabled(symbols[label]), f'm13-cam: {label} must stay disabled')
+    elif args.variant.startswith('m13') or args.variant == 'packaged' and args.previous_m12:
+        require(camera_present, 'Camera nodes missing in an M13 DTB')
+        require(not camera_on, f'Camera nodes enabled outside m13-cam: {camera_on}')
+        require(not any(enabled(p) for p in rear), 'Rear camera enabled outside m13-cam')
 
     spi_path = symbols['spi10']
     spi = node('spi10')
@@ -226,12 +268,48 @@ def main():
                                              before=None, after='<0x00 0x80000000 0x00 0x80000000>')],
                     f'Unexpected changes from M8: {previous_changes}')
 
-    print(json.dumps(dict(variant=args.variant, s1_ok=True, watched_count=len(watched),
+    m12_changes = None
+    if args.previous_m12:
+        _, before = read_tree(args.previous_m12)
+
+        def phandles(tree):
+            return {cells(props['phandle'])[0]: path for path, props in tree.items() if 'phandle' in props}
+        pa, pb = phandles(before), phandles(nodes)
+
+        def same(x, y):
+            """Equal raw, or phandle references to the same node path (numbering shifts with added nodes)."""
+            if x == y:
+                return True
+            if not (x.startswith('<') and y.startswith('<') and x.endswith('>') and y.endswith('>')):
+                return False
+            cx, cy = cells(x), cells(y)
+            return len(cx) == len(cy) and all(
+                i == j or (i in pa and j in pb and pa[i] == pb[j]) for i, j in zip(cx, cy))
+        a, b = before, nodes
+        removed = sorted(set(a) - set(b))
+        added = sorted(set(b) - set(a))
+        changed = [dict(path=p, property=k, before=a[p].get(k), after=b[p].get(k))
+                   for p in sorted(set(a) & set(b)) for k in sorted(set(a[p]) | set(b[p]))
+                   if k != 'phandle' and not same(a[p].get(k, ''), b[p].get(k, ''))
+                   or (k != 'phandle' and (k in a[p]) != (k in b[p]))]
+        require(not removed, f'Nodes removed relative to M12: {removed}')
+        # Every added node must be camera chain or LED, effectively disabled unless this is m13-cam.
+        # A changed property is allowed only as an added __symbols__ entry for such a node.
+        # (apps_rsc, soc, tlmm and pinctrl gain disabled children only.)
+        extra = [c for c in changed if not (c['path'] == '/__symbols__' and c['before'] is None)]
+        allowed = ('/camera-leds', '/soc@0/cci@', '/soc@0/isp@', '/soc@0/rsc@17500000/regulators-8')
+        require(not extra, f'Existing nodes changed relative to M12: {extra}')
+        require(all(n.startswith(allowed) or ('/pinctrl@f100000/' in n and n.rsplit('/', 1)[-1].startswith(('cam-', 'cci')))
+                    for n in added), f'Nodes added relative to M12 outside the camera chain: {added}')
+        m12_changes = dict(added_nodes=added, changed_properties=extra,
+                           added_symbols=[c['property'] for c in changed if c not in extra])
+    print(json.dumps(dict(variant=args.variant, s1_ok=True, s1_profile=profile,
+                          camera_nodes_enabled=camera_on, diff_vs_m12=m12_changes, watched_count=len(watched),
                           wifi=dict(perst_gpio=146, wake_gpio=148, active_low=True, pinctrl='pcie4_default'),
                           usb_typec=dict(reset_gpio=176, pinctrl='rtmr1_default', drive_strength=2),
                           cpu_count=len(cpus), no_system_ss3=parity,
                           gpu_enabled=enabled(symbols['gpu']),
-                          microphone_only=args.variant in ('m11-audio', 'm12-audio'),
+                          microphone_only=args.variant in mic_variants,
                           se2_enabled=enabled(spi_path), enabled_hid_children=hid,
                           enabled_touch_supply_consumers=consumers,
                           touch_enabled=active_touch, touch_supply_startup_us=500000,

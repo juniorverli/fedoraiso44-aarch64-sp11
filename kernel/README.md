@@ -530,6 +530,73 @@ Disk guard: the first launch was refused (headroom 52 GiB < 60 GiB, C: free 15 G
 JSON record SHA-256: `m12.json` `cbc247ce36d962ac7f96d10f7e8d760983b981370c1a406085c57cd97ac8c183`; `m12-notouch.json` `272086024a0c2541fec900c3674fd6b589e0b2f789647989bb7fd6d3c66316f3`; `m12-audio.json` `a8529a7ffb8a3ffb5444c979428d575f9ed2aad4944f16800a451138b4ee5280`. No device boot. No speaker variant built.
 
 
+## M13 series revision 10 (2026-10-30)
+
+Revision 10 keeps the 37 M12 patches and appends 12 (49 in total). Series SHA-256: `e92fb485d5a6aaa64fe64b272005f2ba0ddaafee4c26285a65afe0d2c1e9c7aa`. All 49 apply sequentially to the pinned v7.3 export with `patch --batch --fuzz=0 -p1`; the 12 new patches apply with zero offset and zero fuzz (only previously recorded M7-M12 offsets remain). `hardware/ec-sam/patches/hold/0006` stays out.
+
+| Position | Patch | Ordering reason |
+|--:|:--|:--|
+| 38 | audio-speakers 0006 | `q6apm`/`q6prm` ignore GPR responses until driver data exists. Must precede 0007, which installs the callback before probe and would otherwise let an early response dereference NULL |
+| 39 | audio-speakers 0007 | `apr`: install the GPR callback before probing (fixes the M12 `CMD timeout for [1001021]`) |
+| 40 | audio-speakers 0008 | D26 marker DT fragment (`x1-microsoft-denali-audio-d26.dtsi`); included by nothing in the packaged tree |
+| 41 | audio-speakers 0009 | Unconditional WSA playback refusal on `microsoft,denali`. Together with 0001, 0002, 0004, 0005 it makes the series safe for `m13-spk`; 0008 never ships without 0009 |
+| 42 | dsp-subsystems 0003 | `qcom_q6v5_pas.keep_proxy_pds` diagnostic, default off; only touches `qcom_q6v5_pas.c` |
+| 43 | ec-sam 0007 | `surface_aggregator.shutdown_mode`, default behaviour unchanged; only touches `aggregator/core.c` |
+| 44-48 | cameras 0001-0005 | Binding, ov13858 OF/power driver, hamoa camera blocks, Denali LED, Denali rear sensor. Dependency order from `hardware/cameras/README.md` R1. Every new node is `status = "disabled"`; the packaged DTB gains 22 disabled nodes and nothing else |
+
+Config (`kernel/config/sp11.config`, now 89 symbols): pins `CONFIG_DYNAMIC_DEBUG=y`, `DYNAMIC_DEBUG_CORE=y`, `FTRACE=y`, `TRACING=y`, `EVENT_TRACING=y`, the camera options (`VIDEO_OV13858=m`, `VIDEO_QCOM_CAMSS=m`, `I2C_QCOM_CCI=m`, `LEDS_GPIO=m`, `CLK_X1E80100_CAMCC=m`, `REGULATOR_QCOM_RPMH=y`) and the audio/aggregator symbols the new patches need. Correction to the brief: the **M12 shipped config already had DYNAMIC_DEBUG, FTRACE, TRACING and EVENT_TRACING set to `y`** (`out/rpms` sp11.9 kernel-core `/lib/modules/*/config`, and the unchanged fragment); the symbols were simply not pinned. If the device kernel really lacked them, the cause is elsewhere (for example a different kernel than sp11.9, or boot-argument syntax). `scripts/kernel-check` step 2b now asserts the four tracing symbols, both BTF options and the three camera symbols directly in the shipped config and records them as `boot_diag_config` in the release record.
+
+Script changes: `scripts/kernel-dtb-m13.sh` (six variants, dispatch from `scripts/kernel-dtb-variants.sh`), milestone `m13` in `scripts/kernel-check`, M13 module/object checks in `scripts/kernel-m8-rpm-check.py` (apr, snd-q6apm, qcom_q6v5_pas `parm=keep_proxy_pds`, surface_aggregator `parm=shutdown_mode`, ov13858, qcom-camss, i2c-qcom-cci, camcc-x1e80100, leds-gpio; the `x1e80100_snd_startup` gate with `-EOPNOTSUPP`), and variants plus `--profile` handling and `--previous-m12` in `scripts/kernel-m8-check.py`. `scripts/kernel-dtb-safety.py` is unchanged: `default` for the packaged DTB and every variant except `m13-spk`; `m13-spk` passes only `d26` and is asserted to fail `default`. Sources: `kernel/dtb-variants/x1p64100-microsoft-denali-m13{,-nosnd,-notouch,-spk,-gpu,-cam}.dts` (`m13` and `m13-spk` are exact copies of the audio owner's files, `m13-gpu` is the orchestrator's).
+
+Disk: the release guard passed without cleanup (headroom above 60 GiB; minimum seen 56 GiB). Step 6 archived sp11.9 into `out/rpms/archive/7.3.0-65.sp11.9/`; M12 logs saved in `out/build/kernel/history/m12/`.
+
+### M13 release artifacts
+
+`scripts/kernel-build.sh -j 6`: rc 0, UTC `2026-10-30T22:18:58+00:00` to `2026-10-30T23:12:52+00:00`, **3234 s (53 min 54 s)**. `scripts/kernel-check` ran inside the script: **PASS**.
+
+- BTF: `vmlinux` `.BTF` size `0x76c5e8`; **5934/5934** modules have BTF, none missing, no bad magic. All 89 fragment symbols hold; the L0-style assertion holds for DYNAMIC_DEBUG, FTRACE, TRACING, EVENT_TRACING, both BTF options and the three camera symbols. `CHECK_DTBS=y` rc 0, 0 warning lines; packaged `dt-validate` clean.
+- Packaged LCD DTB SHA-256 `12a02e581b961636d7a253a06433efe5831a2a8eaf8d4cc45530ef12a01351cd` (changed from M12 `4130f298...`). Against the published M12 DTB the only difference is 22 added camera-chain nodes (CCI0/CCI1, CAMSS, rear sensor, indicator LED bank, pm8010 `regulators-8`, three pinctrl states), all effectively disabled; no existing property changed. S1, GPU off, wiring and CMA pass.
+- Modules present and recorded under `m13.new_modules`: `ov13858`, `qcom-camss`, `i2c-qcom-cci`, `camcc-x1e80100`, `leds-gpio`, `apr`, `snd-q6apm`, `snd-soc-wsa884x` (explicit `0x34b1` write from 0004, default `0x32`), `snd-soc-lpass-wsa-macro` (0005), `snd-soc-x1e80100` (gate 0009), `ps883x`, `pmic_glink_altmode`, `qcom_glink`, `ath12k`. `qcom_q6v5_pas` carries `parm=keep_proxy_pds:` and `surface_aggregator` carries `parm=shutdown_mode:`.
+- Peak cgroup 7839797248 bytes; peak anonymous 3313405952 bytes; ccache 99.62% (2239 direct + 24279 preprocessed hits, 101 misses).
+- Config SHA-256: fragment `688fcd9527a4d87a3e4e844713ef7313df437d17eb4a71263f8d91885302aad1`; shipped `a22733b789030b850542e9e4d339cf414a73c9b3cbd21fea66f5a94d8909fcda`.
+- Release record `out/rpms/kernel-7.3.0-65.sp11.10.fc44.aarch64.json`, SHA-256 `010258362eb4905bf3c4e041253f0f21567444a51a80ffa73549dce8f7a398ec`. Logs: `out/build/kernel/m13-driver.log`, `rpmbuild.log`.
+
+| RPM (revision 10, aarch64) | SHA-256 |
+|:--|:--|
+| `kernel-7.3.0-65.sp11.10.fc44.aarch64.rpm` | `51f1fd2fead8be2dbb0c06223598db09da84c9f98f9556b4c8bddaa5521ea70e` |
+| `kernel-core-7.3.0-65.sp11.10.fc44.aarch64.rpm` | `eb87a3ac39c3664f240757db7dc9cc09938a6d3c79e75a58cec8916a5c7a3075` |
+| `kernel-debuginfo-7.3.0-65.sp11.10.fc44.aarch64.rpm` | `c0e02f7f893ebed3d16f243ee8a95b47cc25bf29bbbdab61d89e3628271480fb` |
+| `kernel-debuginfo-common-aarch64-7.3.0-65.sp11.10.fc44.aarch64.rpm` | `cfe51103a7dad77415969883df2d401e83d3c0d3284901ad29850213e3a83e94` |
+| `kernel-devel-7.3.0-65.sp11.10.fc44.aarch64.rpm` | `c506b84e689e1394f5527965165f223cd523c698b5f875c91d5b31ac8501df72` |
+| `kernel-devel-matched-7.3.0-65.sp11.10.fc44.aarch64.rpm` | `45e2983c0106e0d26b158b64f32d76f4d837dccd9088f29414ff8d0bdef9a85c` |
+| `kernel-kmap-internal-7.3.0-65.sp11.10.fc44.aarch64.rpm` | `3f83b2edc4a47d989fee3be82e518ce80bde7d3409da357b7b628145753c5a71` |
+| `kernel-modules-7.3.0-65.sp11.10.fc44.aarch64.rpm` | `9d5a8664d5ace72a03b4974d4843e2ddc6e6a6f46d50fb182095f3f7150b4294` |
+| `kernel-modules-core-7.3.0-65.sp11.10.fc44.aarch64.rpm` | `dc3e8608f04f308570b7a3da6eb268081b0b6b63d12f8e3f46dffb6934e49de7` |
+| `kernel-modules-extra-7.3.0-65.sp11.10.fc44.aarch64.rpm` | `510f8e1959e1a39a6db906dc4d91e5947b51b7413cf81c3ad14731de82416a38` |
+| `kernel-modules-extra-matched-7.3.0-65.sp11.10.fc44.aarch64.rpm` | `7c657a1dcb5952d8bd0154ec2f8f3c6ca4daa60d9908e9fae55b032910b08714` |
+| `kernel-modules-internal-7.3.0-65.sp11.10.fc44.aarch64.rpm` | `42d7f748acab31362805343d36cfe7024d8b2dc9878837b98872da4ede4705c3` |
+| `kernel-uki-dtbloader-7.3.0-65.sp11.10.fc44.aarch64.rpm` | `fcbaa55808401838c22190332c53f27aa979dabc653c491fbf9e8d64f66699ed` |
+| `kernel-uki-virt-7.3.0-65.sp11.10.fc44.aarch64.rpm` | `512a5b15aab2a24db717c2742a6bd283f34c7f92d99f26dc92a444d79c70b0ab` |
+| `kernel-uki-virt-addons-7.3.0-65.sp11.10.fc44.aarch64.rpm` | `ec54f9224f9f9dc2a11b5448c51993936c44f9cc122a8c62006c164833e41c6c` |
+
+### M13 DTB variants
+
+`scripts/kernel-dtb-variants.sh` (dispatching to `scripts/kernel-dtb-m13.sh`); output `out/dtb-variants/7.3.0-65.sp11.10.fc44.aarch64/qcom/`, checks in `out/build/dtb-m13-checks/`, log `out/build/kernel/m13-variants.log`; complete run **292.9 s**. All six pass `CHECK_DTBS=y` (0 diagnostics except the marker below), `dt-validate`, S1 with the stated profile, wiring, CMA and source-recompile byte comparison. `m13-nosnd` equals the packaged DTB byte for byte (M12 behaviour: `/sound` and `swr0` off); `m13` differs from it by the microphone card only; `m13-notouch` differs from `m13` by touchscreen status only; `m13-gpu` enables `gpu@3d00000` only; `m13-cam` enables the rear chain only (CAMSS, CCI0 and bus 1, LED bank, regulators-8, rear sensor effective) with the microphone card and speakers off.
+
+| DTB | Profile | Build time | SHA-256 |
+|:--|:--|--:|:--|
+| `x1p64100-microsoft-denali-m13-nosnd.dtb` | default | 38 s | `12a02e581b961636d7a253a06433efe5831a2a8eaf8d4cc45530ef12a01351cd` |
+| `x1p64100-microsoft-denali-m13.dtb` | default | 11 s | `35bba462bd5a97df7813c04bc6b58408dc02fa9de1800a05146bd14bb88243e1` |
+| `x1p64100-microsoft-denali-m13-notouch.dtb` | default | 11 s | `227f87d58b30b74d37db23a071a2820bcad9200db9a4e650d1c72e3a8fab28eb` |
+| `x1p64100-microsoft-denali-m13-spk.dtb` | d26 only | 10 s | `981eac14c813660235b9fc25adf70bfa168ac8dcbc0a55343d1e4ddc6c722266` |
+| `x1p64100-microsoft-denali-m13-gpu.dtb` | default | 11 s | `c2c3553d55309b090bbe48c90db348dafbf82f3ab40700bb1dabe97aa96f6341` |
+| `x1p64100-microsoft-denali-m13-cam.dtb` | default | 12 s | `ae14b774f7289fc89c8ce49588ced864449dac65f3f1b150ff8455095c51a1fd` |
+
+JSON record SHA-256: `m13-nosnd.json` `5811fd97d7917c63ddf50a6c5a18c6c64900cee2b012157f12cd60ef08df023c`; `m13.json` `bdf92b679d77204554e48be471fa9843caf37cb32824a42efdd24b7329397b99`; `m13-notouch.json` `0e906bb9bf68da6853a6fa0ebf461fee34e7b6e19d10cf54d26a579ff9dd2fa2`; `m13-spk.json` `6c3b5e3028b144f59cd9b252d47eb6f792b41ffed64d7169a38dc83a61b3cad6`; `m13-gpu.json` `57854c1280fef9a17df9556d16803a475a0749a9d9dff77b4c62577d7f04c40e`; `m13-cam.json` `b11b0a657a253dab20f10834c086222467ce8ccfd698bec55cfe4e0e1dadbc28`.
+
+`m13-spk` carries `/chosen/sp11,speaker-policy = "d26-open-loop-v1"` (d26 paths: `/sound` and both `speaker@0,0/1`), is asserted to **fail** the default profile, and the kernel contains audio 0001, 0002, 0004, 0005 and 0009. Known diagnostic: the marker has no binding, so `CHECK_DTBS=y` and `dt-validate` print exactly three schema complaints about `/chosen/sp11,speaker-policy` for this DTB only; the script accepts those and nothing else, and records them as `marker_only_diagnostic_lines`. Owner follow-up: a `chosen` binding exception would remove them. No device boot, no commit.
+
+
 ## Log
 
 - 2026-10-29: built M8 revision 5 (25 patches; RFC 0014 retired; spi-hid/QSPI touch and packaged GPU isolation). Release 3313 s; kernel-check PASS with BTF in vmlinux and all 5934 modules, 73 config symbols, packaged schema/S1/GPU/wiring and eight RPM module payload checks. M8/M8-notouch DTBs and JSON pass (63/14 s; complete run 214.464 s). Final index/syntax/whitespace checks pass; build/source locks are free and no task process remains. Recorded hashes/times and explicit image/owner requests; no device test. Changes remain uncommitted for the orchestrator (D24).
@@ -540,3 +607,4 @@ JSON record SHA-256: `m12.json` `cbc247ce36d962ac7f96d10f7e8d760983b981370c1a406
 
 - 2026-10-30: built M11 revision 8 (34 patches; FIFO diagnostic, packaged parity, audio safety/fragments). Release 3289 s; automatic and repeated kernel-check PASS, BTF in vmlinux/all 5934 modules; all three DTB variants and JSON pass. Recorded times/hashes, regression evidence and owner requests. No device test or git write; changes remain uncommitted for the orchestrator (D24).
 - 2026-10-30: built M12 revision 9 (37 patches; touch F-09, audio 0004/0005, amended GLINK 0001). Release 2993 s; kernel-check PASS, BTF in vmlinux/all 5934 modules; m12, m12-notouch, m12-audio DTBs equal M11. Freed 23 GiB of finished M11 scratch. No device test, no commit.
+- 2026-10-30: built M13 revision 10 (49 patches: GPR fix, D26 gate, DSP 0003, ec-sam 0007, cameras 0001-0005; tracing and camera config pinned). Release 3234 s; kernel-check PASS, BTF in vmlinux/all 5934 modules; six DTB variants (m13, nosnd, notouch, spk d26-only, gpu, cam) pass. No device test, no commit.
