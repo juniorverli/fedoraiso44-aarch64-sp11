@@ -1,0 +1,172 @@
+From 4b9010aa3c08085f4b15cd12e2e86b2ebfa6e551 Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Fri, 30 Oct 2026 23:10:18 +0000
+Subject: [PATCH 15/16] ASoC: qcom: x1e80100: gate speakers on the speaker
+ protection guard
+
+The Surface Pro 11 playback links to the WSA amplifiers are refused
+unconditionally. Replace that by the decision of the speaker protection
+guard: playback is allowed only while the closed-loop graph is up, the
+voltage/current sense stream runs, a calibration was applied and no
+fault is latched. The check runs at startup and again at prepare, before
+any power-up, and still refuses by default.
+
+Add the back-end parameters of the feedback links: V/I sense at 8 kHz,
+32 bit, four channels (WSA_CODEC_DMA_TX_0) and CPS at 24 kHz, 32 bit,
+two channels (WSA_CODEC_DMA_TX_2). When the guard latches a fault, mute
+the WSA amplifiers.
+
+Assisted-by: Claude Sonnet 5.5
+---
+ sound/soc/qcom/x1e80100.c | 87 +++++++++++++++++++++++++++++++++++----
+ 1 file changed, 79 insertions(+), 8 deletions(-)
+
+diff --git a/sound/soc/qcom/x1e80100.c b/sound/soc/qcom/x1e80100.c
+index 9a512deed..26de92528 100644
+--- a/sound/soc/qcom/x1e80100.c
++++ b/sound/soc/qcom/x1e80100.c
+@@ -7,9 +7,11 @@
+ #include <linux/platform_device.h>
+ #include <linux/soundwire/sdw.h>
+ #include <sound/pcm.h>
++#include <sound/pcm_params.h>
+ #include <sound/jack.h>
+ #include <sound/soc.h>
+ #include <sound/soc-dapm.h>
++#include <sound/sp11-guard.h>
+ 
+ #include "common.h"
+ #include "qdsp6/q6afe.h"
+@@ -85,6 +87,26 @@ static int x1e80100_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
+ 
+ 	rate->min = rate->max = 48000;
+ 	switch (cpu_dai->id) {
++	case WSA_CODEC_DMA_TX_0:
++		/* Speaker protection voltage/current sense: V and I of two speakers */
++		rate->min = 8000;
++		rate->max = 8000;
++		channels->min = 4;
++		channels->max = 4;
++		snd_mask_none(hw_param_mask(params, SNDRV_PCM_HW_PARAM_FORMAT));
++		snd_mask_set_format(hw_param_mask(params, SNDRV_PCM_HW_PARAM_FORMAT),
++				    SNDRV_PCM_FORMAT_S32_LE);
++		break;
++	case WSA_CODEC_DMA_TX_2:
++		/* Speaker protection class-H (CPS) feedback of two speakers */
++		rate->min = 24000;
++		rate->max = 24000;
++		channels->min = 2;
++		channels->max = 2;
++		snd_mask_none(hw_param_mask(params, SNDRV_PCM_HW_PARAM_FORMAT));
++		snd_mask_set_format(hw_param_mask(params, SNDRV_PCM_HW_PARAM_FORMAT),
++				    SNDRV_PCM_FORMAT_S32_LE);
++		break;
+ 	case TX_CODEC_DMA_TX_0:
+ 	case TX_CODEC_DMA_TX_1:
+ 	case TX_CODEC_DMA_TX_2:
+@@ -126,6 +148,15 @@ static int x1e80100_snd_hw_map_channels(unsigned int *ch_map, int num)
+ 	return 0;
+ }
+ 
++/* Speaker playback gate, only enforced on the Surface Pro 11 */
++static int x1e80100_spk_check(struct device *dev)
++{
++	if (!of_machine_is_compatible("microsoft,denali"))
++		return 0;
++
++	return sp11_guard_check(dev);
++}
++
+ static int x1e80100_snd_prepare(struct snd_pcm_substream *substream)
+ {
+ 	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
+@@ -138,6 +169,11 @@ static int x1e80100_snd_prepare(struct snd_pcm_substream *substream)
+ 	switch (cpu_dai->id) {
+ 	case WSA_CODEC_DMA_RX_0:
+ 	case WSA_CODEC_DMA_RX_1:
++		/* The state may have changed since startup, for example a fault */
++		ret = x1e80100_spk_check(rtd->dev);
++		if (ret)
++			return ret;
++
+ 		ret = x1e80100_snd_hw_map_channels(rx_slot, channels);
+ 		if (ret)
+ 			return ret;
+@@ -167,17 +203,19 @@ static int x1e80100_snd_startup(struct snd_pcm_substream *substream)
+ {
+ 	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
+ 	struct snd_soc_dai *cpu_dai = snd_soc_rtd_to_cpu(rtd, 0);
++	int ret;
+ 
+ 	/*
+-	 * Surface Pro 11: the speaker protection graph (V/I and CPS feedback,
+-	 * calibration, fault handling) is not validated yet. Refuse the WSA
+-	 * playback links before any SoundWire or DAPM power-up. There is
+-	 * deliberately no module parameter, control or sysfs override.
++	 * Surface Pro 11: speaker playback is allowed only while the closed-loop
++	 * speaker protection is up, calibrated and fault free. The decision is
++	 * made by the sp11 guard, whose state only kernel code can change.
++	 * Refuse before any SoundWire or DAPM power-up.
+ 	 */
+-	if (of_machine_is_compatible("microsoft,denali") &&
+-	    (cpu_dai->id == WSA_CODEC_DMA_RX_0 ||
+-	     cpu_dai->id == WSA_CODEC_DMA_RX_1))
+-		return -EOPNOTSUPP;
++	if (cpu_dai->id == WSA_CODEC_DMA_RX_0 || cpu_dai->id == WSA_CODEC_DMA_RX_1) {
++		ret = x1e80100_spk_check(rtd->dev);
++		if (ret)
++			return ret;
++	}
+ 
+ 	return qcom_snd_sdw_startup(substream);
+ }
+@@ -189,6 +227,30 @@ static const struct snd_soc_ops x1e80100_be_ops = {
+ 	.prepare = x1e80100_snd_prepare,
+ };
+ 
++/* Called by the guard when a speaker fault is latched: mute every WSA amplifier */
++static void x1e80100_spk_mute(void *priv)
++{
++	struct snd_soc_card *card = priv;
++	struct snd_soc_pcm_runtime *rtd;
++	struct snd_soc_dai *codec_dai;
++	int i;
++
++	for_each_card_rtds(card, rtd) {
++		struct snd_soc_dai *cpu_dai = snd_soc_rtd_to_cpu(rtd, 0);
++
++		if (cpu_dai->id != WSA_CODEC_DMA_RX_0 && cpu_dai->id != WSA_CODEC_DMA_RX_1)
++			continue;
++
++		for_each_rtd_codec_dais(rtd, i, codec_dai)
++			snd_soc_dai_digital_mute(codec_dai, 1, SNDRV_PCM_STREAM_PLAYBACK);
++	}
++}
++
++static void x1e80100_spk_unregister(void *priv)
++{
++	sp11_guard_clear_mute(priv);
++}
++
+ static void x1e80100_add_be_ops(struct snd_soc_card *card)
+ {
+ 	struct snd_soc_dai_link *link;
+@@ -230,6 +292,15 @@ static int x1e80100_platform_probe(struct platform_device *pdev)
+ 	card->driver_name = of_device_get_match_data(dev);
+ 	x1e80100_add_be_ops(card);
+ 
++	if (of_machine_is_compatible("microsoft,denali")) {
++		sp11_guard_set_mute(x1e80100_spk_mute, card);
++		ret = devm_add_action_or_reset(dev, x1e80100_spk_unregister, card);
++		if (ret)
++			return ret;
++		if (sp11_guard_nospk())
++			dev_warn(dev, "sp11.nospk is set, speakers are disabled\n");
++	}
++
+ 	return devm_snd_soc_register_card(dev, card);
+ }
+ 
+-- 
+2.43.0
+

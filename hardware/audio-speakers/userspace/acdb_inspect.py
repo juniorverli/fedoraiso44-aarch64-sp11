@@ -205,6 +205,29 @@ class Acdb:
                 result.append(item)
         return result
 
+    def calibration_payloads(self, instances):
+        """Raw (instance, parameter, payload) records of the keyless calibration set.
+
+        Windows calibration data: the result goes to private out/ only. Used by
+        build-topology/sp11_closedloop.py, which writes the closed-loop supplement.
+        """
+        de_base, de = self.chunks["CDDE"]
+        do_base, do = self.chunks["CDDO"]
+        result = []
+        for _, keys, (de_ref, do_ref, _) in self.lookup("CDLU", 3):
+            if keys:
+                continue
+            a, b = Cursor(de[de_ref:], de_base + de_ref), Cursor(do[do_ref:], do_base + do_ref)
+            count = a.u32()
+            if b.u32() != count or count > len(de) // 8:
+                raise ValueError("calibration count mismatch")
+            for _ in range(count):
+                iid, pid = a.words(2)
+                _, payload = self.pool[b.u32()]
+                if iid in instances:
+                    result.append((iid, pid, bytes(payload)))
+        return result
+
     def report(self):
         return dict(schema="sp11-acdb-audit-v1", sha256=EXPECTED_SHA256,
                     deployable=False, reason="parameter semantics and hardware protection unvalidated",
