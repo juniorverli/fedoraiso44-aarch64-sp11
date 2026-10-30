@@ -91,3 +91,7 @@ Two WSA8845 smart amplifiers on SoundWire, driven by the ADSP through AudioReach
 
 - 2026-10-23: dossier created from the static survey.
 - 2026-10-30: audio plan (`evidence/2026-10-30-audio-plan.md`): M8/M10 state, DT, safety layers, topology/UCM, patches 0001 to 0003, REA questions; status `designed`.
+
+## Requests (2026-10-30, orchestrator)
+
+- **S1 evidence, Path P:** the Argon REA report (`evidence/2026-10-30-argon-rea-report.md`, spot-checked) shows Windows protects the two 4 ohm speakers with a closed-loop SPv5 speaker-protection module in the ADSP (V/I and CPS feedback, thermal model, 110 C hard limit, 180 s cooldown) plus ACDB calibration, not with a static volume cap. Linux 7.3 has none of that (no V/I sense ports, no IMCL links, no SPv5 calibration). Speakers therefore stay OFF in every DTB and image. Microphones are safe and may proceed (`m11-audio`).
