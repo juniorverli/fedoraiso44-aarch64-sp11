@@ -26,7 +26,7 @@ def check(cfg):
         assert special == want, f"{ident}: diagnostic args differ: {special ^ want}"
         assert args.count("sp11.entry=" + ident) == 1, f"{ident}: wrong entry mark"
         dtbs = re.findall(r"^\s*devicetree (.*)$", body, re.M)
-        variant = "m9-notouch" if ident == "notouch" else "m9"
+        variant = "m10-notouch" if ident == "notouch" else "m10"
         assert dtbs == ([] if ident == "vmtest" else [f"($root)/boot/dtb/qcom/x1p64100-microsoft-denali-{variant}.dtb"]), f"{ident}: wrong DTB"
         if ident == "debug":
             baseline = args
@@ -39,4 +39,4 @@ if __name__ == "__main__":
         check(open(sys.argv[1]).read())
     except (AssertionError, ValueError) as error:
         sys.exit(str(error))
-    print("PASS: M9 menu policy")
+    print("PASS: M10 menu policy")

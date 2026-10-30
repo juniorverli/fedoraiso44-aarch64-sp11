@@ -325,7 +325,7 @@ fi
 if [ "$builder" = kiwi ]; then
 	# D19: DTB variants next to the packaged one. Same SoC and board (root compatible), different from the
 	# packaged DTB, hashes as in the build record and as in out/dtb-variants (the kernel worker's output).
-	for v in m9 m9-notouch; do
+	for v in m10 m10-notouch; do
 		vf=x1p64100-microsoft-denali-$v.dtb
 		vd=$W/$vf
 		x "/boot/dtb/qcom/$vf" "$vd"
@@ -337,7 +337,7 @@ if [ "$builder" = kiwi ]; then
 		gpu_status=$(fdtget "$vd" /soc@0/gpu@3d00000 status 2>/dev/null)
 		[ "$gpu_status" = disabled ] && pass 3.12 "D22: $v GPU node disabled" || fail 3.12 "D22: $v GPU status '$gpu_status'"
 		check_args=(--variant "$v")
-		[ "$v" = m9-notouch ] && check_args+=(--baseline "$W/x1p64100-microsoft-denali-m9.dtb")
+		[ "$v" = m10-notouch ] && check_args+=(--baseline "$W/x1p64100-microsoft-denali-m10.dtb")
 		if python3 -I "$REPO/scripts/kernel-m8-check.py" "$vd" "${check_args[@]}" >"$W/$v-wiring.json" 2>"$W/$v-wiring.err"; then
 			pass 3.13 "$v: S1, parity, wiring and QSPI touch; fallback differs only in touch child status"
 		else fail 3.13 "$v: $(cat "$W/$v-wiring.err")"; fi
@@ -354,7 +354,7 @@ if [ "$builder" = kiwi ]; then
 		if [ -n "$rsha" ]; then [ "$vsha" = "$rsha" ] && pass 3.11 "variant $v SHA-256 equals the kernel worker's JSON record" || fail 3.11 "variant $v SHA-256 differs from the kernel worker's JSON record ($rsha)"; else fail 3.11 "no JSON record of the kernel worker for variant $v in the build record"; fi
 		vr=$OUT/dtb-variants/$kver/qcom/${vf%.dtb}.json
 		if [ -f "$vr" ] && [ "$vsha" = "$(jq -r .sha256 "$vr")" ] &&
-		   [ "$(jq -r .kver "$vr")" = "$kver" ] && [ "$(jq -r .series_rev "$vr")" = 6 ] &&
+		   [ "$(jq -r .kver "$vr")" = "$kver" ] && [ "$(jq -r .series_rev "$vr")" = 7 ] &&
 		   [ "$(jq -r .series_hash_sha256 "$vr")" = "$(jq_ .kernel_patch_series_sha256)" ] &&
 		   jq -e --arg f "$vf.json" --slurpfile source "$vr" '.dtb_variant_records[$f] == $source[0]' "$rec" >/dev/null; then
 			pass 3.14 "variant $v matches published JSON hash/release/series and embedded record"
@@ -371,9 +371,9 @@ if [ "$smoke" = false ]; then
 	ls "$OUT"/rpms/kernel-core-*.rpm >/dev/null 2>&1 && { rpm -qp --qf '%{name}-%{version}-%{release}.%{arch}\n' "$OUT"/rpms/kernel-core-*.rpm | grep -qx "$got_nevra" && pass 4.2 "kernel-core is the RPM of out/rpms" || fail 4.2 "kernel-core is not in out/rpms"; }
 fi
 if [ "$builder" = kiwi ] && [ "$smoke" = false ]; then
-	if [ "$kver" = 7.3.0-65.sp11.6.fc44.aarch64 ] && [ "$got_nevra" = kernel-core-7.3.0-65.sp11.6.fc44.aarch64 ] && [ "$(jq_ .milestone)" = M9 ]; then
-		pass 4.9 "M9: required revision-6 kernel release and milestone"
-	else fail 4.9 "M9 requires revision-6 kernel and milestone (found $kver / $got_nevra)"; fi
+	if [ "$kver" = 7.3.0-65.sp11.7.fc44.aarch64 ] && [ "$got_nevra" = kernel-core-7.3.0-65.sp11.7.fc44.aarch64 ] && [ "$(jq_ .milestone)" = M10 ]; then
+		pass 4.9 "M10: required revision-7 kernel release and milestone"
+	else fail 4.9 "M10 requires revision-7 kernel and milestone (found $kver / $got_nevra)"; fi
 fi
 cmp -s "$kimg" "$ROOT/lib/modules/$kver/vmlinuz" && pass 4.3 "ISO kernel image equals lib/modules/$kver/vmlinuz" || fail 4.3 "ISO kernel image differs from the package"
 kimg_ver=$(python3 -I - "$kimg" <<'PY'
@@ -452,13 +452,13 @@ root, record, release = map(pathlib.Path, sys.argv[1:])
 rec = json.loads(record.read_text())
 digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
 assert digest(release) == rec['kernel_release_record_sha256']
-modules = json.loads(release.read_text())['m9']['touch_modules']
+modules = json.loads(release.read_text())['m10']['touch_modules']
 assert modules == rec['kernel_touch_modules'] and len(modules) == 8
 for name, module in modules.items():
     assert digest(root / module['path'].lstrip('/')) == module['module_sha256'], name
 PY
-	then pass 4.12 "all eight M9 touch module payload hashes match the pinned kernel release JSON"
-	else fail 4.12 "M9 touch module bytes or kernel release record differ"; fi
+	then pass 4.12 "all eight M10 touch module payload hashes match the pinned kernel release JSON"
+	else fail 4.12 "M10 touch module bytes or kernel release record differ"; fi
 fi
 
 # ---------------------------------------------------------------- check 5 ----
@@ -743,17 +743,29 @@ fi
 if [ "$builder" = kiwi ]; then
 	ok=1
 	for c in dsp-subsystems wifi; do
-		cmp -s "$ROOT/etc/sp11-log-collector.d/$c.sh" "$REPO/hardware/$c/collector/$c.sh" || ok=0
+		if [ "$c" = dsp-subsystems ]; then
+			cat "$REPO/hardware/dsp-subsystems/collector/dsp-subsystems.sh" "$REPO/image/component-inputs/dsp-glink-append.sh" |
+				cmp -s - "$ROOT/etc/sp11-log-collector.d/$c.sh" || ok=0
+		else cmp -s "$ROOT/etc/sp11-log-collector.d/$c.sh" "$REPO/hardware/$c/collector/$c.sh" || ok=0; fi
 		bash -n "$ROOT/etc/sp11-log-collector.d/$c.sh" || ok=0
 	done
 	cmp -s "$ROOT/etc/sp11-log-collector.d/usb-typec.sh" "$REPO/image/overlay/etc/sp11-log-collector.d/usb-typec.sh" || ok=0
-	[ "$ok" = 1 ] && pass 8.20 "DSP, Wi-Fi and USB-C collectors installed unchanged, shell syntax valid" || fail 8.20 "component collector missing or changed"
-	# M9: the refreshed component hooks (nine Bluetooth commands, DSP, Wi-Fi journal reads, USB-C) make one snapshot
+	[ "$ok" = 1 ] && pass 8.20 "DSP (owner collector plus M10 append), Wi-Fi and USB-C collectors installed as built from source, shell syntax valid" || fail 8.20 "component collector missing or changed"
+	# M10: the refreshed component hooks (nine Bluetooth commands, DSP, Wi-Fi journal reads, USB-C) make one snapshot
 	# longer than M8's under TCG, where the 600 s/90 s limits cut the session and the shutdown snapshot off
 	if grep -qx 'TimeoutStartSec=1500' "$ROOT/usr/lib/systemd/system/sp11-log-collector-session@.service" &&
 	   grep -qx 'TimeoutStopSec=300' "$ROOT/usr/lib/systemd/system/sp11-log-collector.service"; then
 		pass 8.33 "collector units allow a full snapshot (session start 1500 s, shutdown stop 300 s)"
-	else fail 8.33 "collector unit timeouts are not the M9 values"; fi
+	else fail 8.33 "collector unit timeouts are not the M10 values"; fi
+	dsp=$ROOT/etc/sp11-log-collector.d/dsp-subsystems.sh
+	if grep -qxF 'timeout 8 dmesg 2>&1 | grep sp11-glink | head -n 2000' "$dsp" &&
+	   grep -qF 'journalctl -k -b --no-pager 2>&1 | grep sp11-glink' "$dsp" &&
+	   grep -qF 'sp11-glink: OPEN_ACK wait timed out' "$dsp" &&
+	   grep -qF 'sp11-glink: create_ept .* failed' "$dsp" &&
+	   grep -qF "grep -c 'sp11-glink:'" "$dsp" &&
+	   grep -qF '## remoteproc state after the GLINK lines' "$dsp"; then
+		pass 8.34 "M10: DSP collector greps sp11-glink (dmesg, journal, timeout, create_ept, counts) and records remoteproc state"
+	else fail 8.34 "M10: DSP collector lacks the sp11-glink or remoteproc commands: $(basename "$dsp")"; fi
 	u=sp11-rfkill-events.service
 	if [ "$(readlink "$ROOT/etc/systemd/system/multi-user.target.wants/$u")" = "/usr/lib/systemd/system/$u" ] &&
 	   grep -qx "enable $u" "$ROOT/usr/lib/systemd/system-preset/80-sp11.preset" &&

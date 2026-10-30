@@ -83,19 +83,19 @@ if [ "$(rpm --eval "%{lua:print(rpm.vercmp('$newest_vr', '$min'))}")" -le 0 ]; t
 fi
 log "kernel $kver_full (newer than $min, the only kernel NEVRA at the top level of out/rpms)"
 
-# M9 requires revision-6 RPMs and both atomically published DTB/JSON pairs.
-[ "$kver_full" = 7.3.0-65.sp11.6.fc44.aarch64 ] || {
-	log "REFUSED: M9 requires kernel 7.3.0-65.sp11.6.fc44.aarch64, found $kver_full"; exit 6;
+# M10 requires revision-7 RPMs and both atomically published DTB/JSON pairs.
+[ "$kver_full" = 7.3.0-65.sp11.7.fc44.aarch64 ] || {
+	log "REFUSED: M10 requires kernel 7.3.0-65.sp11.7.fc44.aarch64, found $kver_full"; exit 6;
 }
 patch_series_sha=$( . "$REPO/scripts/kernel-common.sh"; kernel_series_hash )
-for v in m9 m9-notouch; do
+for v in m10 m10-notouch; do
 	vsrc=$OUT/dtb-variants/$kver_full/qcom/x1p64100-microsoft-denali-$v
 	[ -s "$vsrc.dtb" ] && [ -s "$vsrc.json" ] || {
 		log "REFUSED: $v DTB and JSON not yet published by the kernel worker"; exit 6;
 	}
 	[ "$(sha256sum "$vsrc.dtb" | cut -d' ' -f1)" = "$(jq -r .sha256 "$vsrc.json")" ] &&
 	[ "$(jq -r .kver "$vsrc.json")" = "$kver_full" ] &&
-	[ "$(jq -r .series_rev "$vsrc.json")" = 6 ] &&
+	[ "$(jq -r .series_rev "$vsrc.json")" = 7 ] &&
 	[ "$(jq -r .series_hash_sha256 "$vsrc.json")" = "$patch_series_sha" ] || {
 		log "REFUSED: $v DTB hash/release/series differs from the kernel worker JSON"; exit 6;
 	}
@@ -137,6 +137,9 @@ mkdir -p "$desc/root/etc/sp11-log-collector.d"
 for c in dsp-subsystems wifi; do
 	cp "$REPO/hardware/$c/collector/$c.sh" "$desc/root/etc/sp11-log-collector.d/$c.sh"
 done
+# M10: the owner's DSP collector plus the image-owned sp11-glink/remoteproc append (one drop-in, one output file)
+cat "$REPO/hardware/dsp-subsystems/collector/dsp-subsystems.sh" "$REPO/image/component-inputs/dsp-glink-append.sh" \
+	>"$desc/root/etc/sp11-log-collector.d/dsp-subsystems.sh"
 cp "$REPO/hardware/wifi/collector/wifi-unblock-probe.sh" "$desc/root/usr/libexec/sp11-wifi-unblock-probe.sh"
 # D24: read-only snapshots taken with git show main:<path>, pinned in sources.json.
 # Public build: no operator address input is read or staged. Private mode: see below.
@@ -197,10 +200,10 @@ mkdir -p "$dtbtmp/boot/dtb/qcom"
 rpm2cpio "$kcore" | cpio -i --quiet --to-stdout "./lib/modules/$kver/dtb/qcom/x1p64100-microsoft-denali.dtb" \
 	>"$dtbtmp/boot/dtb/qcom/x1p64100-microsoft-denali.dtb"
 [ -s "$dtbtmp/boot/dtb/qcom/x1p64100-microsoft-denali.dtb" ] || { log "DTB not in $kcore"; exit 1; }
-# M9: the kernel worker variants next to the packaged DTB. The build fails without
+# M10: the kernel worker variants next to the packaged DTB. The build fails without
 # it; with --smoke a copy of the packaged DTB stands in (recorded, never for the device).
 variants_smoke_copy=0
-for v in m9 m9-notouch; do
+for v in m10 m10-notouch; do
 	vf=x1p64100-microsoft-denali-$v.dtb
 	vsrc=$OUT/dtb-variants/$kver/qcom/$vf
 	if [ -s "$vsrc" ]; then
@@ -304,9 +307,9 @@ mcopy -i "$chk/bi/eltorito_img1_uefi.img" ::EFI/BOOT/grub.cfg "$chk/esp-grub.cfg
 for f in "$chk"/_* "$chk/esp-grub.cfg"; do
 	if grep -v '^[[:space:]]*#' "$f" | grep -w -E 'quiet|rhgb|splash' >/dev/null; then log "FAIL: quiet/rhgb/splash in $f"; exit 1; fi
 done
-n=$(grep -c "^menuentry '" "$chk/_boot_grub2_grub.cfg"); [ "$n" = 8 ] || { log "FAIL: $n menu entries, expected 8 (M9)"; exit 1; }
+n=$(grep -c "^menuentry '" "$chk/_boot_grub2_grub.cfg"); [ "$n" = 8 ] || { log "FAIL: $n menu entries, expected 8 (M10)"; exit 1; }
 for e in debug usbdbg nodsp wifi-unblock nomodeset initramfs notouch vmtest; do grep -q "sp11.entry=$e\$" "$chk/_boot_grub2_grub.cfg" || { log "FAIL: no entry with sp11.entry=$e"; exit 1; }; done
-for f in x1p64100-microsoft-denali-m9 x1p64100-microsoft-denali-m9-notouch; do
+for f in x1p64100-microsoft-denali-m10 x1p64100-microsoft-denali-m10-notouch; do
 	xorriso -indev "$iso" -find "/boot/dtb/qcom/$f.dtb" -type f 2>/dev/null | grep -q . || { log "FAIL: /boot/dtb/qcom/$f.dtb not on the ISO"; exit 1; }
 done
 
@@ -369,9 +372,9 @@ record = {
     "dtb_variant_records": {f: json.load(open(f"{work}/dtb-records/{f}")) for f in sorted(os.listdir(f"{work}/dtb-records"))} if os.path.isdir(f"{work}/dtb-records") else {},
     "kernel_cmdline_reasons": "image/README.md, GRUB 2 and the kernel command line",
     "grub_entries": entries,
-    "milestone": "M9",
+    "milestone": "M10",
     "kernel_release_record_sha256": sha256(kernel_record_path),
-    "kernel_touch_modules": json.load(open(kernel_record_path))["m9"]["touch_modules"],
+    "kernel_touch_modules": json.load(open(kernel_record_path))["m10"]["touch_modules"],
     "module_policy": {"qcom_battmgr": "blacklist + install false + dracut omit_drivers (D23)",
                       "ucsi_glink": "retained early", "ath12k.debug_mask": "0x30; CONFIG_ATH12K_DEBUG=y; output checked by L0"},
     "diagnostic_args_reason": {"usbdbg": "USB-C test-plan C + DSP R-I2, combined to contain trace volume",

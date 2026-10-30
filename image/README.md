@@ -760,6 +760,43 @@ What changed against M8:
 - Collector units: `sp11-log-collector-session@.service` `TimeoutStartSec` 600 to 1500 and `sp11-log-collector.service` `TimeoutStopSec` 90 to 300 (L0 8.33). An earlier L1 without `--until-session --decoy` was run in error (no boot-disk log target) and its session snapshots hit the 600 s limit; the cause was the wrong test flags, so these two limits are a precaution, not a proven fix. Revert them if the shutdown delay is unwanted.
 - L0 fixes for private mode: 6.3 allows only the derived board file path, 7.1 skips only the three private files, and 7.1/7.4 print file names, never matched values. A first L0 pass printed one matched Wi-Fi address in 7.1 into the work log and report; both were redacted at once, the report regenerated, and 7.10 now passes.
 
+### M10 private ISO (2026-10-30)
+
+One private ISO for the operator's own device (D25, S5 exception), built with `scripts/image-build.sh --private`. It contains this device's addresses and the derived Wi-Fi board file: never share it or boot it on another device. The L0 `root` directory was deleted after the run.
+
+| Item | Value |
+|:--|:--|
+| ISO | `out/iso/sp11-fedora44-aarch64-kiwi-m10-private-20261030T084338Z.iso` |
+| Record / checksum | `...m10-private-20261030T084338Z.json` / `.iso.sha256` (hash prefixes only, `distribution: forbidden`) |
+| Size | 2,801,401,856 bytes |
+| SHA-256 | `96825b56d7813cac41aa678e2dbeef36db9cb76134e0ee314461bb0bb6ebf458` |
+| Kernel | `kernel-core-7.3.0-65.sp11.7.fc44.aarch64`; series revision 7 (adds the read-only `sp11-glink:` GLINK OPEN_ACK diagnostic), BTF on |
+| Build | One fresh kiwi compose, 1927 seconds, 1975 packages; build id `20261030T084341Z` |
+| DTB `m10` | `4130f2988a593847a0cd490bccd90ee65e16f74a5f3adf019cfd24dda5aec65a` (byte-identical to `m9`) |
+| DTB `m10-notouch` | `5704f68668538f6dd3e6fc37f67e8e9830f771124c57475c0ebca81d8c750519` |
+| L0 | **203 passed, 0 failed, 0 skipped**, including private checks 7.6-7.10 and new 8.34; report `...m10-private-20261030T084338Z.l0.txt` |
+| QEMU (L1) | **21 PASS, 0 FAIL** with `--until-session --decoy`; `.l1.txt` / `.l1.json`. Clean ESP (113 files, 22802/129022 clusters), decoy md5 unchanged |
+
+Menu: identical to M9 with `m10` in place of `m9` (same eight entries, order and arguments; `debug` is the default and carries the DSP trace arguments; `touch off` uses `m10-notouch`; `vmtest` has no devicetree).
+
+| # | Title | `sp11.entry` | DTB |
+|:--|:--|:--|:--|
+| 1 | `SP11 debug` (default) | `debug` | m10 |
+| 2 | `SP11 debug, USB + DSP trace` | `usbdbg` | m10 |
+| 3 | `SP11 debug, no early DSP` | `nodsp` | m10 |
+| 4 | `SP11 debug, Wi-Fi unblock probe` | `wifi-unblock` | m10 |
+| 5 | `SP11 debug nomodeset` | `nomodeset` | m10 |
+| 6 | `SP11 debug, stop in initramfs` | `initramfs` | m10 |
+| 7 | `SP11 debug, touch off` | `notouch` | m10-notouch |
+| 8 | `VM test (no devicetree)` | `vmtest` | none |
+
+Changes against M9:
+
+- Kernel/DTB gates: the builder and L0 now require kver `7.3.0-65.sp11.7.fc44.aarch64`, series revision 7, milestone `M10`, the `m10`/`m10-notouch` DTB and JSON pairs (hashes against the JSON, S1, GPU off, wiring, one-property touch-off difference) and the eight touch module hashes from the release record's `m10` entry (L0 3.x, 4.9, 4.12).
+- DSP collector: `/etc/sp11-log-collector.d/dsp-subsystems.sh` is now the owner's collector (R-I1, unchanged in `hardware/`) followed by `image/component-inputs/dsp-glink-append.sh`, so the output stays in `extra-dsp-subsystems.txt`. The append runs the owner's section 7.4 commands: `dmesg | grep sp11-glink`, `journalctl -k -b --no-pager | grep sp11-glink`, the OPEN_ACK-timeout, IPCRTR/FASTRPCGLINK OPEN/OPEN_ACK and create_ept greps, the two counts, and a closing remoteproc name/state block. It is read only and enables or clears nothing. L0 8.20 compares the installed file with that concatenation and 8.34 checks the commands. The S6 audit hash in `image/tools/check-charge-writes.py` covers the concatenated file.
+- Private checks 7.6-7.10 and S5 rules are unchanged; L0 prints file names only. A scan of the repository, the L0/L1 reports and the work logs for the address values found none.
+- Disk guard passed (45 GiB headroom, C: free 14 GiB); nothing was deleted.
+
 ## Private build mode (operator device only)
 
 `scripts/image-build.sh --private` (or `SP11_PRIVATE=1`) builds an ISO for the operator's own Surface Pro 11 with the Windows-derived settings embedded, so Wi-Fi and Bluetooth work without the post-write provisioning of the M6 procedure. Kiwi builder only. The default build stays public: no address, no derived blob, L0 checks 7.5 unchanged.
@@ -817,6 +854,7 @@ Rollback: rebuild without `--private`. Q3 of the wifi dossier (is the OTP addres
 
 ## Log
 
+- 2026-10-30: built the M10 private ISO `sp11-fedora44-aarch64-kiwi-m10-private-20261030T084338Z` (kiwi 1927 s, SHA-256 `96825b56...`): revision-7 kernel with the `sp11-glink:` diagnostic, `m10`/`m10-notouch` DTBs, DSP collector with sp11-glink and remoteproc capture. L0 203/203, QEMU `--until-session --decoy` 21/21. No git writes; nothing left running.
 - 2026-10-30: built the M9 private ISO `sp11-fedora44-aarch64-kiwi-m9-private-20261030T034021Z` (kiwi 1664 s, SHA-256 `aef67909...`): revision-6 kernel, `m9`/`m9-notouch` DTBs, DSP trace arguments in the default entry, refreshed Bluetooth/DSP/Wi-Fi/USB-C collectors, device addresses and derived board file embedded. L0 202/202, QEMU `--until-session --decoy` 21/21. Disk: removed superseded M6/M7 ISOs, work directories and sp11.3/sp11.4 RPM archives. No git writes; nothing left running.
 - 2026-10-29: prepared M8 revision-5 release/DTB gates, touch-on default and touch-off fallback, early fixed/QSPI/HID/uinput modules, native iptsd spec/build path and masked userspace captures. Compiled DTB/menu/privacy/QEMU-driver preflight and index/syntax/whitespace checks pass. Fresh official Fedora query still finds no iptsd. Blocked before RPM/source consumption and the single ISO compose because the required central iptsd source pin is absent; exact source-owner patch recorded under Requests. No ISO/L0/L1 result claimed, no git writes, and no task process left running. Resume with the pin, native RPM, one compose, L0 and QEMU session/ESP/decoy checks.
 
