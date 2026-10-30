@@ -83,19 +83,19 @@ if [ "$(rpm --eval "%{lua:print(rpm.vercmp('$newest_vr', '$min'))}")" -le 0 ]; t
 fi
 log "kernel $kver_full (newer than $min, the only kernel NEVRA at the top level of out/rpms)"
 
-# M10 requires revision-7 RPMs and both atomically published DTB/JSON pairs.
-[ "$kver_full" = 7.3.0-65.sp11.7.fc44.aarch64 ] || {
-	log "REFUSED: M10 requires kernel 7.3.0-65.sp11.7.fc44.aarch64, found $kver_full"; exit 6;
+# M11 requires revision-8 RPMs and all three atomically published DTB/JSON pairs.
+[ "$kver_full" = 7.3.0-65.sp11.8.fc44.aarch64 ] || {
+	log "REFUSED: M11 requires kernel 7.3.0-65.sp11.8.fc44.aarch64, found $kver_full"; exit 6;
 }
 patch_series_sha=$( . "$REPO/scripts/kernel-common.sh"; kernel_series_hash )
-for v in m10 m10-notouch; do
+for v in m11 m11-notouch m11-audio; do
 	vsrc=$OUT/dtb-variants/$kver_full/qcom/x1p64100-microsoft-denali-$v
 	[ -s "$vsrc.dtb" ] && [ -s "$vsrc.json" ] || {
 		log "REFUSED: $v DTB and JSON not yet published by the kernel worker"; exit 6;
 	}
 	[ "$(sha256sum "$vsrc.dtb" | cut -d' ' -f1)" = "$(jq -r .sha256 "$vsrc.json")" ] &&
 	[ "$(jq -r .kver "$vsrc.json")" = "$kver_full" ] &&
-	[ "$(jq -r .series_rev "$vsrc.json")" = 7 ] &&
+	[ "$(jq -r .series_rev "$vsrc.json")" = 8 ] &&
 	[ "$(jq -r .series_hash_sha256 "$vsrc.json")" = "$patch_series_sha" ] || {
 		log "REFUSED: $v DTB hash/release/series differs from the kernel worker JSON"; exit 6;
 	}
@@ -137,7 +137,7 @@ mkdir -p "$desc/root/etc/sp11-log-collector.d"
 for c in dsp-subsystems wifi; do
 	cp "$REPO/hardware/$c/collector/$c.sh" "$desc/root/etc/sp11-log-collector.d/$c.sh"
 done
-# M10: the owner's DSP collector plus the image-owned sp11-glink/remoteproc append (one drop-in, one output file)
+# M11: the owner's DSP collector plus the image-owned sp11-glink/remoteproc append (one drop-in, one output file)
 cat "$REPO/hardware/dsp-subsystems/collector/dsp-subsystems.sh" "$REPO/image/component-inputs/dsp-glink-append.sh" \
 	>"$desc/root/etc/sp11-log-collector.d/dsp-subsystems.sh"
 cp "$REPO/hardware/wifi/collector/wifi-unblock-probe.sh" "$desc/root/usr/libexec/sp11-wifi-unblock-probe.sh"
@@ -151,15 +151,28 @@ mkdir -p "$desc/root/usr/libexec/sp11/ec-sam" "$desc/root/etc/systemd/system/sys
 for tool in collect-input-capabilities.sh collect-power.sh ssam-ro.py; do
 	install -m 0755 "$inputs/ec-sam/tools/$tool" "$desc/root/usr/libexec/sp11/ec-sam/$tool"
 done
+# M11: R10 collector snapshot and microphone-only public upstream payloads.
+install -m 0644 "$inputs/ec-sam/collector/ec-sam.sh" "$desc/root/etc/sp11-log-collector.d/ec-sam.sh"
+cp -a "$REPO/hardware/audio-speakers/userspace/overlay/." "$desc/root/"
+topology=qcom/x1e80100/X1E80100-Microsoft-Surface-Pro-11-tplg.bin
+[ "$(sha256sum "$OUT/image-inputs/audio/$topology" | cut -d' ' -f1)" = b192044f01e97eabe7f6df9ae0d394086badb3c30124573210bc781093da8c03 ] || {
+	log "REFUSED: missing or changed audio-owner topology artefact"; exit 6;
+}
+install -D -m 0644 "$OUT/image-inputs/audio/$topology" "$desc/root/usr/lib/firmware/$topology"
+# Compile the locked distro dconf database after kiwi has installed dconf,
+# before Fedora's config.sh exits.
+sed -i '$i # SP11 M11: compile the locked GNOME volume policy.\ndconf update' "$desc/config.sh"
 ln -sf /usr/lib/systemd/system/sp11-bt-address.service "$desc/root/etc/systemd/system/sys-subsystem-bluetooth-devices-hci0.device.wants/sp11-bt-address.service"
 mkdir -p "$desc/root/etc/systemd/system/multi-user.target.wants"
 # Plymouth is installed (required by Fedora's package groups) but switched off: units masked
 for u in start quit quit-wait read-write switch-root halt reboot poweroff kexec; do
 	ln -sf /dev/null "$desc/root/etc/systemd/system/plymouth-$u.service"
 done
-for u in sp11-log-collector.service sp11-log-collector-session-first.path sp11-log-collector-session-user.path sp11-rfkill-events.service; do
+for u in sp11-log-collector.service sp11-log-collector-session-first.path sp11-log-collector-session-user.path sp11-rfkill-events.service sp11-ssam-rebind.service; do
 	ln -sf "/usr/lib/systemd/system/$u" "$desc/root/etc/systemd/system/multi-user.target.wants/$u"
 done
+mkdir -p "$desc/root/etc/systemd/system/sysinit.target.wants"
+ln -sf /usr/lib/systemd/system/sp11-ssam-shutdown.service "$desc/root/etc/systemd/system/sysinit.target.wants/sp11-ssam-shutdown.service"
 
 # Private mode (operator device only): copy the staged tree made by the host side. It holds the
 # Bluetooth address file, the Wi-Fi address (NetworkManager conf and .link) and the derived board file.
@@ -167,7 +180,8 @@ if [ "$private" = 1 ]; then
 	ps=$OUT/private-stage
 	[ -s "$ps/private-record.json" ] && [ -d "$ps/root" ] || { log "REFUSED: private stage missing; run scripts/image-build.sh --private"; exit 6; }
 	cp -a "$ps/root/." "$desc/root/"
-	chown -R 0:0 "$desc/root/etc/sp11" "$desc/root/usr/lib/firmware/updates"
+	chown -R 0:0 "$desc/root/etc/sp11"
+	[ ! -d "$desc/root/usr/lib/firmware/updates" ] || chown -R 0:0 "$desc/root/usr/lib/firmware/updates"
 	chown 0:0 "$desc/root/etc/NetworkManager/conf.d/90-sp11-wifi-mac.conf" "$desc/root/etc/systemd/network/10-sp11-wifi.link"
 	cp "$ps/private-record.json" "$work/private-record.json"   # hash prefixes only
 	log "PRIVATE build: staged device settings copied into the root (values not logged)"
@@ -200,10 +214,10 @@ mkdir -p "$dtbtmp/boot/dtb/qcom"
 rpm2cpio "$kcore" | cpio -i --quiet --to-stdout "./lib/modules/$kver/dtb/qcom/x1p64100-microsoft-denali.dtb" \
 	>"$dtbtmp/boot/dtb/qcom/x1p64100-microsoft-denali.dtb"
 [ -s "$dtbtmp/boot/dtb/qcom/x1p64100-microsoft-denali.dtb" ] || { log "DTB not in $kcore"; exit 1; }
-# M10: the kernel worker variants next to the packaged DTB. The build fails without
+# M11: the kernel worker variants next to the packaged DTB. The build fails without
 # it; with --smoke a copy of the packaged DTB stands in (recorded, never for the device).
 variants_smoke_copy=0
-for v in m10 m10-notouch; do
+for v in m11 m11-notouch m11-audio; do
 	vf=x1p64100-microsoft-denali-$v.dtb
 	vsrc=$OUT/dtb-variants/$kver/qcom/$vf
 	if [ -s "$vsrc" ]; then
@@ -307,9 +321,10 @@ mcopy -i "$chk/bi/eltorito_img1_uefi.img" ::EFI/BOOT/grub.cfg "$chk/esp-grub.cfg
 for f in "$chk"/_* "$chk/esp-grub.cfg"; do
 	if grep -v '^[[:space:]]*#' "$f" | grep -w -E 'quiet|rhgb|splash' >/dev/null; then log "FAIL: quiet/rhgb/splash in $f"; exit 1; fi
 done
-n=$(grep -c "^menuentry '" "$chk/_boot_grub2_grub.cfg"); [ "$n" = 8 ] || { log "FAIL: $n menu entries, expected 8 (M10)"; exit 1; }
-for e in debug usbdbg nodsp wifi-unblock nomodeset initramfs notouch vmtest; do grep -q "sp11.entry=$e\$" "$chk/_boot_grub2_grub.cfg" || { log "FAIL: no entry with sp11.entry=$e"; exit 1; }; done
-for f in x1p64100-microsoft-denali-m10 x1p64100-microsoft-denali-m10-notouch; do
+n=$(grep -c "^menuentry '" "$chk/_boot_grub2_grub.cfg"); [ "$n" = 9 ] || { log "FAIL: $n menu entries, expected 9 (M11)"; exit 1; }
+for e in debug usbdbg nodsp wifi-unblock nomodeset initramfs notouch audio vmtest; do grep -q "sp11.entry=$e\$" "$chk/_boot_grub2_grub.cfg" || { log "FAIL: no entry with sp11.entry=$e"; exit 1; }; done
+python3 -I "$REPO/image/tools/check-m8-menu.py" "$chk/_boot_grub2_grub.cfg"
+for f in x1p64100-microsoft-denali-m11 x1p64100-microsoft-denali-m11-notouch x1p64100-microsoft-denali-m11-audio; do
 	xorriso -indev "$iso" -find "/boot/dtb/qcom/$f.dtb" -type f 2>/dev/null | grep -q . || { log "FAIL: /boot/dtb/qcom/$f.dtb not on the ISO"; exit 1; }
 done
 
@@ -372,11 +387,11 @@ record = {
     "dtb_variant_records": {f: json.load(open(f"{work}/dtb-records/{f}")) for f in sorted(os.listdir(f"{work}/dtb-records"))} if os.path.isdir(f"{work}/dtb-records") else {},
     "kernel_cmdline_reasons": "image/README.md, GRUB 2 and the kernel command line",
     "grub_entries": entries,
-    "milestone": "M10",
+    "milestone": "M11",
     "kernel_release_record_sha256": sha256(kernel_record_path),
-    "kernel_touch_modules": json.load(open(kernel_record_path))["m10"]["touch_modules"],
+    "kernel_touch_modules": json.load(open(kernel_record_path))["m11"]["touch_modules"],
     "module_policy": {"qcom_battmgr": "blacklist + install false + dracut omit_drivers (D23)",
-                      "ucsi_glink": "retained early", "ath12k.debug_mask": "0x30; CONFIG_ATH12K_DEBUG=y; output checked by L0"},
+                      "ucsi_glink": "retained early", "ath12k.debug_mask": "0x70; CONFIG_ATH12K_DEBUG=y; output checked by L0"},
     "diagnostic_args_reason": {"usbdbg": "USB-C test-plan C + DSP R-I2, combined to contain trace volume",
                                "notouch": "touch-pen section 8: touch child disabled; debug arguments",
                                "nodsp": "DSP R-I3: PAS deferred until switch-root",
@@ -386,6 +401,7 @@ record = {
     "touch_userspace_collector_sha256": sha256(f"{repo}/image/overlay/usr/libexec/sp11-touch-userspace-collect"),
     "iptsd": json.load(open(f"{out}/rpms/iptsd-3.1.0-1.fc44.aarch64.json")),
     "component_inputs": json.load(open(f"{repo}/image/component-inputs/sources.json")),
+    "m11_inputs": json.load(open(f"{repo}/image/component-inputs/m11.json")),
     "kiwi_description": {"url": "https://pagure.io/fedora-kiwi-descriptions.git", "branch": "f44", "pinned_commit": pin,
                          "branch_head_at_build": head, "profile": "Workstation-Live", "kiwi_file": "Fedora.kiwi",
                          "sp11_patches": patches},
@@ -398,7 +414,7 @@ record = {
 if private == "1":
     # hash prefixes and the board hash only (image/tools/private-stage.py); never an address
     record["private"] = json.load(open(f"{work}/private-record.json"))
-    record["distribution"] = "forbidden: contains device addresses and Windows-derived board data"
+    record["distribution"] = "forbidden: contains device addresses; operator device only"
 json.dump(record, open(rec, "w"), indent=1)
 PYEOF
 log "done: $isodir/$name.iso ($sha)"

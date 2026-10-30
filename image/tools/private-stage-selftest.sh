@@ -16,7 +16,7 @@ printf 'WIFI_MAC=%s\nBT_MAC=%s\n' "$W" "$B" >"$t/mac.conf"
 { printf 'QCA-ATH12K-BOARD\0'; head -c 4096 /dev/zero; } >"$t/board.bin"
 
 # --- stage
-out=$(run stage --mac-conf "$t/mac.conf" --board "$t/board.bin" --out "$t/stage" 2>&1); rc=$?
+out=$(run stage --mac-conf "$t/mac.conf" --out "$t/stage" 2>&1); rc=$?
 [ $rc = 0 ] && ok "stage succeeds" || no "stage succeeds ($out)"
 echo "$out" | grep -qiE "$W|$B|${W//:/}|${B//:/}" && no "stage output prints no value" || ok "stage output prints no value"
 grep -qiE "$W|$B" "$t/stage/private-record.json" && no "stage record has no value" || ok "stage record has no value"
@@ -24,7 +24,7 @@ grep -qiE "$W|$B" "$t/stage/private-record.json" && no "stage record has no valu
 [ "$(cat "$t/stage/root/etc/sp11/bt-address")" = "$B" ] && ok "bt-address equals source, one line" || no "bt-address equals source"
 grep -qx "wifi.cloned-mac-address=$W" "$t/stage/root/etc/NetworkManager/conf.d/90-sp11-wifi-mac.conf" && ok "NM conf carries WIFI_MAC" || no "NM conf carries WIFI_MAC"
 grep -qx "MACAddress=$W" "$t/stage/root/etc/systemd/network/10-sp11-wifi.link" && ok ".link carries WIFI_MAC" || no ".link carries WIFI_MAC"
-cmp -s "$t/board.bin" "$t/stage/root/usr/lib/firmware/updates/ath12k/WCN7850/hw2.0/board-2.bin" && ok "board staged byte-identical" || no "board staged"
+[ ! -e "$t/stage/root/usr/lib/firmware/updates/ath12k/WCN7850/hw2.0/board-2.bin" ] && ok "no implicit board override (I9)" || no "implicit board override"
 
 # --- verify on the stage as if it were the ISO root (+ a fake Fedora firmware file)
 mkdir -p "$t/stage/root/usr/lib/firmware/ath12k/WCN7850/hw2.0"; : >"$t/stage/root/usr/lib/firmware/ath12k/WCN7850/hw2.0/board-2.bin.xz"
@@ -44,8 +44,8 @@ printf '%s\n' 02:00:00:00:00:99 >"$t/bad/root/etc/sp11/bt-address"
 run verify --root "$t/bad/root" --mac-conf "$t/mac.conf" >/dev/null 2>&1 && no "verify catches a wrong bt-address" || ok "verify catches a wrong bt-address"
 cp -a "$t/stage" "$t/bad2"; chmod 644 "$t/bad2/root/etc/sp11/bt-address"
 run verify --root "$t/bad2/root" --mac-conf "$t/mac.conf" >/dev/null 2>&1 && no "verify catches mode 0644 on bt-address" || ok "verify catches mode 0644 on bt-address"
-cp -a "$t/stage" "$t/bad3"; rm "$t/bad3/root/usr/lib/firmware/updates/ath12k/WCN7850/hw2.0/board-2.bin"
-run verify --root "$t/bad3/root" --mac-conf "$t/mac.conf" >/dev/null 2>&1 && no "verify catches a missing board file" || ok "verify catches a missing board file"
+cp -a "$t/stage" "$t/bad3"; mkdir -p "$t/bad3/root/usr/lib/firmware/updates/ath12k/WCN7850/hw2.0"; cp "$t/board.bin" "$t/bad3/root/usr/lib/firmware/updates/ath12k/WCN7850/hw2.0/board-2.bin"
+run verify --root "$t/bad3/root" --mac-conf "$t/mac.conf" >/dev/null 2>&1 && no "verify catches an unexpected board override" || ok "verify catches an unexpected board override"
 printf '{"name":"x","note":"%s"}' "${W,,}" >"$t/leak.json"
 run verify --root "$t/stage/root" --mac-conf "$t/mac.conf" --record "$t/leak.json" >/dev/null 2>&1 && no "verify catches a value in the JSON record" || ok "verify catches a value in the JSON record"
 run leaks --mac-conf "$t/mac.conf" "$t/leak.json" >/dev/null 2>&1 && no "leaks detects a lower-case address in JSON" || ok "leaks detects a lower-case address in JSON"
@@ -55,10 +55,10 @@ run leaks --mac-conf "$t/mac.conf" "$t/leak2.json" >/dev/null 2>&1 && no "leaks 
 
 # --- stage refusals
 run stage --mac-conf "$t/mac.conf" --board "$t/none.bin" --out "$t/s2" >"$t/e.txt" 2>&1; rc=$?
-[ $rc = 6 ] && grep -q 'board file missing' "$t/e.txt" && ok "missing board file fails with a clear message" || no "missing board file fails clearly"
+[ $rc = 0 ] && grep -q 'WARNING' "$t/e.txt" && ok "missing board falls back with warning" || no "missing board fallback"
 printf 'NOTBOARD' >"$t/junk.bin"
-run stage --mac-conf "$t/mac.conf" --board "$t/junk.bin" --out "$t/s2" >/dev/null 2>&1 && no "bad board magic refused" || ok "bad board magic refused"
-run stage --mac-conf "$t/mac.conf" --board "$t/board.bin" --board-sha256 0000 --out "$t/s2" >/dev/null 2>&1 && no "pinned hash mismatch refused" || ok "pinned hash mismatch refused"
+run stage --mac-conf "$t/mac.conf" --board "$t/junk.bin" --out "$t/s2" >/dev/null 2>&1 && [ ! -e "$t/s2/root/usr/lib/firmware/updates/ath12k/WCN7850/hw2.0/board-2.bin" ] && ok "bad board magic falls back" || no "bad board fallback"
+run stage --mac-conf "$t/mac.conf" --board "$t/board.bin" --board-sha256 0000 --out "$t/s2" >/dev/null 2>&1 && [ ! -e "$t/s2/root/usr/lib/firmware/updates/ath12k/WCN7850/hw2.0/board-2.bin" ] && ok "pinned hash mismatch falls back" || no "pinned hash fallback"
 printf 'WIFI_MAC=00:00:00:00:00:00\nBT_MAC=%s\n' "$B" >"$t/zero.conf"
 run stage --mac-conf "$t/zero.conf" --board "$t/board.bin" --out "$t/s2" >/dev/null 2>&1 && no "sentinel address refused" || ok "sentinel address refused"
 printf 'WIFI_MAC=%s\n' "$W" >"$t/half.conf"

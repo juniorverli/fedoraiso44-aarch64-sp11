@@ -15,8 +15,10 @@ import hashlib
 import json
 import os
 import re
+import runpy
 import shutil
 import stat
+import subprocess
 import sys
 from pathlib import Path
 
@@ -99,7 +101,26 @@ def write(root: Path, rel: str, data: bytes, mode: int):
 
 def cmd_stage(a):
     macs = read_macs(Path(a.mac_conf))
-    board = check_board(Path(a.board), a.board_sha256 or "")
+    board = None
+    # I9: no implicit Windows-derived override. Even an explicit input must pass
+    # the component owner's structural verifier; failure retains Fedora firmware.
+    if a.board:
+        try:
+            candidate = check_board(Path(a.board), a.board_sha256 or "")
+            verifier = Path(__file__).resolve().parents[2] / "hardware/wifi/tools/wifi-board2.py"
+            win_sha = runpy.run_path(str(verifier))["WINDOWS_SHA256"]
+            if not a.fedora or not Path(a.fedora).is_file():
+                raise Fail("Fedora board reference unavailable")
+            result = subprocess.run([sys.executable, "-I", str(verifier), "verify", a.board,
+                                     "--fedora", a.fedora, "--sha256", win_sha],
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if result.returncode:
+                raise Fail("structural verification failed")
+            board = candidate
+        except (Fail, OSError, ValueError):
+            print("WARNING: Wi-Fi board override rejected; keeping Fedora generic board file", file=sys.stderr)
+    else:
+        print("WARNING: Wi-Fi board override omitted (I9); keeping Fedora generic board file", file=sys.stderr)
     out = Path(a.out)
     if out.exists():
         shutil.rmtree(out)
@@ -125,15 +146,18 @@ def cmd_stage(a):
         "Type=wlan\n\n"
         "[Link]\n"
         f"MACAddress={wifi}\n").encode(), 0o600)
-    write(root, BOARD, board, 0o644)
+    if board is not None:
+        write(root, BOARD, board, 0o644)
     rec = {"private": True,
            "wifi_mac": {"present": True, "sha256_8": sha(wifi.encode())[:8]},
            "bt_mac": {"present": True, "sha256_8": sha(bt.encode())[:8]},
-           "wifi_board2": {"present": True, "size": len(board), "sha256": sha(board),
-                           "install_path": "/" + BOARD},
-           "installed": ["/" + BT, "/" + NM_CONF, "/" + LINK, "/" + BOARD]}
+           "wifi_board2": ({"present": True, "size": len(board), "sha256": sha(board),
+                            "install_path": "/" + BOARD, "structurally_verified": True}
+                           if board is not None else {"present": False, "policy": "Fedora generic (I9)"}),
+           "installed": ["/" + BT, "/" + NM_CONF, "/" + LINK] + (["/" + BOARD] if board is not None else [])}
     Path(a.out, "private-record.json").write_text(json.dumps(rec, indent=1) + "\n")
-    print("private stage ready: bt-address, NetworkManager conf, .link, board-2.bin; values withheld")
+    print("private stage ready: bt-address, NetworkManager conf, .link; board override " +
+          ("verified" if board is not None else "omitted") + "; values withheld")
 
 
 def cmd_verify(a):
@@ -183,9 +207,16 @@ def cmd_verify(a):
     chk(".link: mode 0600, [Match] Driver=ath12k*, MACAddress equals WIFI_MAC (hash compare)",
         meta(LINK, 0o600) and b"[Match]" in lk and re.search(rb"^Driver=ath12k", lk, re.M) is not None
         and len(m) == 1 and sha(m[0]) == sha(macs["WIFI_MAC"].encode()))
-    chk("board-2.bin: regular file mode 0644, ath12k board magic",
-        meta(BOARD, 0o644) and text(BOARD).startswith(BOARD_MAGIC))
-    if a.board:
+    rec = json.loads(Path(a.record).read_bytes()) if a.record else {}
+    policy = (rec.get("private") or {}).get("wifi_board2", {})
+    board_present = policy.get("present") is True
+    if board_present:
+        chk("board-2.bin: verified opt-in, mode 0644, magic and recorded hash",
+            policy.get("structurally_verified") is True and meta(BOARD, 0o644) and
+            text(BOARD).startswith(BOARD_MAGIC) and policy.get("sha256") == sha(text(BOARD)))
+    else:
+        chk("board-2.bin: override absent (Fedora generic, I9)", st(BOARD) is None)
+    if a.board and board_present:
         try:
             want = Path(a.board).read_bytes()
         except OSError:
@@ -202,7 +233,8 @@ def cmd_verify(a):
         chk("build record: private section present, hashes only",
             isinstance(p, dict) and p.get("wifi_mac", {}).get("present") is True and
             p.get("bt_mac", {}).get("present") is True and
-            p.get("wifi_board2", {}).get("sha256") == sha(text(BOARD)))
+            isinstance(p.get("wifi_board2", {}).get("present"), bool) and
+            (not board_present or p["wifi_board2"].get("sha256") == sha(text(BOARD))))
         chk("build record: no address value in any form", not contains_mac(raw, macs))
     sys.exit(1 if bad else 0)
 
@@ -251,7 +283,8 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("stage")
     s.add_argument("--mac-conf", required=True)
-    s.add_argument("--board", required=True)
+    s.add_argument("--board")
+    s.add_argument("--fedora", help="Fedora board-2.bin[.xz] reference for the explicit override")
     s.add_argument("--board-sha256")
     s.add_argument("--out", required=True)
     v = sub.add_parser("verify")

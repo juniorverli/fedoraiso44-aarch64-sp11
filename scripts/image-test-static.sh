@@ -185,8 +185,8 @@ fi
 titles=$(grep -o "^menuentry '[^']*'" "$cfg_esp" | sed "s/menuentry '//;s/'\$//")
 if [ "$builder" = kiwi ]; then
 	# M8: touch-on default plus touch-off fallback, no GPU-on entry
-	expect=$'SP11 debug\nSP11 debug, USB + DSP trace\nSP11 debug, no early DSP\nSP11 debug, Wi-Fi unblock probe\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nSP11 debug, touch off\nVM test (no devicetree)'
-	nentries=8
+	expect=$'SP11 debug\nSP11 debug, USB + DSP trace\nSP11 debug, no early DSP\nSP11 debug, Wi-Fi unblock probe\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nSP11 debug, touch off\nSP11 debug, microphones\nVM test (no devicetree)'
+	nentries=9
 else
 	expect=$'SP11 debug\nSP11 debug + DRM trace\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)'
 	nentries=5
@@ -208,7 +208,7 @@ ids_ok=1
 awk '/^menuentry /{t=$0} /^[[:space:]]+linux /{print t "\t" $0}' "$cfg_esp" >"$W/linux-lines.txt"
 while IFS=$'\t' read -r t l; do
 	id=$(echo "$t" | sed -n "s/.*--id sp11-\([a-z0-9-]*\).*/\1/p")
-	case $id in debug | usbdbg | nodsp | wifi-unblock | nomodeset | initramfs | notouch | vmtest) ;; *) ids_ok=0; fail 2.12 "unknown entry id '$id' ($t)" ;; esac
+	case $id in debug | usbdbg | nodsp | wifi-unblock | nomodeset | initramfs | notouch | audio | vmtest) ;; *) ids_ok=0; fail 2.12 "unknown entry id '$id' ($t)" ;; esac
 	want=$id
 	case $l in *" sp11.entry=$want"*) ;; *) ids_ok=0; fail 2.12 "entry '$t' lacks sp11.entry=$want" ;; esac
 	case $l in *console=ttyAMA0*) [ "$id" = vmtest ] || { ids_ok=0; fail 2.12 "serial console on a device entry: $t"; } ;; *) [ "$id" != vmtest ] || { ids_ok=0; fail 2.12 "VM entry lacks the serial console"; } ;; esac
@@ -238,7 +238,7 @@ if [ "$builder" = kiwi ]; then
 		python3 -I "$REPO/scripts/kernel-dtb-safety.py" "$df.dts" >"$df.s1.json" 2>&1 && res=OK || res="effectively enabled or no watched node: $(tr -d '\n ' <"$df.s1.json" | cut -c1-300)"
 		[ "$res" = OK ] || { s1ok=0; fail 2.18 "S1: $dp: $res"; }
 	done
-	[ "$s1ok" = 1 ] && pass 2.18 "S1: no DTB of any device entry enables /sound, &swr0 (soundwire@6b10000) or a WSA884x speaker node"
+	[ "$s1ok" = 1 ] && pass 2.18 "S1: every selectable DTB keeps swr0 and WSA off; enabled card is microphone-only"
 fi
 free=$(mdir -i "$esp_img" ::/ 2>/dev/null | awk '/bytes free/{gsub(/[^0-9]/,""); print}')
 if [ -n "${free:-}" ] && [ "$free" -ge 8388608 ]; then pass 2.10 "embedded ESP has $((free / 1048576)) MiB free for /EFI/sp11-logs"; else fail 2.10 "embedded ESP free space too small (${free:-?} bytes)"; fi
@@ -325,7 +325,7 @@ fi
 if [ "$builder" = kiwi ]; then
 	# D19: DTB variants next to the packaged one. Same SoC and board (root compatible), different from the
 	# packaged DTB, hashes as in the build record and as in out/dtb-variants (the kernel worker's output).
-	for v in m10 m10-notouch; do
+	for v in m11 m11-notouch m11-audio; do
 		vf=x1p64100-microsoft-denali-$v.dtb
 		vd=$W/$vf
 		x "/boot/dtb/qcom/$vf" "$vd"
@@ -337,7 +337,7 @@ if [ "$builder" = kiwi ]; then
 		gpu_status=$(fdtget "$vd" /soc@0/gpu@3d00000 status 2>/dev/null)
 		[ "$gpu_status" = disabled ] && pass 3.12 "D22: $v GPU node disabled" || fail 3.12 "D22: $v GPU status '$gpu_status'"
 		check_args=(--variant "$v")
-		[ "$v" = m10-notouch ] && check_args+=(--baseline "$W/x1p64100-microsoft-denali-m10.dtb")
+		[ "$v" = m11-notouch ] && check_args+=(--baseline "$W/x1p64100-microsoft-denali-m11.dtb")
 		if python3 -I "$REPO/scripts/kernel-m8-check.py" "$vd" "${check_args[@]}" >"$W/$v-wiring.json" 2>"$W/$v-wiring.err"; then
 			pass 3.13 "$v: S1, parity, wiring and QSPI touch; fallback differs only in touch child status"
 		else fail 3.13 "$v: $(cat "$W/$v-wiring.err")"; fi
@@ -347,14 +347,18 @@ if [ "$builder" = kiwi ]; then
 		if [ "$(jq_ ".dtb_variants_smoke_copy // false")" = true ]; then
 			skip 3.8 "smoke build: variant $v is a copy of the packaged DTB, not a real variant"
 		else
-			cmp -s "$vd" "$dtbf" && fail 3.8 "variant $v is identical to the packaged DTB" || pass 3.8 "variant $v differs from the packaged DTB"
+			if [ "$v" = m11 ]; then
+				cmp -s "$vd" "$dtbf" && pass 3.8 "M11 default equals the packaged parity DTB" || fail 3.8 "M11 default differs from the packaged DTB"
+			else
+				cmp -s "$vd" "$dtbf" && fail 3.8 "variant $v is identical to the packaged DTB" || pass 3.8 "variant $v differs from the packaged DTB"
+			fi
 		fi
 		[ "$vsha" = "$(jq_ ".dtb_files[\"$vf\"] // empty")" ] && pass 3.9 "variant $v SHA-256 equals the build record" || fail 3.9 "variant $v SHA-256 $vsha differs from the build record ($(jq_ ".dtb_files[\"$vf\"] // \"none\""))"
 		rsha=$(jq_ ".dtb_variant_records[\"$vf.json\"].sha256 // empty")
 		if [ -n "$rsha" ]; then [ "$vsha" = "$rsha" ] && pass 3.11 "variant $v SHA-256 equals the kernel worker's JSON record" || fail 3.11 "variant $v SHA-256 differs from the kernel worker's JSON record ($rsha)"; else fail 3.11 "no JSON record of the kernel worker for variant $v in the build record"; fi
 		vr=$OUT/dtb-variants/$kver/qcom/${vf%.dtb}.json
 		if [ -f "$vr" ] && [ "$vsha" = "$(jq -r .sha256 "$vr")" ] &&
-		   [ "$(jq -r .kver "$vr")" = "$kver" ] && [ "$(jq -r .series_rev "$vr")" = 7 ] &&
+		   [ "$(jq -r .kver "$vr")" = "$kver" ] && [ "$(jq -r .series_rev "$vr")" = 8 ] &&
 		   [ "$(jq -r .series_hash_sha256 "$vr")" = "$(jq_ .kernel_patch_series_sha256)" ] &&
 		   jq -e --arg f "$vf.json" --slurpfile source "$vr" '.dtb_variant_records[$f] == $source[0]' "$rec" >/dev/null; then
 			pass 3.14 "variant $v matches published JSON hash/release/series and embedded record"
@@ -371,9 +375,9 @@ if [ "$smoke" = false ]; then
 	ls "$OUT"/rpms/kernel-core-*.rpm >/dev/null 2>&1 && { rpm -qp --qf '%{name}-%{version}-%{release}.%{arch}\n' "$OUT"/rpms/kernel-core-*.rpm | grep -qx "$got_nevra" && pass 4.2 "kernel-core is the RPM of out/rpms" || fail 4.2 "kernel-core is not in out/rpms"; }
 fi
 if [ "$builder" = kiwi ] && [ "$smoke" = false ]; then
-	if [ "$kver" = 7.3.0-65.sp11.7.fc44.aarch64 ] && [ "$got_nevra" = kernel-core-7.3.0-65.sp11.7.fc44.aarch64 ] && [ "$(jq_ .milestone)" = M10 ]; then
-		pass 4.9 "M10: required revision-7 kernel release and milestone"
-	else fail 4.9 "M10 requires revision-7 kernel and milestone (found $kver / $got_nevra)"; fi
+	if [ "$kver" = 7.3.0-65.sp11.8.fc44.aarch64 ] && [ "$got_nevra" = kernel-core-7.3.0-65.sp11.8.fc44.aarch64 ] && [ "$(jq_ .milestone)" = M11 ]; then
+		pass 4.9 "M11: required revision-8 kernel release and milestone"
+	else fail 4.9 "M11 requires revision-8 kernel and milestone (found $kver / $got_nevra)"; fi
 fi
 cmp -s "$kimg" "$ROOT/lib/modules/$kver/vmlinuz" && pass 4.3 "ISO kernel image equals lib/modules/$kver/vmlinuz" || fail 4.3 "ISO kernel image differs from the package"
 kimg_ver=$(python3 -I - "$kimg" <<'PY'
@@ -452,13 +456,23 @@ root, record, release = map(pathlib.Path, sys.argv[1:])
 rec = json.loads(record.read_text())
 digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
 assert digest(release) == rec['kernel_release_record_sha256']
-modules = json.loads(release.read_text())['m10']['touch_modules']
+modules = json.loads(release.read_text())['m11']['touch_modules']
 assert modules == rec['kernel_touch_modules'] and len(modules) == 8
 for name, module in modules.items():
     assert digest(root / module['path'].lstrip('/')) == module['module_sha256'], name
 PY
-	then pass 4.12 "all eight M10 touch module payload hashes match the pinned kernel release JSON"
-	else fail 4.12 "M10 touch module bytes or kernel release record differ"; fi
+	then pass 4.12 "all eight M11 touch module payload hashes match the pinned kernel release JSON"
+	else fail 4.12 "M11 touch module bytes or kernel release record differ"; fi
+fi
+
+# M11 integration and audio safety: check actual shipped bytes and activation policy.
+if [ "$builder" = kiwi ]; then
+	if python3 -I "$REPO/image/tools/check-m11-payload.py" "$ROOT" "$REPO" "$rec" "$OUT/rpms/kernel-$kver.json" >"$W/m11-payload.txt" 2>&1; then
+		pass 8.35 "M11 microphones: no speaker UCM; topology, kernel volume caps, WirePlumber and locked dconf policy verified"
+	else fail 8.35 "M11 payload validation failed (m11-payload.txt)"; fi
+	if systemd-analyze --root="$ROOT" verify sp11-ssam-shutdown.service sp11-ssam-rebind.service sp11-rfkill-events.service >"$W/m11-units.txt" 2>&1; then
+		pass 8.36 "SAM shutdown, opt-in rebind and rfkill units validate without ordering cycles"
+	else fail 8.36 "M11 unit validation failed (m11-units.txt)"; fi
 fi
 
 # ---------------------------------------------------------------- check 5 ----
@@ -562,9 +576,9 @@ fi
 
 # ---------------------------------------------------------------- check 6 ----
 is_private=$(jq_ '.private // false | if type == "object" then "true" else "false" end')
-python3 - "$REPO/firmware/manifest.toml" "$ROOT" "$W/rpm-files.txt" "$smoke" "$is_private" <<'EOF' >"$W/firmware-check.txt"
+python3 - "$REPO/firmware/manifest.toml" "$ROOT" "$W/rpm-files.txt" "$smoke" "$is_private" "$builder" <<'EOF' >"$W/firmware-check.txt"
 import hashlib, os, sys, tomllib
-manifest, root, rpmlist, smoke, is_private = sys.argv[1:6]
+manifest, root, rpmlist, smoke, is_private, builder = sys.argv[1:7]
 m = tomllib.load(open(manifest, 'rb'))
 # merged /usr: some packages (b43-openfwwf) record /lib/firmware/..., the tree walk sees /usr/lib/...
 owned = set()
@@ -600,6 +614,16 @@ for b in m.get('blob', []):
         found = [p for p in (lp, lp + '.xz', lp + '.zst') if os.path.isfile(os.path.join(fwdir, p))]
         print(("PASS" if found else "FAIL") + f" 6.2 {lp}: " + (f"Fedora package file {found[0]}" if found else "linux-firmware file missing"))
 extra = []
+# M11: public upstream topology, built by the audio owner (not DriverStore).
+# Exact path/hash only; 8.35 also ties it to the embedded M11 input record.
+topology = 'qcom/x1e80100/X1E80100-Microsoft-Surface-Pro-11-tplg.bin'
+tp = os.path.join(fwdir, topology)
+if builder == 'kiwi':
+    if os.path.isfile(tp) and sha(tp) == 'b192044f01e97eabe7f6df9ae0d394086badb3c30124573210bc781093da8c03':
+        expected.add('/usr/lib/firmware/' + topology)
+        print('PASS 6.4 public upstream microphone topology matches the audio evidence SHA-256')
+    else:
+        print('FAIL 6.4 ' + topology)
 for d, _, fs in os.walk(fwdir):
     for f in fs:
         p = os.path.join(d, f)
@@ -610,7 +634,7 @@ for d, _, fs in os.walk(fwdir):
         if is_private == 'true' and rel == '/usr/lib/firmware/updates/ath12k/WCN7850/hw2.0/board-2.bin':
             continue
         extra.append(rel)
-print("PASS 6.3 every file under /usr/lib/firmware is owned by an RPM or in the manifest" if not extra else "FAIL 6.3 unexpected files in /usr/lib/firmware: " + ' '.join(extra[:10]))
+print("PASS 6.3 every firmware file is RPM-owned, in the manifest, or an explicitly verified image input" if not extra else "FAIL 6.3 unexpected files in /usr/lib/firmware: " + ' '.join(extra[:10]))
 EOF
 while IFS= read -r line; do
 	case $line in PASS*) npass=$((npass + 1)) ;; FAIL*) nfail=$((nfail + 1)) ;; SKIP*) nskip=$((nskip + 1)) ;; esac
@@ -646,14 +670,14 @@ if [ "$private" = true ]; then
 	# settings, and the values must stay out of everything else. Values are compared by hash, never printed.
 	pt=$REPO/image/tools/private-stage.py
 	mc=${SP11_MAC_CONF_IN:-}
-	board=$OUT/firmware-private/wifi/ath12k/WCN7850/hw2.0/board-2.bin
+	board=${SP11_WIFI_BOARD2:-}
 	case $name in *-private*) pass 7.6 "ISO name carries -private" ;; *) fail 7.6 "private record but the ISO name lacks -private" ;; esac
 	if [ -z "$mc" ] || [ ! -r "$mc" ]; then fail 7.7 "address file not available to L0 (private L0 must run through scripts/image-test-static.sh)"
 	else
 		# verify uses the recorded board hash when the local board file moved
-		bargs=(); [ -r "$board" ] && bargs=(--board "$board")
+		bargs=(); [ -n "$board" ] && [ -r "$board" ] && bargs=(--board "$board")
 		if python3 -I "$pt" verify --root "$ROOT" --mac-conf "$mc" --record "$rec" --owner-root "${bargs[@]}" >"$W/private-verify.txt" 2>&1; then
-			pass 7.7 "private artefacts present with modes/formats; bt-address, Wi-Fi conf/.link equal the source file (hash compare); board file equals the derived file; record has hashes only"
+			pass 7.7 "private artefacts present with modes/formats; bt-address, Wi-Fi conf/.link equal the source file (hash compare); board override absent or verified opt-in matching its recorded hash; record has hashes only"
 		else fail 7.7 "private artefacts wrong: $(grep '^FAIL' "$W/private-verify.txt" | head -n 4 | tr '\n' ';')"; fi
 		# nothing outside the root file system may hold a value: JSON record, ISO boot tree, embedded ESP, report
 		rm -rf "$W/esp-copy"; mkdir -p "$W/esp-copy"
@@ -750,13 +774,13 @@ if [ "$builder" = kiwi ]; then
 		bash -n "$ROOT/etc/sp11-log-collector.d/$c.sh" || ok=0
 	done
 	cmp -s "$ROOT/etc/sp11-log-collector.d/usb-typec.sh" "$REPO/image/overlay/etc/sp11-log-collector.d/usb-typec.sh" || ok=0
-	[ "$ok" = 1 ] && pass 8.20 "DSP (owner collector plus M10 append), Wi-Fi and USB-C collectors installed as built from source, shell syntax valid" || fail 8.20 "component collector missing or changed"
-	# M10: the refreshed component hooks (nine Bluetooth commands, DSP, Wi-Fi journal reads, USB-C) make one snapshot
+	[ "$ok" = 1 ] && pass 8.20 "DSP (owner collector plus M11 append), Wi-Fi and USB-C collectors installed as built from source, shell syntax valid" || fail 8.20 "component collector missing or changed"
+	# M11: the refreshed component hooks (nine Bluetooth commands, DSP, Wi-Fi journal reads, USB-C) make one snapshot
 	# longer than M8's under TCG, where the 600 s/90 s limits cut the session and the shutdown snapshot off
 	if grep -qx 'TimeoutStartSec=1500' "$ROOT/usr/lib/systemd/system/sp11-log-collector-session@.service" &&
 	   grep -qx 'TimeoutStopSec=300' "$ROOT/usr/lib/systemd/system/sp11-log-collector.service"; then
 		pass 8.33 "collector units allow a full snapshot (session start 1500 s, shutdown stop 300 s)"
-	else fail 8.33 "collector unit timeouts are not the M10 values"; fi
+	else fail 8.33 "collector unit timeouts are not the M11 values"; fi
 	dsp=$ROOT/etc/sp11-log-collector.d/dsp-subsystems.sh
 	if grep -qxF 'timeout 8 dmesg 2>&1 | grep sp11-glink | head -n 2000' "$dsp" &&
 	   grep -qF 'journalctl -k -b --no-pager 2>&1 | grep sp11-glink' "$dsp" &&
@@ -764,15 +788,18 @@ if [ "$builder" = kiwi ]; then
 	   grep -qF 'sp11-glink: create_ept .* failed' "$dsp" &&
 	   grep -qF "grep -c 'sp11-glink:'" "$dsp" &&
 	   grep -qF '## remoteproc state after the GLINK lines' "$dsp"; then
-		pass 8.34 "M10: DSP collector greps sp11-glink (dmesg, journal, timeout, create_ept, counts) and records remoteproc state"
-	else fail 8.34 "M10: DSP collector lacks the sp11-glink or remoteproc commands: $(basename "$dsp")"; fi
+		pass 8.34 "M11: DSP collector greps sp11-glink (dmesg, journal, timeout, create_ept, counts) and records remoteproc state"
+	else fail 8.34 "M11: DSP collector lacks the sp11-glink or remoteproc commands: $(basename "$dsp")"; fi
 	u=sp11-rfkill-events.service
 	if [ "$(readlink "$ROOT/etc/systemd/system/multi-user.target.wants/$u")" = "/usr/lib/systemd/system/$u" ] &&
 	   grep -qx "enable $u" "$ROOT/usr/lib/systemd/system-preset/80-sp11.preset" &&
-	   grep -qx 'Before=NetworkManager.service' "$ROOT/usr/lib/systemd/system/$u" &&
+	   ! grep -Eq '^(Before|Requires|Wants|ExecStartPre)=' "$ROOT/usr/lib/systemd/system/$u" &&
+	   grep -qx 'After=systemd-modules-load.service' "$ROOT/usr/lib/systemd/system/$u" &&
+	   grep -qx 'Type=simple' "$ROOT/usr/lib/systemd/system/$u" &&
+	   grep -qx 'StandardOutput=journal' "$ROOT/usr/lib/systemd/system/$u" &&
 	   grep -qx 'ExecStart=/usr/bin/rfkill event' "$ROOT/usr/lib/systemd/system/$u" &&
 	   grep -qx rfkill "$ROOT/etc/modules-load.d/sp11-rfkill.conf"; then
-		pass 8.21 "rfkill event unit enabled, preset and ordered before NetworkManager"
+		pass 8.21 "rfkill event unit enabled, preset and does not gate NetworkManager (I3)"
 	else fail 8.21 "rfkill event unit policy incomplete"; fi
 	gate_test=$W/wifi-gate-test.sh
 	{ sed -n '/^wifi_unblock_enabled() {/,/^}/p' "$ROOT/usr/libexec/sp11-log-collector"; cat <<'EOT'
@@ -791,8 +818,8 @@ EOT
 		pass 8.22 "Wi-Fi unblock probe outside automatic drop-ins, invoked only behind the cmdline gate (menu checked in 2.17)"
 	else fail 8.22 "Wi-Fi unblock probe is missing or automatic"; fi
 	if modinfo -b "$ROOT" -k "$kver" -p ath12k | grep -q '^debug_mask:' &&
-	   grep -qx 'options ath12k debug_mask=0x30' "$ROOT/etc/modprobe.d/50-sp11-ath12k.conf"; then
-		pass 8.23 "shipped ath12k exposes debug_mask and the image sets 0x30"
+	   grep -qx 'options ath12k debug_mask=0x70' "$ROOT/etc/modprobe.d/50-sp11-ath12k.conf"; then
+		pass 8.23 "shipped ath12k exposes debug_mask and the image sets 0x70"
 	else fail 8.23 "ath12k debug_mask missing or options invalid"; fi
 fi
 if [ "$builder" = kiwi ]; then

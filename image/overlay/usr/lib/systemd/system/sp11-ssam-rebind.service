@@ -1,0 +1,11 @@
+[Unit]
+Description=SP11 SAM rebind test
+ConditionKernelCommandLine=sp11.ssam_rebind
+After=systemd-udev-settle.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/sp11/ec-sam/ssam-rebind.sh
+
+[Install]
+WantedBy=multi-user.target

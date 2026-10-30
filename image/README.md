@@ -50,22 +50,9 @@ Kernel command line, common to all entries:
 | `rd.live.image root=live:CDLABEL=<label>` | Fedora live boot |
 | `console=tty0` | Panel console |
 
-Entries for M8 (D22–D24), in order. Device entries use `…-denali-m8.dtb`, except `notouch` uses `…-denali-m8-notouch.dtb` (both keep speakers and GPU off) and `clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr` in addition to the common verbose/live arguments:
+The current M11 menu is recorded in [M11 private integration](#m11-private-integration-2026-10-30). Default `debug` uses `m11`; `touch off` uses `m11-notouch`; the optional microphone entry uses `m11-audio`. All eight device entries keep `clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr` (the no-early-DSP entry adds `qcom_q6v5_pas` to the rd blacklist). Every selectable DTB keeps the GPU and speakers off; only the microphone entry enables a card without a WSA link and with `swr0` disabled. The VM entry has no device DTB or clock/rootdelay overrides and adds `console=ttyAMA0,115200`.
 
-| Entry | `sp11.entry` | Additional arguments / purpose |
-|:--|:--|:--|
-| `SP11 debug` (default) | `debug` | Baseline; no radio state change |
-| `SP11 debug, USB + DSP trace` | `usbdbg` | USB-C test-plan C and DSP R-I2, combined (arguments below) |
-| `SP11 debug, no early DSP` | `nodsp` | `rd.driver.blacklist=qcom_battmgr,qcom_q6v5_pas` (replaces the common rd blacklist) |
-| `SP11 debug, Wi-Fi unblock probe` | `wifi-unblock` | `sp11.wifi_unblock=1`; transient rfkill and NetworkManager probe |
-| `SP11 debug nomodeset` | `nomodeset` | `nomodeset` |
-| `SP11 debug, stop in initramfs` | `initramfs` | `rd.break=pre-mount` |
-| `SP11 debug, touch off` | `notouch` | Same arguments as `debug`; touch child disabled |
-| `VM test (no devicetree)` | `vmtest` | No DTB or clock/rootdelay overrides; `console=ttyAMA0,115200` |
-
-`usbdbg` adds `pmic_glink_altmode.dyndbg=+p ps883x.dyndbg=+p phy_qcom_qmp_combo.dyndbg=+p ucsi_glink.dyndbg=+p typec_ucsi.dyndbg=+p dwc3.dyndbg=+p dwc3_qcom.dyndbg=+p qcom_pd_mapper.dyndbg=+p pdr_interface.dyndbg=+p trace_event=:mod:qcom_glink trace_buf_size=8M`. DSP tracing is confined to this diagnostic entry to bound console/trace volume (implementation choice permitted by the M6 task). D23 makes the requested `qcom_battmgr.dyndbg=+p` redundant, so it is omitted. The other diagnostic arguments retain the component workers' requested spelling. No GPU-on entry exists (D22).
-
-The collector writes the selected `sp11.entry` to `entry.txt`. Every selectable device DTB passes L0 2.18 (S1). Both M8 variants are published by the kernel worker; their JSON and SHA-256 enter the build record. The packaged DTB remains on the ISO for package comparison, and is never selected by the menu.
+Default `debug`, `touch off` and `microphones` carry `qcom_pd_mapper.dyndbg=+p pdr_interface.dyndbg=+p trace_event=:mod:qcom_glink,smp2p:*,remoteproc:* trace_buf_size=8M` (DSP R-I2/R-K3), so tracing starts before DSP probe. `usbdbg` retains M10's `pmic_glink_altmode.dyndbg=+p ps883x.dyndbg=+p phy_qcom_qmp_combo.dyndbg=+p ucsi_glink.dyndbg=+p typec_ucsi.dyndbg=+p dwc3.dyndbg=+p dwc3_qcom.dyndbg=+p qcom_pd_mapper.dyndbg=+p pdr_interface.dyndbg=+p trace_event=:mod:qcom_glink trace_buf_size=8M`. D23 keeps `qcom_battmgr` blocked. The collector writes the selected `sp11.entry` to `entry.txt`; the build record contains the exact arguments for every entry. The packaged DTB remains on the ISO for RPM comparison and is unreferenced by the menu.
 
 ### Secure Boot
 
@@ -797,35 +784,91 @@ Changes against M9:
 - Private checks 7.6-7.10 and S5 rules are unchanged; L0 prints file names only. A scan of the repository, the L0/L1 reports and the work logs for the address values found none.
 - Disk guard passed (45 GiB headroom, C: free 14 GiB); nothing was deleted.
 
+### M11 private integration (2026-10-30)
+
+One private ISO for the operator's device (D25/S5); never share it. The extracted L0 `root` and private staging tree have been removed.
+
+| Item | Value |
+|:--|:--|
+| ISO | `out/iso/sp11-fedora44-aarch64-kiwi-m11-private-20261030T121406Z.iso` |
+| Record / checksum | `out/iso/sp11-fedora44-aarch64-kiwi-m11-private-20261030T121406Z.json` / `.iso.sha256`; hashes only, distribution forbidden |
+| Size | 2,802,319,360 bytes |
+| SHA-256 | `5c6a0a118fca87abb429d8e369f6818fcbd60850bf2665f879023b08675019e1` |
+| Kernel | `kernel-core-7.3.0-65.sp11.8.fc44.aarch64`; revision 8, both BTF settings enabled |
+| Build | One fresh kiwi compose, 1448 s, 1975 packages; build id `20261030T121409Z` |
+| Menu | 9 entries: 8 device entries using 3 selectable DTBs, plus the VM entry |
+| Wi-Fi board | Fedora generic; no derived override installed |
+| L0 | **215 passed, 0 failed, 0 skipped**, including private checks 7.6–7.10; `.l0.txt` |
+| QEMU L1 | Running with `--until-session --decoy` |
+
+Menu checked in the built ISO. All device entries keep the M10 verbose/live arguments, clock/domain overrides, root delay and D23 blacklists; `nodsp` replaces the rd blacklist as below. Every selectable DTB keeps the GPU and WSA speaker bus/amplifiers off.
+
+| # | Title | `sp11.entry` | DTB | Extra diagnostics |
+|:--|:--|:--|:--|:--|
+| 1 | `SP11 debug` (default) | `debug` | m11 | GLINK, SMP2P and remoteproc trace |
+| 2 | `SP11 debug, USB + DSP trace` | `usbdbg` | m11 | M10 USB/DSP trace arguments |
+| 3 | `SP11 debug, no early DSP` | `nodsp` | m11 | rd blacklist `qcom_battmgr,qcom_q6v5_pas` |
+| 4 | `SP11 debug, Wi-Fi unblock probe` | `wifi-unblock` | m11 | `sp11.wifi_unblock=1` |
+| 5 | `SP11 debug nomodeset` | `nomodeset` | m11 | `nomodeset` |
+| 6 | `SP11 debug, stop in initramfs` | `initramfs` | m11 | `rd.break=pre-mount` |
+| 7 | `SP11 debug, touch off` | `notouch` | m11-notouch | Same arguments as `debug`, except entry marker |
+| 8 | `SP11 debug, microphones` | `audio` | m11-audio | Same arguments as `debug`, except entry marker |
+| 9 | `VM test (no devicetree)` | `vmtest` | none | Common verbose/live arguments and `console=ttyAMA0,115200` |
+
+The single M11 compose uses revision-8 kernel `7.3.0-65.sp11.8.fc44.aarch64` and the published `m11`, `m11-notouch` and `m11-audio` DTB/JSON pairs. The first seven M10 menu entries keep their order, followed by `SP11 debug, microphones` (`audio`) and the VM entry. The microphone entry uses `m11-audio`; `debug` uses `m11`, and `touch off` uses `m11-notouch`. No speaker or GPU entry exists. The default, touch-off and microphone entries add `smp2p:*,remoteproc:*` to the existing GLINK `trace_event=` argument; the USB/DSP entry retains its M10 diagnostic arguments.
+
+- Wi-Fi I9/I3/I4: the derived board file that crashed firmware in M10 is omitted by default, including in private mode. Fedora's packaged generic board file stays intact. An explicit `SP11_WIFI_BOARD2` is accepted only after the owner's structural verifier exits zero against a Fedora reference and the Windows payload hash; failure warns and retains Fedora's file. This build leaves the override off. `ath12k debug_mask=0x70` is installed before module load; the rfkill listener no longer orders NetworkManager. Persistent Wi-Fi identity remains in the private NetworkManager configuration and `.link` file.
+- SAM R10: `sp11-ssam-shutdown.service` is enabled/preset for `sysinit.target`, remains active, and unbinds the actual SAM serdev device during shutdown/reboot to run orderly client removal. `sp11-ssam-rebind.service` is enabled/preset but skipped unless `sp11.ssam_rebind` appears on the command line; its script checks the argument again and uses only the device already bound to `surface_serial_hub`. Add that argument manually in GRUB for an operator-chosen test. The owner's example `After=multi-user.target` would cycle with `WantedBy=multi-user.target`, so it is omitted; the unit retains udev-settle ordering. The read-only R10 collector is snapshotted from the ec-sam worker's unmerged dossier, hash-pinned in `image/component-inputs/m11.json` and installed unchanged. No input events are read.
+- DSP R-K3: retain the M10 DSP/USB-C hooks and the sp11-glink greps; the DSP append now reads remoteproc debugfs `trace0` and `resource_table`, bounded to 256 KiB and five seconds per file. Nothing enables/clears tracing or restarts a remoteproc.
+- Microphones/S1: install only `hardware/audio-speakers/userspace/overlay`, including the UCM alias, microphone capture profile, WirePlumber default sink volume 0.05, and locked GNOME above-100-percent setting. Fedora's `config.sh` runs `dconf update` before exiting. `stage-b-speakers-HOLD` is never copied. The local topology artefact is the audio owner's public upstream build from `aab5c37c4fb9d9daed2dc789b8b7ca91c4133899`, 22856 bytes, SHA-256 `b192044f01e97eabe7f6df9ae0d394086badb3c30124573210bc781093da8c03`; staged at `out/image-inputs/audio/qcom/x1e80100/X1E80100-Microsoft-Surface-Pro-11-tplg.bin`. The source recipe remains `hardware/audio-speakers/userspace/build-topology.sh`; no Git-writing recipe was run here. It has no speaker protection and does not authorize speaker output.
+- L0: check every selectable DTB with the kernel owner's narrow microphone exception. The microphone card must have `swr0` disabled, no WSA playback link and only DMIC routes. The default now equals the packaged parity DTB, so 3.8 requires equality for `m11`; other variants must differ. New 6.4 allows only the exact public topology path and hash in the firmware inventory. New 8.35 validates actual UCM/topology/policy bytes, effective compiled dconf value and lock, SAM activation/scripts, bounded DSP reads, and the audio-volume module payload hashes against the checked kernel release record. New 8.36 validates the installed SAM/rfkill units and ordering. Private checks 7.6–7.10 remain mandatory and print names only.
+
+Preflight passed: three compiled DTB wiring/S1/parity/CMA checks, positive nine-entry menu and four negative fixtures, private staging 27/27 plus actual valid/invalid board override cases, QEMU driver/target/capture regressions, and systemd unit verification. The disk guard initially refused at 26 GiB headroom. After inspecting each candidate, only the superseded M8/M9 ISOs/checksums, L0/L1 reports and corresponding L0/L1 work directories were deleted (`out/image-work/m11-cleanup.txt`). Headroom at compose start was 75 GiB. M10, device logs, firmware/private board inputs, DTB variants, reference trees, sources and all RPM archives were retained.
+
 ## Private build mode (operator device only)
 
-`scripts/image-build.sh --private` (or `SP11_PRIVATE=1`) builds an ISO for the operator's own Surface Pro 11 with the Windows-derived settings embedded, so Wi-Fi and Bluetooth work without the post-write provisioning of the M6 procedure. Kiwi builder only. The default build stays public: no address, no derived blob, L0 checks 7.5 unchanged.
+`scripts/image-build.sh --private` (or `SP11_PRIVATE=1`) builds an ISO for the operator's own Surface Pro 11 with device identities embedded, avoiding the post-write address provisioning of the M6 procedure. This does not establish radio functionality; the M10 board crash requires the I9 fallback below. Kiwi builder only. The default build stays public: no address, no derived blob, L0 checks 7.5 unchanged.
 
-**Threat model.** A private ISO contains this device's Wi-Fi and Bluetooth addresses and Windows-derived Wi-Fi board data. It must not be shared, uploaded, attached to a ticket or used on another device. Values stay out of git, logs, the JSON build record and every README; those hold only "present", SHA-256 prefixes (8 hex digits for an address) and the board file hash. The values exist only in the staging tree (removed after the build, also on failure), in the ISO root file system, and in the L0 work directory `out/image-work/l0-<name>/root`, which the operator deletes with the ISO. The ISO name carries `-private`, the record has a `private` object and `distribution: forbidden`.
+**Threat model.** A private ISO contains this device's Wi-Fi and Bluetooth addresses, and Windows-derived Wi-Fi board data only after explicit opt-in and successful structural verification. It must not be shared, uploaded, attached to a ticket or used on another device. Values stay out of git, logs, the JSON build record and every README; those hold only "present", SHA-256 prefixes (8 hex digits for an address) and the board file hash. The values exist only in the staging tree (removed after the build, also on failure), in the ISO root file system, and in the L0 work directory `out/image-work/l0-<name>/root`, which the operator deletes with the ISO. The ISO name carries `-private`, the record has a `private` object and `distribution: forbidden`.
 
 | Input | Default | Override |
 |:--|:--|:--|
 | Addresses `WIFI_MAC`, `BT_MAC` | `~/sp11-windows-dumps/live-inventory/sp11-mac.conf` (git-ignored; also `sources/windows/live-inventory/sp11-mac.conf`) | `SP11_MAC_CONF` |
-| Derived board file (wifi request F2/I7) | `out/firmware-private/wifi/ath12k/WCN7850/hw2.0/board-2.bin` | `SP11_WIFI_BOARD2`, optional pin `SP11_WIFI_BOARD2_SHA256` |
+| Derived board file (Wi-Fi I9, supersedes F2/I7 default) | omitted; Fedora generic | explicit `SP11_WIFI_BOARD2`, optional pin `SP11_WIFI_BOARD2_SHA256` |
+| Fedora reference for optional board verification | `out/image-inputs/wifi/fedora-board-2.bin.xz` | `SP11_WIFI_FEDORA_BOARD2` |
 
-The host side of `image-build.sh` runs `image/tools/private-stage.py stage` (the container cannot see the dumps). It validates the addresses (six bytes, not a sentinel, unicast) and the board file (ath12k board magic) and fails the build with a clear message when the board file is missing or invalid. It stages these files, handed to the kiwi root overlay and chowned to root:
+The host side of `image-build.sh` runs `image/tools/private-stage.py stage` (the container cannot see the dumps). It validates the addresses (six bytes, not a sentinel, unicast) and fails closed on invalid addresses. Without an explicit board input it warns and leaves Fedora firmware in place. An explicit board must pass `wifi-board2.py verify --fedora <reference> --sha256 <Windows payload hash>` as well as magic and optional hash checks; a missing/invalid/unverifiable board warns and is omitted without failing the build. It stages these files, handed to the kiwi root overlay and chowned to root:
 
 | Image path | Mode | Content |
 |:--|:--|:--|
 | `/etc/sp11/bt-address` | 0600 | one upper-case colon address and a newline; the format `/usr/libexec/sp11-bt-address` reads, so the controller is configured without the boot-ESP file |
 | `/etc/NetworkManager/conf.d/90-sp11-wifi-mac.conf` | 0600 | `wifi.cloned-mac-address=` for `driver:ath12k*`, `wifi.scan-rand-mac-address=no` |
 | `/etc/systemd/network/10-sp11-wifi.link` | 0600 | `[Match] Driver=ath12k* Type=wlan`, `MACAddress=`; persistent from the first udev event (Fedora-native replacement of the reference's `sp11-mac-fixup` udev rules, D12) |
-| `/usr/lib/firmware/updates/ath12k/WCN7850/hw2.0/board-2.bin` | 0644 | derived board file; the kernel firmware loader searches `updates/` first, so it wins over Fedora's packaged `board-2.bin.xz`, which stays intact (the Fedora path itself must hold no override) |
+| `/usr/lib/firmware/updates/ath12k/WCN7850/hw2.0/board-2.bin` | 0644 | optional, verified opt-in derived board file; the kernel firmware loader searches `updates/` first, so it wins over Fedora's packaged `board-2.bin.xz`, which stays intact (the Fedora path itself must hold no override) |
 
-L0 for a private ISO (`scripts/image-test-static.sh`, which mounts the address file read-only for this check only): 7.6 name has `-private`; 7.7 the artefacts exist with these modes, formats and root ownership, values equal the source file and the board equals the derived file (all by hash, nothing printed), the record holds hashes only; 7.8 no value in the JSON record, ISO boot tree or embedded ESP; 7.9 no value in the repository; 7.10 none in the L0 report. Public ISOs skip 7.6-7.10 and keep 7.5 (no address input in root, boot tree or ESP). Selftests: `image/tools/private-stage-selftest.sh` (stage, verify, leak and refusal cases, public default retained).
+L0 for a private ISO (`scripts/image-test-static.sh`, which mounts the address file read-only for this check only): 7.6 name has `-private`; 7.7 the artefacts exist with these modes, formats and root ownership, values equal the source file and the board override is absent or matches its structurally verified record (all by hash, nothing printed), the record holds hashes only; 7.8 no value in the JSON record, ISO boot tree or embedded ESP; 7.9 no value in the repository; 7.10 none in the L0 report. Public ISOs skip 7.6-7.10 and keep 7.5 (no address input in root, boot tree or ESP). Selftests: `image/tools/private-stage-selftest.sh` (stage, verify, leak and refusal cases, public default retained).
 
 Rollback: rebuild without `--private`. Q3 of the wifi dossier (is the OTP address the factory one) is not decided by this mode; it only makes the userspace address persistent.
 
 ## Requests
 
+- orchestrator/operator (M11): review and commit the uncommitted image work after L0/L1 validation. The next already-planned boot can compare default `debug`, `touch off` and `microphones`; keep speakers/GPU off. Keyboard recovery remains an untested hypothesis: the shutdown unit is automatic, while a boot rebind requires manually adding `sp11.ssam_rebind` in GRUB. No separate reboot is requested here. Exact read-only collectors for that planned boot:
+
+  ```bash
+  sudo bash -c '. /etc/sp11-log-collector.d/ec-sam.sh'
+  sudo /usr/libexec/sp11/ec-sam/collect-input-capabilities.sh
+  sudo /usr/libexec/sp11/ec-sam/collect-power.sh
+  sudo bash -c '. /etc/sp11-log-collector.d/wifi.sh'
+  sudo /usr/libexec/sp11-bt-collect
+  sudo /usr/libexec/sp11-log-collector once
+  ```
+
+  These outputs can contain private device data; keep them under `out/device-logs/` and send owners sanitized conclusions. Device microphone capture and warm-reboot behavior remain owner test-plan gates.
+
+
 - sources/orchestrator (M8 prerequisite): fulfilled by main `3cd9c9f`. The native RPM consumes the `[iptsd]` table from `sources/sources.toml`; archive/spec hashes and the upstream commit match. The earlier `image/iptsd/source-pin-request.patch` is historical and must not be applied again.
 
-- orchestrator (S5, private mode): `plan/risks.md` S5 forbids addresses and derived blobs in the image. The operator, owner of this personal device, asked for a private build that embeds them. Please reword S5 as: "Public images never contain device addresses or Windows-derived data. A private image, built only with `--private` for the operator's own device, may contain them in its root file system; it is named `-private`, recorded by hash prefixes only, never shared, and values stay out of git, logs, JSON records and READMEs." Also supersede the Bluetooth `image-request.md` "Address stays out of the image" rule for private builds, and note that `hardware/wifi` I7 is implemented as `SP11_WIFI_BOARD2`. Nothing in `plan/` was edited by the image worker.
+- orchestrator (S5, private mode): fulfilled by D25 and the operator-authorized exception now in `plan/risks.md`. Wi-Fi I9 supersedes the derived board default; private identities remain allowed only for the operator device. Nothing in `plan/` was edited by image.
 
 - orchestrator/operator (M8): review and commit the uncommitted image work after validation. Provision `BOOT:/EFI/sp11/bt-address` only after DD-writing, as documented above. The next already-planned GPU-off/speakers-off boot can use the touch-on default, with `SP11 debug, touch off` as the fallback. No additional reboot is requested solely for evidence. Automatic full snapshots include touch, iptsd and input names. Exact read-only manual collectors, if needed:
 

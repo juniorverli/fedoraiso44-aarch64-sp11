@@ -74,10 +74,10 @@ if [ "$inside" = 0 ]; then
 	if [ "$builder" = kiwi ]; then
 		ls "$out"/rpms/kernel-core-*.rpm >/dev/null 2>&1 || { echo "image-build: no kernel-core RPM in $out/rpms/" >&2; exit 1; }
 		[ -d "$out/firmware-root/lib/firmware" ] || { echo "image-build: $out/firmware-root missing; run scripts/firmware-stage.sh" >&2; exit 1; }
-		for v in m10 m10-notouch; do
+		for v in m11 m11-notouch m11-audio; do
 			for ext in dtb json; do
-				[ -s "$out/dtb-variants/7.3.0-65.sp11.7.fc44.aarch64/qcom/x1p64100-microsoft-denali-$v.$ext" ] || {
-					echo "image-build: REFUSED: kernel worker has not published the M10 $v $ext" >&2; exit 6;
+				[ -s "$out/dtb-variants/7.3.0-65.sp11.8.fc44.aarch64/qcom/x1p64100-microsoft-denali-$v.$ext" ] || {
+					echo "image-build: REFUSED: kernel worker has not published the M11 $v $ext" >&2; exit 6;
 				}
 			done
 		done
@@ -88,10 +88,13 @@ if [ "$inside" = 0 ]; then
 			# printed). The staging tree lives in the git-ignored out/ and is removed by the container side.
 			macconf=${SP11_MAC_CONF:-$HOME/sp11-windows-dumps/live-inventory/sp11-mac.conf}
 			[ -r "$macconf" ] || macconf=$here/sources/windows/live-inventory/sp11-mac.conf
-			board=${SP11_WIFI_BOARD2:-$out/firmware-private/wifi/ath12k/WCN7850/hw2.0/board-2.bin}
-			echo "image-build: PRIVATE build: embeds device addresses and Windows-derived board data; never share the ISO"
-			python3 -I "$here/image/tools/private-stage.py" stage --mac-conf "$macconf" --board "$board" \
-				${SP11_WIFI_BOARD2_SHA256:+--board-sha256 "$SP11_WIFI_BOARD2_SHA256"} --out "$out/private-stage" || exit 6
+			board_args=()
+			if [ -n "${SP11_WIFI_BOARD2:-}" ]; then
+				board_args=(--board "$SP11_WIFI_BOARD2" --fedora "${SP11_WIFI_FEDORA_BOARD2:-$out/image-inputs/wifi/fedora-board-2.bin.xz}")
+				[ -n "${SP11_WIFI_BOARD2_SHA256:-}" ] && board_args+=(--board-sha256 "$SP11_WIFI_BOARD2_SHA256")
+			fi
+			echo "image-build: PRIVATE build: embeds device addresses; never share the ISO"
+			python3 -I "$here/image/tools/private-stage.py" stage --mac-conf "$macconf" "${board_args[@]}" --out "$out/private-stage" || exit 6
 			kargs+=(--private)
 		fi
 		[ -n "$name" ] && kargs+=("$name")

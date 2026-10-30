@@ -29,6 +29,7 @@ ENTRIES = [   # M8 menu order; VM entry last (selected by counting Down keys)
     "SP11 debug nomodeset",
     "SP11 debug, stop in initramfs",
     "SP11 debug, touch off",
+    "SP11 debug, microphones",
     "VM test (no devicetree)",
 ]
 LEGACY_ENTRIES = ["SP11 debug", "SP11 debug + DRM trace", "SP11 debug nomodeset", "SP11 debug, stop in initramfs", "VM test (no devicetree)"]
@@ -472,7 +473,7 @@ def main():
             check("D19 display files are in the log directory", not miss, ("missing: " + ", ".join(miss)) if miss else f"{len(need)} files")
             touch = read_log(a.logs, bd, "touch-pen.txt") or ""
             check("M8 touch helper captured kernel, DT, pinctrl and firmware sections",
-                  all(section in touch for section in ("7.3.0-65.sp11.7.fc44.aarch64",
+                  all(section in touch for section in ("7.3.0-65.sp11.8.fc44.aarch64",
                       "=== live DT and platform driver state ===",
                       "=== pinctrl ownership and configuration ===",
                       "=== installed firmware package and file")))

@@ -1,0 +1,16 @@
+[Unit]
+Description=SP11 clean SAM shutdown (unbind surface_serial_hub)
+DefaultDependencies=no
+After=sp11-log-collector.service
+Before=shutdown.target umount.target final.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/true
+ExecStop=/usr/libexec/sp11/ec-sam/ssam-unbind.sh
+TimeoutStopSec=10
+
+[Install]
+WantedBy=sysinit.target

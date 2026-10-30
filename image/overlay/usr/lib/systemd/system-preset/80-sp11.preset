@@ -8,3 +8,5 @@ enable sp11-log-collector-session-first.path
 enable sp11-log-collector-session-user.path
 enable sp11-rfkill-events.service
 enable sp11-bt-address.service
+enable sp11-ssam-shutdown.service
+enable sp11-ssam-rebind.service

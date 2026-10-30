@@ -18,7 +18,7 @@ def out(s):
 
 out("UEFI firmware (fake)\r\n")
 time.sleep(1)
-for e in ["SP11 debug", "SP11 debug, USB + DSP trace", "SP11 debug, no early DSP", "SP11 debug, Wi-Fi unblock probe", "SP11 debug nomodeset", "SP11 debug, stop in initramfs", "SP11 debug, touch off", "VM test (no devicetree)"]:
+for e in ["SP11 debug", "SP11 debug, USB + DSP trace", "SP11 debug, no early DSP", "SP11 debug, Wi-Fi unblock probe", "SP11 debug nomodeset", "SP11 debug, stop in initramfs", "SP11 debug, touch off", "SP11 debug, microphones", "VM test (no devicetree)"]:
     out(f"\x1b[1;1H  {e}\r\n")
 tty.setraw(0)  # QEMU puts the terminal in raw mode for -serial stdio
 os.set_blocking(0, False)
@@ -34,7 +34,7 @@ while True:
         break
     choice = buf.count(b"\x1b[B")
     time.sleep(0.2)
-entry = ["debug", "usbdbg", "nodsp", "wifi-unblock", "nomodeset", "initramfs", "notouch", "vmtest"][choice]
+entry = ["debug", "usbdbg", "nodsp", "wifi-unblock", "nomodeset", "initramfs", "notouch", "audio", "vmtest"][choice]
 out(f"Booting entry {choice}\r\n")
 out(f"[    0.000000] Kernel command line: root=live:CDLABEL=X debug sp11.entry={entry}\r\n")
 time.sleep(1)

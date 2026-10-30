@@ -27,4 +27,18 @@ for r in /sys/class/remoteproc/remoteproc*; do
 	[ -d "$r" ] || continue
 	echo "$(basename "$r"): name=$(R "$r/name") state=$(R "$r/state")"
 done
+# R-K3: bounded reads only; never enable/clear tracing or restart remoteproc.
+echo
+echo "## remoteproc debugfs trace0 and resource_table"
+for r in /sys/kernel/debug/remoteproc/remoteproc*; do
+	[ -d "$r" ] || continue
+	for f in trace0 resource_table; do
+		echo "=== $r/$f ==="
+		if [ -r "$r/$f" ]; then
+			timeout 5 head -c 262144 "$r/$f" 2>&1
+		else
+			echo "<unavailable>"
+		fi
+	done
+done
 true

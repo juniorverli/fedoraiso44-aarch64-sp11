@@ -1,7 +1,6 @@
 [Unit]
 Description=SP11 rfkill event evidence
 After=systemd-modules-load.service
-Before=NetworkManager.service
 
 [Service]
 Type=simple

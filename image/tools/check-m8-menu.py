@@ -5,10 +5,10 @@ import shlex
 import sys
 
 USB_DSP = set("pmic_glink_altmode.dyndbg=+p ps883x.dyndbg=+p phy_qcom_qmp_combo.dyndbg=+p ucsi_glink.dyndbg=+p typec_ucsi.dyndbg=+p dwc3.dyndbg=+p dwc3_qcom.dyndbg=+p qcom_pd_mapper.dyndbg=+p pdr_interface.dyndbg=+p trace_event=:mod:qcom_glink trace_buf_size=8M".split())
-DSP = {"qcom_pd_mapper.dyndbg=+p", "pdr_interface.dyndbg=+p", "trace_event=:mod:qcom_glink", "trace_buf_size=8M"}
+DSP = {"qcom_pd_mapper.dyndbg=+p", "pdr_interface.dyndbg=+p", "trace_event=:mod:qcom_glink,smp2p:*,remoteproc:*", "trace_buf_size=8M"}
 EXTRAS = {"debug": DSP, "usbdbg": USB_DSP, "nodsp": {"rd.driver.blacklist=qcom_battmgr,qcom_q6v5_pas"},
           "wifi-unblock": {"sp11.wifi_unblock=1"}, "nomodeset": {"nomodeset"},
-          "initramfs": {"rd.break=pre-mount"}, "notouch": DSP, "vmtest": {"console=ttyAMA0,115200"}}
+          "initramfs": {"rd.break=pre-mount"}, "notouch": DSP, "audio": DSP, "vmtest": {"console=ttyAMA0,115200"}}
 BASE = {"clk_ignore_unused", "pd_ignore_unused", "rootdelay=10", "modprobe.blacklist=qcom_battmgr"}
 
 def check(cfg):
@@ -26,11 +26,11 @@ def check(cfg):
         assert special == want, f"{ident}: diagnostic args differ: {special ^ want}"
         assert args.count("sp11.entry=" + ident) == 1, f"{ident}: wrong entry mark"
         dtbs = re.findall(r"^\s*devicetree (.*)$", body, re.M)
-        variant = "m10-notouch" if ident == "notouch" else "m10"
+        variant = {"notouch": "m11-notouch", "audio": "m11-audio"}.get(ident, "m11")
         assert dtbs == ([] if ident == "vmtest" else [f"($root)/boot/dtb/qcom/x1p64100-microsoft-denali-{variant}.dtb"]), f"{ident}: wrong DTB"
         if ident == "debug":
             baseline = args
-        if ident == "notouch":
+        if ident in ("notouch", "audio"):
             assert [a for a in args if not a.startswith("sp11.entry=")] == [a for a in baseline if not a.startswith("sp11.entry=")], "notouch: arguments differ from debug"
         assert "GPU on" not in title, "D22 forbids a GPU-on entry"
 
@@ -39,4 +39,4 @@ if __name__ == "__main__":
         check(open(sys.argv[1]).read())
     except (AssertionError, ValueError) as error:
         sys.exit(str(error))
-    print("PASS: M10 menu policy")
+    print("PASS: M11 menu policy")
