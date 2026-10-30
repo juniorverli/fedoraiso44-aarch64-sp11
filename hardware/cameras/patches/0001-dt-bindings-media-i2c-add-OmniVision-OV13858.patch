@@ -1,0 +1,153 @@
+From ed699bc2e0c95824a3043ed02b5221a9e748e276 Mon Sep 17 00:00:00 2001
+From: juniorverli <25966843+juniorverli@users.noreply.github.com>
+Date: Fri, 30 Oct 2026 22:07:04 +0000
+Subject: [PATCH 1/5] dt-bindings: media: i2c: add OmniVision OV13858
+
+Describe the OV13858 RAW10 image sensor for devicetree systems: the
+19.2 MHz input clock, the dovdd, dvdd and avdd supplies, the active low
+reset line and a four-lane D-PHY endpoint. The leds and led-names
+properties used for a privacy LED come from video-interface-devices.yaml.
+
+The sensor is already supported on ACPI systems; this schema only covers
+the devicetree description. The reset GPIO is optional in the driver, but
+a board that wires it should describe it.
+
+Assisted-by: Claude Sonnet 5.5
+Assisted-by: Codex gpt-6.1-sol
+---
+ .../bindings/media/i2c/ovti,ov13858.yaml      | 110 ++++++++++++++++++
+ MAINTAINERS                                   |   1 +
+ 2 files changed, 111 insertions(+)
+ create mode 100644 Documentation/devicetree/bindings/media/i2c/ovti,ov13858.yaml
+
+diff --git a/Documentation/devicetree/bindings/media/i2c/ovti,ov13858.yaml b/Documentation/devicetree/bindings/media/i2c/ovti,ov13858.yaml
+new file mode 100644
+index 000000000..12d707eba
+--- /dev/null
++++ b/Documentation/devicetree/bindings/media/i2c/ovti,ov13858.yaml
+@@ -0,0 +1,110 @@
++# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/media/i2c/ovti,ov13858.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: OmniVision OV13858 CMOS image sensor
++
++maintainers:
++  - Sakari Ailus <sakari.ailus@linux.intel.com>
++
++description:
++  The OV13858 outputs RAW10 Bayer data on a four-lane CSI-2 D-PHY link
++  and uses a 19.2 MHz input clock. Image processing is external. The common
++  properties of video-interface-devices.yaml apply, including the leds and
++  led-names = "privacy" pair that selects a privacy LED.
++
++allOf:
++  - $ref: /schemas/media/video-interface-devices.yaml#
++
++properties:
++  compatible:
++    const: ovti,ov13858
++
++  reg:
++    maxItems: 1
++
++  clocks:
++    maxItems: 1
++
++  dovdd-supply:
++    description: I/O supply.
++
++  dvdd-supply:
++    description: Digital core supply.
++
++  avdd-supply:
++    description: Analog supply.
++
++  reset-gpios:
++    description: Active low sensor reset.
++    maxItems: 1
++
++  port:
++    $ref: /schemas/graph.yaml#/$defs/port-base
++    unevaluatedProperties: false
++    properties:
++      endpoint:
++        $ref: /schemas/media/video-interfaces.yaml#
++        unevaluatedProperties: false
++        properties:
++          bus-type:
++            const: 4
++          data-lanes:
++            minItems: 4
++            maxItems: 4
++          link-frequencies:
++            minItems: 2
++            maxItems: 2
++        required:
++          - data-lanes
++          - link-frequencies
++    required:
++      - endpoint
++
++required:
++  - compatible
++  - reg
++  - clocks
++  - dovdd-supply
++  - dvdd-supply
++  - avdd-supply
++  - port
++
++unevaluatedProperties: false
++
++examples:
++  - |
++    #include <dt-bindings/clock/qcom,x1e80100-camcc.h>
++    #include <dt-bindings/gpio/gpio.h>
++
++    i2c {
++        #address-cells = <1>;
++        #size-cells = <0>;
++
++        camera@10 {
++            compatible = "ovti,ov13858";
++            reg = <0x10>;
++
++            clocks = <&camcc CAM_CC_MCLK1_CLK>;
++
++            reset-gpios = <&tlmm 110 GPIO_ACTIVE_LOW>;
++
++            dovdd-supply = <&vreg_l6m_1p8>;
++            dvdd-supply = <&vreg_l1m_1p2>;
++            avdd-supply = <&vreg_l5m_2p8>;
++
++            leds = <&camera_indicator>;
++            led-names = "privacy";
++
++            port {
++                endpoint {
++                    bus-type = <4>;
++                    data-lanes = <1 2 3 4>;
++                    link-frequencies = /bits/ 64 <270000000 540000000>;
++                    remote-endpoint = <&camss_csiphy1_ep>;
++                };
++            };
++        };
++    };
+diff --git a/MAINTAINERS b/MAINTAINERS
+index 782389bd5..74d5ccbf7 100644
+--- a/MAINTAINERS
++++ b/MAINTAINERS
+@@ -20186,6 +20186,7 @@ M:	Sakari Ailus <sakari.ailus@linux.intel.com>
+ L:	linux-media@vger.kernel.org
+ S:	Maintained
+ T:	git git://linuxtv.org/media.git
++F:	Documentation/devicetree/bindings/media/i2c/ovti,ov13858.yaml
+ F:	drivers/media/i2c/ov13858.c
+ 
+ OMNIVISION OV13B10 SENSOR DRIVER
+-- 
+2.43.0
+

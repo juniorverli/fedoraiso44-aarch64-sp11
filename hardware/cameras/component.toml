@@ -1,7 +1,7 @@
 id = "cameras"
 name = "Cameras: front IMX681, rear OV13858, IR VD55G0 + illuminator, CAMSS, CCI, flash, privacy LED"
 phase = 4
-status = "survey"
+status = "designed"
 depends_on = ["soc-boot"]
 updated = "2026-10-30"
 
@@ -11,9 +11,9 @@ packages = ["qccamplatform8380", "surfacecamplatform_ext8380", "qccamisp8380", "
 
 [linux]
 drivers = ["media/platform/qcom/camss (x1e80100 tables)", "clk/qcom/camcc-x1e80100", "i2c-qcom-cci", "media/i2c/ov13858", "media/i2c/vd55g1", "userspace: libcamera SoftISP"]
-dt = []
+dt = ["arm64/boot/dts/qcom/hamoa.dtsi (cci0, cci1, camss, disabled)", "arm64/boot/dts/qcom/x1-microsoft-denali.dtsi (camera indicator LED, pm8010 regulators, rear OV13858, disabled)"]
 native = "partial"
-gaps = ["no CAMSS/CCI node in hamoa.dtsi", "no IMX681 driver", "C-PHY support for the front camera?", "sensor power/reset/clock wiring from ACPI", "privacy LED binding", "IR illuminator safety (risk S2)", "sensors output RAW Bayer: RGB stage (demosaic, AWB, CCM, gamma) needed, libcamera SoftISP first", "VD55G0 support in vd55g1.c unknown"]
+gaps = ["front and IR sensors not described: no IMX681 driver, C-PHY missing in CAMSS (series to backport)", "CSIPHY supplies and pm8010 input supplies unconfirmed", "indicator LED GPIO105 function unknown", "ov13858 OF patch never compiled", "IR illuminator safety (risk S2): never described", "sensors output RAW Bayer: RGB stage (demosaic, AWB, CCM, gamma) needed, libcamera SoftISP first", "VD55G0 support in vd55g1.c unknown"]
 
 [firmware]
 needs = []
