@@ -1,0 +1,56 @@
+From 6ff073c54a842adf59630f827febe79041c61da9 Mon Sep 17 00:00:00 2001
+From: Junior Mverli <25966843+juniorverli@users.noreply.github.com>
+Date: Fri, 30 Oct 2026 11:33:34 +0000
+Subject: [PATCH] HID: spi-hid: of: disable the supply even if the reset assert
+ fails
+
+spi_hid_of_power_down() returned early when gpiod_set_value_cansleep()
+failed on the pre-power-off reset assertion, before regulator_disable().
+supply_enabled stayed true and the VREG_TS enable reference was kept,
+although the callers already assert reset and then mark the device off.
+
+Remember the reset error, wait the delay and always disable the supply.
+Report the reset error only when the regulator disable succeeded. The
+success path is unchanged. The reset GPIO is a TLMM pin that cannot
+fail in practice, so this only hardens a dead error path.
+
+Assisted-by: Claude Sonnet 5.5
+---
+ drivers/hid/spi-hid/spi-hid-of.c | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/hid/spi-hid/spi-hid-of.c b/drivers/hid/spi-hid/spi-hid-of.c
+index 71ef74439..4d466557b 100644
+--- a/drivers/hid/spi-hid/spi-hid-of.c
++++ b/drivers/hid/spi-hid/spi-hid-of.c
+@@ -101,15 +101,15 @@ static int spi_hid_of_power_down(struct spihid_ops *ops)
+ 	struct spi_hid_of_config *conf = container_of(ops,
+ 						      struct spi_hid_of_config,
+ 						      ops);
++	int reset_error = 0;
+ 	int error;
+ 
+ 	if (!conf->supply_enabled)
+ 		return 0;
+ 
+ 	if (conf->data.pre_power_off_delay_ms) {
+-		error = gpiod_set_value_cansleep(conf->reset_gpio, 1);
+-		if (error)
+-			return error;
++		/* Still cut the supply if the reset line cannot be asserted. */
++		reset_error = gpiod_set_value_cansleep(conf->reset_gpio, 1);
+ 
+ 		fsleep(1000 * conf->data.pre_power_off_delay_ms);
+ 	}
+@@ -118,7 +118,7 @@ static int spi_hid_of_power_down(struct spihid_ops *ops)
+ 	if (error == 0)
+ 		conf->supply_enabled = false;
+ 
+-	return error;
++	return error ?: reset_error;
+ }
+ 
+ static int spi_hid_of_power_up(struct spihid_ops *ops)
+-- 
+2.43.0
+
