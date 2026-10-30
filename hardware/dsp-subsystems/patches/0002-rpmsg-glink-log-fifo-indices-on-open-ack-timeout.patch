@@ -1,0 +1,103 @@
+From 9ca4e31ddd43ed8c901bda43299981d4ef5fe10a Mon Sep 17 00:00:00 2001
+From: Junior Mverli <25966843+juniorverli@users.noreply.github.com>
+Date: Fri, 30 Oct 2026 10:36:51 +0000
+Subject: [PATCH] rpmsg: qcom_glink: log SMEM FIFO indices on open-ack timeout
+
+The M10 log shows the CDSP never answers an Apps OPEN. Whether the CDSP
+consumed the message and stayed silent, or never read it, cannot be told
+from the control-command log alone.
+
+Add an optional pipe op that returns the head and tail words of a pipe and
+log them for both FIFOs when the five second OPEN_ACK wait expires. The
+tx tail is written by the remote: tx tail == tx head means the CDSP read
+everything we sent; tx tail != tx head means it did not read it. Read-only
+diagnostic, no behaviour change.
+
+Assisted-by: Claude Sonnet 5.5
+---
+ drivers/rpmsg/qcom_glink_native.c | 15 +++++++++++++++
+ drivers/rpmsg/qcom_glink_native.h |  1 +
+ drivers/rpmsg/qcom_glink_smem.c   | 10 ++++++++++
+ 3 files changed, 26 insertions(+)
+
+diff --git a/drivers/rpmsg/qcom_glink_native.c b/drivers/rpmsg/qcom_glink_native.c
+index 2c7fe9fb7..26e23e89e 100644
+--- a/drivers/rpmsg/qcom_glink_native.c
++++ b/drivers/rpmsg/qcom_glink_native.c
+@@ -1307,6 +1307,20 @@ static struct glink_channel *qcom_glink_create_local(struct qcom_glink *glink,
+ 	return ERR_PTR(-ETIMEDOUT);
+ }
+ 
++static void qcom_glink_log_fifo_indices(struct qcom_glink *glink)
++{
++	u32 txh = 0, txt = 0, rxh = 0, rxt = 0;
++
++	if (glink->tx_pipe->indices)
++		glink->tx_pipe->indices(glink->tx_pipe, &txh, &txt);
++	if (glink->rx_pipe->indices)
++		glink->rx_pipe->indices(glink->rx_pipe, &rxh, &rxt);
++
++	dev_warn_ratelimited(glink->dev,
++			     "sp11-glink: FIFO tx head=%u tail=%u rx head=%u tail=%u\n",
++			     txh, txt, rxh, rxt);
++}
++
+ /* Remote initiated rpmsg_create_ept */
+ static int qcom_glink_create_remote(struct qcom_glink *glink,
+ 				    struct glink_channel *channel)
+@@ -1324,6 +1338,7 @@ static int qcom_glink_create_remote(struct qcom_glink *glink,
+ 		dev_warn_ratelimited(glink->dev,
+ 				     "sp11-glink: OPEN_ACK wait timed out after 5 s name=%s lcid=%u rcid=%u err=%d\n",
+ 				     channel->name, channel->lcid, channel->rcid, -ETIMEDOUT);
++		qcom_glink_log_fifo_indices(glink);
+ 		ret = -ETIMEDOUT;
+ 		goto close_link;
+ 	}
+diff --git a/drivers/rpmsg/qcom_glink_native.h b/drivers/rpmsg/qcom_glink_native.h
+index 8dbec24de..858f00ecb 100644
+--- a/drivers/rpmsg/qcom_glink_native.h
++++ b/drivers/rpmsg/qcom_glink_native.h
+@@ -25,6 +25,7 @@ struct qcom_glink_pipe {
+ 		      const void *hdr, size_t hlen,
+ 		      const void *data, size_t dlen);
+ 	void (*kick)(struct qcom_glink_pipe *glink_pipe);
++	void (*indices)(struct qcom_glink_pipe *glink_pipe, u32 *head, u32 *tail);
+ };
+ 
+ struct device;
+diff --git a/drivers/rpmsg/qcom_glink_smem.c b/drivers/rpmsg/qcom_glink_smem.c
+index 35bb03e67..346f817f3 100644
+--- a/drivers/rpmsg/qcom_glink_smem.c
++++ b/drivers/rpmsg/qcom_glink_smem.c
+@@ -199,6 +199,14 @@ static void glink_smem_tx_write(struct qcom_glink_pipe *glink_pipe,
+ 	*pipe->head = cpu_to_le32(head);
+ }
+ 
++static void glink_smem_indices(struct qcom_glink_pipe *np, u32 *head, u32 *tail)
++{
++	struct glink_smem_pipe *pipe = to_smem_pipe(np);
++
++	*head = le32_to_cpu(*pipe->head);
++	*tail = le32_to_cpu(*pipe->tail);
++}
++
+ static void glink_smem_tx_kick(struct qcom_glink_pipe *glink_pipe)
+ {
+ 	struct glink_smem_pipe *pipe = to_smem_pipe(glink_pipe);
+@@ -333,11 +341,13 @@ struct qcom_glink_smem *qcom_glink_smem_register(struct device *parent,
+ 	rx_pipe->native.avail = glink_smem_rx_avail;
+ 	rx_pipe->native.peek = glink_smem_rx_peek;
+ 	rx_pipe->native.advance = glink_smem_rx_advance;
++	rx_pipe->native.indices = glink_smem_indices;
+ 
+ 	tx_pipe->smem = smem;
+ 	tx_pipe->native.avail = glink_smem_tx_avail;
+ 	tx_pipe->native.write = glink_smem_tx_write;
+ 	tx_pipe->native.kick = glink_smem_tx_kick;
++	tx_pipe->native.indices = glink_smem_indices;
+ 
+ 	*rx_pipe->tail = 0;
+ 	*tx_pipe->head = 0;
+-- 
+2.43.0
+
