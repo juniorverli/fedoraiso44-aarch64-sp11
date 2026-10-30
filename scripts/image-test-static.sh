@@ -325,7 +325,7 @@ fi
 if [ "$builder" = kiwi ]; then
 	# D19: DTB variants next to the packaged one. Same SoC and board (root compatible), different from the
 	# packaged DTB, hashes as in the build record and as in out/dtb-variants (the kernel worker's output).
-	for v in m8 m8-notouch; do
+	for v in m9 m9-notouch; do
 		vf=x1p64100-microsoft-denali-$v.dtb
 		vd=$W/$vf
 		x "/boot/dtb/qcom/$vf" "$vd"
@@ -337,7 +337,7 @@ if [ "$builder" = kiwi ]; then
 		gpu_status=$(fdtget "$vd" /soc@0/gpu@3d00000 status 2>/dev/null)
 		[ "$gpu_status" = disabled ] && pass 3.12 "D22: $v GPU node disabled" || fail 3.12 "D22: $v GPU status '$gpu_status'"
 		check_args=(--variant "$v")
-		[ "$v" = m8-notouch ] && check_args+=(--baseline "$W/x1p64100-microsoft-denali-m8.dtb")
+		[ "$v" = m9-notouch ] && check_args+=(--baseline "$W/x1p64100-microsoft-denali-m9.dtb")
 		if python3 -I "$REPO/scripts/kernel-m8-check.py" "$vd" "${check_args[@]}" >"$W/$v-wiring.json" 2>"$W/$v-wiring.err"; then
 			pass 3.13 "$v: S1, parity, wiring and QSPI touch; fallback differs only in touch child status"
 		else fail 3.13 "$v: $(cat "$W/$v-wiring.err")"; fi
@@ -354,7 +354,7 @@ if [ "$builder" = kiwi ]; then
 		if [ -n "$rsha" ]; then [ "$vsha" = "$rsha" ] && pass 3.11 "variant $v SHA-256 equals the kernel worker's JSON record" || fail 3.11 "variant $v SHA-256 differs from the kernel worker's JSON record ($rsha)"; else fail 3.11 "no JSON record of the kernel worker for variant $v in the build record"; fi
 		vr=$OUT/dtb-variants/$kver/qcom/${vf%.dtb}.json
 		if [ -f "$vr" ] && [ "$vsha" = "$(jq -r .sha256 "$vr")" ] &&
-		   [ "$(jq -r .kver "$vr")" = "$kver" ] && [ "$(jq -r .series_rev "$vr")" = 5 ] &&
+		   [ "$(jq -r .kver "$vr")" = "$kver" ] && [ "$(jq -r .series_rev "$vr")" = 6 ] &&
 		   [ "$(jq -r .series_hash_sha256 "$vr")" = "$(jq_ .kernel_patch_series_sha256)" ] &&
 		   jq -e --arg f "$vf.json" --slurpfile source "$vr" '.dtb_variant_records[$f] == $source[0]' "$rec" >/dev/null; then
 			pass 3.14 "variant $v matches published JSON hash/release/series and embedded record"
@@ -371,9 +371,9 @@ if [ "$smoke" = false ]; then
 	ls "$OUT"/rpms/kernel-core-*.rpm >/dev/null 2>&1 && { rpm -qp --qf '%{name}-%{version}-%{release}.%{arch}\n' "$OUT"/rpms/kernel-core-*.rpm | grep -qx "$got_nevra" && pass 4.2 "kernel-core is the RPM of out/rpms" || fail 4.2 "kernel-core is not in out/rpms"; }
 fi
 if [ "$builder" = kiwi ] && [ "$smoke" = false ]; then
-	if [ "$kver" = 7.3.0-65.sp11.5.fc44.aarch64 ] && [ "$got_nevra" = kernel-core-7.3.0-65.sp11.5.fc44.aarch64 ] && [ "$(jq_ .milestone)" = M8 ]; then
-		pass 4.9 "M8: required revision-5 kernel release and milestone"
-	else fail 4.9 "M8 requires revision-5 kernel and milestone (found $kver / $got_nevra)"; fi
+	if [ "$kver" = 7.3.0-65.sp11.6.fc44.aarch64 ] && [ "$got_nevra" = kernel-core-7.3.0-65.sp11.6.fc44.aarch64 ] && [ "$(jq_ .milestone)" = M9 ]; then
+		pass 4.9 "M9: required revision-6 kernel release and milestone"
+	else fail 4.9 "M9 requires revision-6 kernel and milestone (found $kver / $got_nevra)"; fi
 fi
 cmp -s "$kimg" "$ROOT/lib/modules/$kver/vmlinuz" && pass 4.3 "ISO kernel image equals lib/modules/$kver/vmlinuz" || fail 4.3 "ISO kernel image differs from the package"
 kimg_ver=$(python3 -I - "$kimg" <<'PY'
@@ -452,13 +452,13 @@ root, record, release = map(pathlib.Path, sys.argv[1:])
 rec = json.loads(record.read_text())
 digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
 assert digest(release) == rec['kernel_release_record_sha256']
-modules = json.loads(release.read_text())['m8']['touch_modules']
+modules = json.loads(release.read_text())['m9']['touch_modules']
 assert modules == rec['kernel_touch_modules'] and len(modules) == 8
 for name, module in modules.items():
     assert digest(root / module['path'].lstrip('/')) == module['module_sha256'], name
 PY
-	then pass 4.12 "all eight M8 touch module payload hashes match the pinned kernel release JSON"
-	else fail 4.12 "M8 touch module bytes or kernel release record differ"; fi
+	then pass 4.12 "all eight M9 touch module payload hashes match the pinned kernel release JSON"
+	else fail 4.12 "M9 touch module bytes or kernel release record differ"; fi
 fi
 
 # ---------------------------------------------------------------- check 5 ----
@@ -561,9 +561,10 @@ if [ "$builder" = kiwi ]; then
 fi
 
 # ---------------------------------------------------------------- check 6 ----
-python3 - "$REPO/firmware/manifest.toml" "$ROOT" "$W/rpm-files.txt" "$smoke" <<'EOF' >"$W/firmware-check.txt"
+is_private=$(jq_ '.private // false | if type == "object" then "true" else "false" end')
+python3 - "$REPO/firmware/manifest.toml" "$ROOT" "$W/rpm-files.txt" "$smoke" "$is_private" <<'EOF' >"$W/firmware-check.txt"
 import hashlib, os, sys, tomllib
-manifest, root, rpmlist, smoke = sys.argv[1:5]
+manifest, root, rpmlist, smoke, is_private = sys.argv[1:6]
 m = tomllib.load(open(manifest, 'rb'))
 # merged /usr: some packages (b43-openfwwf) record /lib/firmware/..., the tree walk sees /usr/lib/...
 owned = set()
@@ -605,6 +606,9 @@ for d, _, fs in os.walk(fwdir):
         rel = '/' + os.path.relpath(p, root)
         if rel in owned or rel in expected:
             continue
+        # private ISO only: the derived board file is verified by hash in 7.7
+        if is_private == 'true' and rel == '/usr/lib/firmware/updates/ath12k/WCN7850/hw2.0/board-2.bin':
+            continue
         extra.append(rel)
 print("PASS 6.3 every file under /usr/lib/firmware is owned by an RPM or in the manifest" if not extra else "FAIL 6.3 unexpected files in /usr/lib/firmware: " + ' '.join(extra[:10]))
 EOF
@@ -617,8 +621,11 @@ done <"$W/firmware-check.txt"
 # Files not owned by any RPM are ours (overlay, firmware, fstab, ...): scan them for MAC addresses.
 ( cd "$ROOT" && find . -xdev -type f -size -4M ! -path './usr/lib/firmware/*' ! -path './proc/*' ! -path './sys/*' | sed 's|^\.||' | sort ) >"$W/all-files.txt"
 comm -23 "$W/all-files.txt" "$W/rpm-files.txt" >"$W/unowned.txt"
-macs=$(cd "$ROOT" && sed 's|^/||' "$W/unowned.txt" | xargs -r -d '\n' grep -I -H -o -E '\b([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b' 2>/dev/null | grep -v -i -E ':(00:00:00:00:00:00|ff:ff:ff:ff:ff:ff)$' | head -n 5)
-[ -z "$macs" ] && pass 7.1 "no MAC address in the $(wc -l <"$W/unowned.txt") files not owned by an RPM" || fail 7.1 "MAC-like strings in unowned files: $macs"
+# private ISO only: its three address files are verified by hash in 7.7; the report names files, never values
+priv_skip='^$'
+[ "$is_private" = true ] && priv_skip='^/(etc/sp11/bt-address|etc/NetworkManager/conf.d/90-sp11-wifi-mac.conf|etc/systemd/network/10-sp11-wifi.link)$'
+macs=$(cd "$ROOT" && grep -v -E "$priv_skip" "$W/unowned.txt" | sed 's|^/||' | xargs -r -d '\n' grep -I -H -o -E '\b([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b' 2>/dev/null | grep -v -i -E ':(00:00:00:00:00:00|ff:ff:ff:ff:ff:ff)$' | cut -d: -f1 | sort -u | head -n 5)
+[ -z "$macs" ] && pass 7.1 "no MAC address in the $(wc -l <"$W/unowned.txt") files not owned by an RPM" || fail 7.1 "MAC-like strings in unowned files (names only): $(echo $macs)"
 # only files not owned by an RPM: packaged text (the magic database mentions DriverStore) is not ours
 hits=$(cd "$ROOT" && sed 's|^/||' "$W/unowned.txt" | xargs -r -d '\n' grep -IlF -e 'sp11-windows-dumps' -e 'sources/windows' -e 'DriverStore' -e 'juniormverli' 2>/dev/null | head -n 5)
 [ -z "$hits" ] && pass 7.2 "no sources/windows path, DriverStore or host user name in any file not owned by an RPM" || fail 7.2 "private strings in: $hits"
@@ -628,7 +635,7 @@ say "...rpm -Va on the image (a few minutes)"
 rpm --root "$ROOT" -Va >"$W/rpm-va.txt" 2>"$W/rpm-va.err"
 awk '$1 ~ /^..5/ {print $NF}' "$W/rpm-va.txt" | sort -u >"$W/rpm-modified.txt"
 mods=$(grep -c . "$W/rpm-modified.txt")
-mac_mod=$(cd "$ROOT" && sed 's|^/||' "$W/rpm-modified.txt" | xargs -r -d '\n' grep -I -H -o -E '\b([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b' 2>/dev/null | grep -v -i -E ':(00:00:00:00:00:00|ff:ff:ff:ff:ff:ff)$' | head -n 5)
+mac_mod=$(cd "$ROOT" && sed 's|^/||' "$W/rpm-modified.txt" | xargs -r -d '\n' grep -I -H -o -E '\b([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b' 2>/dev/null | grep -v -i -E ':(00:00:00:00:00:00|ff:ff:ff:ff:ff:ff)$' | cut -d: -f1 | sort -u | head -n 5)
 hits_mod=$(cd "$ROOT" && sed 's|^/||' "$W/rpm-modified.txt" | xargs -r -d '\n' grep -IlF -e 'sp11-windows-dumps' -e 'sources/windows' -e 'DriverStore' -e 'juniormverli' 2>/dev/null | head -n 5)
 [ -z "$mac_mod$hits_mod" ] && pass 7.4 "no MAC address or private string in the $mods RPM-owned files whose content rpm -Va reports changed ($(tr '\n' ' ' <"$W/rpm-modified.txt" | cut -c1-200))" || fail 7.4 "private strings in modified RPM files: $mac_mod $hits_mod"
 priv_iso=$(grep -rIlF -e 'sp11-windows-dumps' -e 'sources/windows' -e 'juniormverli' "$W/iso-tree" 2>/dev/null | head -n3)
@@ -741,6 +748,12 @@ if [ "$builder" = kiwi ]; then
 	done
 	cmp -s "$ROOT/etc/sp11-log-collector.d/usb-typec.sh" "$REPO/image/overlay/etc/sp11-log-collector.d/usb-typec.sh" || ok=0
 	[ "$ok" = 1 ] && pass 8.20 "DSP, Wi-Fi and USB-C collectors installed unchanged, shell syntax valid" || fail 8.20 "component collector missing or changed"
+	# M9: the refreshed component hooks (nine Bluetooth commands, DSP, Wi-Fi journal reads, USB-C) make one snapshot
+	# longer than M8's under TCG, where the 600 s/90 s limits cut the session and the shutdown snapshot off
+	if grep -qx 'TimeoutStartSec=1500' "$ROOT/usr/lib/systemd/system/sp11-log-collector-session@.service" &&
+	   grep -qx 'TimeoutStopSec=300' "$ROOT/usr/lib/systemd/system/sp11-log-collector.service"; then
+		pass 8.33 "collector units allow a full snapshot (session start 1500 s, shutdown stop 300 s)"
+	else fail 8.33 "collector unit timeouts are not the M9 values"; fi
 	u=sp11-rfkill-events.service
 	if [ "$(readlink "$ROOT/etc/systemd/system/multi-user.target.wants/$u")" = "/usr/lib/systemd/system/$u" ] &&
 	   grep -qx "enable $u" "$ROOT/usr/lib/systemd/system-preset/80-sp11.preset" &&

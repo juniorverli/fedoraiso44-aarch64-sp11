@@ -1,0 +1,26 @@
+SP11 M9 USB-C port and orientation matrix (hardware/usb-typec, test-plan F)
+
+Boot entry: "SP11 debug, USB + DSP trace" (sp11.entry=usbdbg) with the same known-good
+USB 3 stick or cable for every row. Four rows, each after a fresh boot or a full unplug of 5 s:
+
+  1. left port 0, plug normal
+  2. left port 0, plug reversed
+  3. left port 1, plug normal
+  4. left port 1, plug reversed
+
+Every command here only reads state: no hardware register, no debugfs control and no dynamic-debug
+file is written. After each insertion, as root (the automatic snapshot also captures these):
+
+  grep -H . /sys/class/typec/port*/{data_role,power_role,orientation,usb_capability,power_operation_mode}
+  lsusb -t
+  for f in /sys/kernel/debug/usb/xhci/*/ports/port*/portsc; do echo "$f: $(cat $f)"; done
+
+Files the collector writes per snapshot: dmesg.txt, usb-dmesg.txt, typec.txt, usb-speed.txt,
+xhci-ports.txt, gpio.txt, regulator_summary.txt, devices_deferred.txt, usb-typec-bindings.txt,
+usb-typec-config.txt, usb-typec-partner.txt, usb-lsusb-tree.txt.
+
+Decoding (test-plan F): compare the PAN orientation (0 normal, 1 reverse) with the Linux
+orientation enum (1 normal, 2 reverse) and the requested PS8830 status tuple (expected 21/00/00
+normal, 23/00/00 reverse for plain USB 3). If PAN never reports USB3_ONLY the failure is in the
+ADSP path; if it does and the tuple is right yet SuperSpeed stays in RxDetect, the QMP PHY or the
+cable is next. Note the row, port and orientation next to each log. Keep logs private.

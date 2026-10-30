@@ -6,10 +6,10 @@
 # Differences, all listed in image/README.md ("kiwi layer", change 3):
 #   - load_video keeps efi_gop and all_video only: efi_uga, video_bochs and video_cirrus do not exist
 #     on arm64-efi (QEMU printed "file not found" for each; they are x86 modules in Fedora's template);
-#   - no `Test this media` and no `Troubleshooting` submenu; the eight M8 entries (D22–D23) instead;
+#   - no `Test this media` and no `Troubleshooting` submenu; the eight M9 entries (D22–D23) instead;
 #   - `set default=0` and timeout_style=menu with a fixed timeout: the menu is always shown;
 #   - every device entry has a `devicetree` line (GRUB 2 command, D9); the VM test entry has none;
-#     every device entry uses the `-m8` DTB (or `-m8-notouch` fallback) (speakers and GPU off, S1/D22);
+#     every device entry uses the `-m9` DTB (or `-m9-notouch` fallback) (speakers and GPU off, S1/D22);
 #   - every entry has sp11.entry=<id>; only the VM entry adds the serial console (D15);
 #   - the common kernel arguments are kiwi's boot options: its live options (root=live:CDLABEL, rd.live.image)
 #     plus the verbose kernelcmdline patched into components/liveinstall.xml (patch 0002).
@@ -37,40 +37,41 @@ set default=0
 
 search ${search_params}
 
-# M8: speakers/GPU off; touch enabled except in the touch-off fallback.
+# M9: speakers/GPU off; touch enabled except in the touch-off fallback. The default and touch-off
+# entries carry the DSP trace arguments (dsp-subsystems R-I2): tracing must start at module load.
 menuentry 'SP11 debug' --id sp11-debug --class fedora --class gnu-linux --class gnu --class os {
-	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr sp11.entry=debug
-	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m8.dtb
+	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr qcom_pd_mapper.dyndbg=+p pdr_interface.dyndbg=+p trace_event=:mod:qcom_glink trace_buf_size=8M sp11.entry=debug
+	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m9.dtb
 	initrd ($$root)${bootpath}/${initrd_file}
 }
 menuentry 'SP11 debug, USB + DSP trace' --id sp11-usbdbg --class fedora --class gnu-linux --class gnu --class os {
 	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr pmic_glink_altmode.dyndbg=+p ps883x.dyndbg=+p phy_qcom_qmp_combo.dyndbg=+p ucsi_glink.dyndbg=+p typec_ucsi.dyndbg=+p dwc3.dyndbg=+p dwc3_qcom.dyndbg=+p qcom_pd_mapper.dyndbg=+p pdr_interface.dyndbg=+p trace_event=:mod:qcom_glink trace_buf_size=8M sp11.entry=usbdbg
-	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m8.dtb
+	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m9.dtb
 	initrd ($$root)${bootpath}/${initrd_file}
 }
 menuentry 'SP11 debug, no early DSP' --id sp11-nodsp --class fedora --class gnu-linux --class gnu --class os {
 	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr,qcom_q6v5_pas modprobe.blacklist=qcom_battmgr sp11.entry=nodsp
-	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m8.dtb
+	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m9.dtb
 	initrd ($$root)${bootpath}/${initrd_file}
 }
 menuentry 'SP11 debug, Wi-Fi unblock probe' --id sp11-wifi-unblock --class fedora --class gnu-linux --class gnu --class os {
 	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr sp11.wifi_unblock=1 sp11.entry=wifi-unblock
-	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m8.dtb
+	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m9.dtb
 	initrd ($$root)${bootpath}/${initrd_file}
 }
 menuentry 'SP11 debug nomodeset' --id sp11-nomodeset --class fedora --class gnu-linux --class gnu --class os {
 	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr nomodeset sp11.entry=nomodeset
-	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m8.dtb
+	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m9.dtb
 	initrd ($$root)${bootpath}/${initrd_file}
 }
 menuentry 'SP11 debug, stop in initramfs' --id sp11-initramfs --class fedora --class gnu-linux --class gnu --class os {
 	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr rd.break=pre-mount sp11.entry=initramfs
-	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m8.dtb
+	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m9.dtb
 	initrd ($$root)${bootpath}/${initrd_file}
 }
 menuentry 'SP11 debug, touch off' --id sp11-notouch --class fedora --class gnu-linux --class gnu --class os {
-	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr sp11.entry=notouch
-	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m8-notouch.dtb
+	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr qcom_pd_mapper.dyndbg=+p pdr_interface.dyndbg=+p trace_event=:mod:qcom_glink trace_buf_size=8M sp11.entry=notouch
+	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m9-notouch.dtb
 	initrd ($$root)${bootpath}/${initrd_file}
 }
 menuentry 'VM test (no devicetree)' --id sp11-vmtest --class fedora --class gnu-linux --class gnu --class os {

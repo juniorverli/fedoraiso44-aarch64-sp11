@@ -24,6 +24,9 @@ collect btmgmt --timeout 6 --index 0 config
 collect bluetoothctl --timeout 6 show
 collect rfkill --output ID,TYPE,SOFT,HARD
 collect systemctl show bluetooth.service sp11-bt-address.service \
-    -p Id -p ActiveState -p SubState -p Result -p ExecMainStatus
+    -p Id -p ActiveState -p SubState -p Result -p ExecMainStatus \
+    -p After -p Wants -p Requires -p BindsTo
 collect journalctl -b --no-pager --no-hostname -o cat \
     -u bluetooth.service -u sp11-bt-address.service
+collect find /usr/lib/firmware/qca -maxdepth 1 \
+    '(' -name 'hmtnv20.*' -o -name 'hmtbtfw20.*' ')' -printf '%f -> %l\n'

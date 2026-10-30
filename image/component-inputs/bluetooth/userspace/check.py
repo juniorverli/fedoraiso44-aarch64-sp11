@@ -57,13 +57,19 @@ class HelperTests(unittest.TestCase):
         mock.chmod(0o755)
         self.file = self.root / 'address'
         self.file.write_text(ADDRESS.lower() + '\r\n')
+        # Isolate the installed-file lookup from any real host provisioning.
+        self.helper = self.root / 'helper'
+        self.helper.write_text((HERE/'sp11-bt-address').read_text().replace(
+            '/etc/sp11/bt-address', str(self.root/'installed-address')))
 
-    def run_helper(self, mode='ready', *, matching=True):
+    def run_helper(self, mode='ready', *, matching=True, boot_source=False):
         env = dict(os.environ, BT_TEST_DIR=str(self.root), BT_TEST_MODE=mode,
                    PATH=str(self.bin) + ':' + os.environ['PATH'])
-        # Override only hardware discovery and inter-poll sleep, after sourcing.
-        shell = '. "$1"; controller_matches() { '+('true' if matching else 'false')+'; }; sleep() { :; }; main hci0 "$2"'
-        result = subprocess.run(['bash', '-c', shell, 'check', str(HERE/'sp11-bt-address'), str(self.file)],
+        # Stub hardware, boot-source absence and inter-poll sleep after sourcing.
+        shell = ('. "$1"; controller_matches() { '+('true' if matching else 'false')+
+                 '; }; sleep() { :; }; read_boot_address() { return 1; }; main hci0'+
+                 ('' if boot_source else ' "$2"'))
+        result = subprocess.run(['bash', '-c', shell, 'check', str(self.helper), str(self.file)],
                                 env=env, text=True, capture_output=True, timeout=15)
         self.assertNotIn(ADDRESS, result.stdout + result.stderr)
         self.assertNotIn(ADDRESS.lower(), result.stdout + result.stderr)
@@ -88,15 +94,23 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(self.run_helper('setup').returncode, 0)
         self.assertEqual(self.calls().count('config'), 3)
 
-    def test_missing_source_fails_without_writes(self):
+    def test_missing_source_skips_without_writes(self):
         self.file.unlink()
-        self.assertNotEqual(self.run_helper().returncode, 0)
+        result = self.run_helper()
+        self.assertEqual(result.returncode, 0)
+        self.assertIn('controller remains unconfigured; skipped', result.stderr)
+        self.assertNotIn('public-addr', self.calls())
+
+    def test_unavailable_boot_source_skips_without_writes(self):
+        result = self.run_helper(boot_source=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('provision EFI/sp11/bt-address', result.stderr)
         self.assertNotIn('public-addr', self.calls())
 
     def test_invalid_and_sentinel_files_rejected(self):
         for value in ('bad', ':'.join(['00']*6), ':'.join(['FF']*6),
                       ':'.join(f'{b:02X}' for b in (0, 0, 0, 0, 90, 173)),
-                      ADDRESS + '\n' + ADDRESS):
+                      ADDRESS + '\n' + ADDRESS, ADDRESS + ' '*112 + 'bad'):
             with self.subTest(value_kind=len(value)):
                 self.file.write_text(value)
                 self.assertNotEqual(self.run_helper().returncode, 0)

@@ -12,7 +12,7 @@ import re
 import sys
 
 # Audited DSP drop-in reads thresholds through R() -> timeout cat; never writes sysfs.
-DSP_SHA256 = "92a20f7e0191b1e1d37ebc63edb771a63fc9cf8be162c4d99a02a4d7cffed5eb"
+DSP_SHA256 = "0134872e658c851a2dd410ed1e30c676a09f9e8f8f69aaa03e5551d576b47d33"
 
 def audit(root):
     failures = []

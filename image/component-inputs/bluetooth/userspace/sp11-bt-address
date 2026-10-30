@@ -26,7 +26,8 @@ read_address_file() {
     # Bounded read; accept one address with surrounding whitespace, never shell code.
     [[ -f $1 && -r $1 ]] || return 1
     local value
-    value=$(head -c 128 -- "$1")
+    value=$(head -c 129 -- "$1")
+    [[ ${#value} -le 128 ]] || return 1
     value=${value//$'\r'/}
     value=$(sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' <<<"$value")
     value=${value^^}
@@ -75,7 +76,7 @@ config_options() {
 }
 
 main() {
-    local hci=${1:-hci0} idx addr='' missing='' attempt info
+    local hci=${1:-hci0} idx addr='' missing='' attempt info source
     [[ $# -le 2 && $hci == hci0 ]] || { log 'usage: sp11-bt-address [hci0] [local-address-file]'; return 1; }
     idx=${hci#hci}
     controller_matches "$hci" || { log 'WCN7850 controller not found; no change'; return 0; }
@@ -94,9 +95,17 @@ main() {
     log 'controller is missing public-address'
 
     if [[ $# == 2 || -e /etc/sp11/bt-address ]]; then
-        read_address_file "${2:-/etc/sp11/bt-address}" || { log 'local address file invalid or unreadable; no change'; return 1; }
+        source=${2:-/etc/sp11/bt-address}
+        if [[ ! -e $source ]]; then
+            log 'operator address file absent; controller remains unconfigured; skipped'
+            return 0
+        fi
+        read_address_file "$source" || { log 'local address file invalid or unreadable; no change'; return 1; }
     else
-        addr=$(read_boot_address) || { log 'no valid operator address on boot ESP; no change'; return 1; }
+        addr=$(read_boot_address) || {
+            log 'no usable operator address on boot ESP; controller remains unconfigured; skipped (provision EFI/sp11/bt-address after writing the stick)'
+            return 0
+        }
     fi
     # No power/off, rfkill override, firmware file replacement or persistent write.
     timeout -k 1 5 btmgmt --timeout 4 --index "$idx" public-addr "$addr" </dev/null >/dev/null 2>&1 || {

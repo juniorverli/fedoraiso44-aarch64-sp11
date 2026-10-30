@@ -15,7 +15,7 @@ Type=simple
 ExecStart=/usr/libexec/sp11-log-collector run
 # SIGTERM at shutdown triggers a last snapshot (trap in the script).
 KillMode=mixed
-TimeoutStopSec=90
+TimeoutStopSec=300
 Nice=10
 Restart=on-failure
 RestartSec=10

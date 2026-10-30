@@ -719,6 +719,47 @@ The first QEMU run reached both sessions and the complete capture at 1861 second
 
 The host verifier accepts that exact exit-1 capture only for `sp11.entry=vmtest`, with both SP11 controller paths explicitly absent in the captured DT, a valid full boot journal and no iptsd instance/daemon in that journal. Other exit codes, unavailable captures, device entries, missing controller/journal evidence, existing iptsd instances, failed input capture, leaked input properties and addresses still fail; ten negative fixtures exercise these cases. Normal nonempty iptsd journals remain accepted. This corrects only host-side interpretation of an expected hardware absence; the collector and single ISO remain unchanged. The helper's exit-1 marker is retained as evidence, and actual iptsd activation/processing remains a device gate.
 
+### M9 private ISO (2026-10-30)
+
+One private ISO for the operator's own device (decision D25, S5 exception), built with `scripts/image-build.sh --private`. It contains this device's addresses and the derived Wi-Fi board file in its root file system: never share it, upload it, or boot it on another device. Delete it together with `out/image-work/l0-<name>/` (the L0 `root` directory, which held the values, was removed after validation).
+
+| Item | Value |
+|:--|:--|
+| ISO | `out/iso/sp11-fedora44-aarch64-kiwi-m9-private-20261030T034021Z.iso` |
+| Record / checksum | `out/iso/sp11-fedora44-aarch64-kiwi-m9-private-20261030T034021Z.json` / `.iso.sha256`; the record holds hash prefixes only and `distribution: forbidden` |
+| Size | 2,801,532,928 bytes |
+| SHA-256 | `aef6790996d2b0fe3ef98c7485e661ea42a75b13ca80ba6913f67cbf8070a88d` |
+| Kernel | `kernel-core-7.3.0-65.sp11.6.fc44.aarch64`; series revision 6, both BTF options enabled |
+| Build | One fresh kiwi compose, 1664 seconds, 1975 packages; build id `20261030T034024Z` |
+| DTB `m9` | `4130f2988a593847a0cd490bccd90ee65e16f74a5f3adf019cfd24dda5aec65a` |
+| DTB `m9-notouch` | `5704f68668538f6dd3e6fc37f67e8e9830f771124c57475c0ebca81d8c750519` |
+| Packaged LCD DTB | `784de3eb644bc6a169cbe0c6da51cef0f984984493a44e6fbfd00b18cd792709` |
+| L0 | **202 passed, 0 failed, 0 skipped**, including private checks 7.6-7.10 and 8.33; report `out/iso/sp11-fedora44-aarch64-kiwi-m9-private-20261030T034021Z.l0.txt` (no address value) |
+| QEMU (L1) | **21 PASS, 0 FAIL** with `--until-session --decoy`, 2160 seconds to the session captures; `.l1.txt` / `.l1.json`. Clean ESP (113 files, 22811/129022 clusters), decoy md5 unchanged |
+
+Menu: the M8 entry list and order are unchanged. Every device entry keeps the common verbose/live arguments and `clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr`, with the `nodsp` replacement of the rd blacklist. Every selectable device DTB keeps speakers and GPU off.
+
+| # | Title | `sp11.entry` | DTB | Extra |
+|:--|:--|:--|:--|:--|
+| 1 | `SP11 debug` (default) | `debug` | m9 | DSP trace arguments (R-I2); touch on |
+| 2 | `SP11 debug, USB + DSP trace` | `usbdbg` | m9 | USB/DSP trace arguments |
+| 3 | `SP11 debug, no early DSP` | `nodsp` | m9 | rd blacklist is `qcom_battmgr,qcom_q6v5_pas` |
+| 4 | `SP11 debug, Wi-Fi unblock probe` | `wifi-unblock` | m9 | `sp11.wifi_unblock=1` |
+| 5 | `SP11 debug nomodeset` | `nomodeset` | m9 | `nomodeset` |
+| 6 | `SP11 debug, stop in initramfs` | `initramfs` | m9 | `rd.break=pre-mount` |
+| 7 | `SP11 debug, touch off` | `notouch` | m9-notouch | Same arguments as `debug` except the entry marker |
+| 8 | `VM test (no devicetree)` | `vmtest` | none | Common arguments and `console=ttyAMA0,115200` |
+
+What changed against M8:
+
+- Kernel and DTBs: revision 6 RPMs and the published `m9`/`m9-notouch` DTBs. The builder refuses another kernel, a DTB or JSON that differs from the kernel worker's record, and a series revision other than 6. L0 re-checks both DTBs (S1, GPU off, wiring, CMA allocation range, the one-property touch-off difference), JSON hashes and all eight touch module payload hashes against the release record. `kernel-m8-check.py` is the shared checker; it accepts the `m9` variants.
+- DSP (R-I1/R-I2): the refreshed collector is installed unchanged (L0 8.20, S6 audit hash updated in `image/tools/check-charge-writes.py` for its audited threshold read). The `debug` and `touch off` entries now carry `qcom_pd_mapper.dyndbg=+p pdr_interface.dyndbg=+p trace_event=:mod:qcom_glink trace_buf_size=8M` so tracing starts at module load; `check-m8-menu.py` enforces that `touch off` equals `debug` except for the marker.
+- Bluetooth: the three userspace files and `check.py` were refreshed from main `9bdb845` in `image/component-inputs/bluetooth/userspace/` (pins in `sources.json`); the nine-command collector and the soft-skip of `sp11-bt-address` (exit 0 without an address file) come with them. In this private ISO `/etc/sp11/bt-address` is present, so the helper configures the controller without the boot-ESP file.
+- Wi-Fi: the M9 collector is installed unchanged. Not done from the Wi-Fi requests: I2 (retire the unblock probe), I3 (listener ordering) and I4 (`debug_mask=0x70`); the M8 menu entry and `0x30` stay as asked, so these remain open for the orchestrator.
+- USB-C: the overlay collector gained `usb-typec-bindings.txt`, `usb-typec-config.txt`, `usb-typec-partner.txt` and `usb-lsusb-tree.txt` (read-only; no retimer register read, no debugfs write), and `/usr/share/sp11/usb-typec-m9-matrix.txt` holds the four-row port/orientation matrix with the decoding rule from test-plan F.
+- Collector units: `sp11-log-collector-session@.service` `TimeoutStartSec` 600 to 1500 and `sp11-log-collector.service` `TimeoutStopSec` 90 to 300 (L0 8.33). An earlier L1 without `--until-session --decoy` was run in error (no boot-disk log target) and its session snapshots hit the 600 s limit; the cause was the wrong test flags, so these two limits are a precaution, not a proven fix. Revert them if the shutdown delay is unwanted.
+- L0 fixes for private mode: 6.3 allows only the derived board file path, 7.1 skips only the three private files, and 7.1/7.4 print file names, never matched values. A first L0 pass printed one matched Wi-Fi address in 7.1 into the work log and report; both were redacted at once, the report regenerated, and 7.10 now passes.
+
 ## Private build mode (operator device only)
 
 `scripts/image-build.sh --private` (or `SP11_PRIVATE=1`) builds an ISO for the operator's own Surface Pro 11 with the Windows-derived settings embedded, so Wi-Fi and Bluetooth work without the post-write provisioning of the M6 procedure. Kiwi builder only. The default build stays public: no address, no derived blob, L0 checks 7.5 unchanged.
@@ -776,6 +817,7 @@ Rollback: rebuild without `--private`. Q3 of the wifi dossier (is the OTP addres
 
 ## Log
 
+- 2026-10-30: built the M9 private ISO `sp11-fedora44-aarch64-kiwi-m9-private-20261030T034021Z` (kiwi 1664 s, SHA-256 `aef67909...`): revision-6 kernel, `m9`/`m9-notouch` DTBs, DSP trace arguments in the default entry, refreshed Bluetooth/DSP/Wi-Fi/USB-C collectors, device addresses and derived board file embedded. L0 202/202, QEMU `--until-session --decoy` 21/21. Disk: removed superseded M6/M7 ISOs, work directories and sp11.3/sp11.4 RPM archives. No git writes; nothing left running.
 - 2026-10-29: prepared M8 revision-5 release/DTB gates, touch-on default and touch-off fallback, early fixed/QSPI/HID/uinput modules, native iptsd spec/build path and masked userspace captures. Compiled DTB/menu/privacy/QEMU-driver preflight and index/syntax/whitespace checks pass. Fresh official Fedora query still finds no iptsd. Blocked before RPM/source consumption and the single ISO compose because the required central iptsd source pin is absent; exact source-owner patch recorded under Requests. No ISO/L0/L1 result claimed, no git writes, and no task process left running. Resume with the pin, native RPM, one compose, L0 and QEMU session/ESP/decoy checks.
 
 - 2026-10-29: built one M7 ISO (`sp11-fedora44-aarch64-kiwi-m7-20261029T090813Z`, kiwi 1576 s): revision-4 kernel, published m7/m7-touchdiag DTBs and exact touch collector; M6 policy/helpers retained. L0 176/176; final QEMU `--until-session --decoy` 19/19 in 1900 s to captures, clean ESP and unchanged decoy. Preserved the first run's STATUS-metadata false failure; added physical capture-target verification and GPT/FAT regression fixtures, then reran the same ISO successfully. No device test, git writes or task process left running; orchestrator review/commit and planned touchdiag evidence are next.

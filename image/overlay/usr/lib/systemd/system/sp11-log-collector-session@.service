@@ -13,5 +13,5 @@ Before=shutdown.target
 Type=oneshot
 ExecStart=/usr/libexec/sp11-log-collector session %i
 ExecStartPre=-/usr/bin/systemctl --no-block stop sp11-log-collector-session-%i.path
-TimeoutStartSec=600
+TimeoutStartSec=1500
 Nice=10
