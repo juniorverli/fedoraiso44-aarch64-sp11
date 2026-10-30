@@ -130,9 +130,10 @@ fi
 
 # M8 checks the packaged LCD DT and the actual RPM payloads for the new
 # transport. The full BTF audit above covers every extracted touch module.
-if [[ $KERNEL_SERIES_REV == 5 || $KERNEL_SERIES_REV == 6 ]]; then
+if [[ $KERNEL_SERIES_REV == 5 || $KERNEL_SERIES_REV == 6 || $KERNEL_SERIES_REV == 7 ]]; then
   milestone=m8; cma_args=()
   if [[ $KERNEL_SERIES_REV == 6 ]]; then milestone=m9; cma_args=(--cma-dma32); fi
+  if [[ $KERNEL_SERIES_REV == 7 ]]; then milestone=m10; cma_args=(--cma-dma32); fi
   packaged="$CK/root/lib/modules/$kver/dtb/$dtb"
   dt-validate -s "$D/Documentation/devicetree/bindings/processed-schema.json" \
     "$packaged" > "$CK/packaged.dt-validate.log" 2>&1
@@ -193,6 +194,7 @@ rec = {
   'm7': json.load(open("$CK/m7.json")) if os.path.exists("$CK/m7.json") else None,
   'm8': json.load(open("$CK/m8.json")) if os.path.exists("$CK/m8.json") else None,
   'm9': json.load(open("$CK/m9.json")) if os.path.exists("$CK/m9.json") else None,
+  'm10': json.load(open("$CK/m10.json")) if os.path.exists("$CK/m10.json") else None,
   'rpms': rpms,
 }
 json.dump(rec, open(sys.argv[1], 'w'), indent=2); print('record', sys.argv[1])

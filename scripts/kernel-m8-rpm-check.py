@@ -16,7 +16,7 @@ def require(condition, message):
 
 checks, kver, rpmdir = Path(sys.argv[1]), sys.argv[2], Path(sys.argv[3])
 milestone = sys.argv[4] if len(sys.argv) > 4 else 'm8'
-require(milestone in ('m8', 'm9'), 'Expected m8 or m9')
+require(milestone in ('m8', 'm9', 'm10'), 'Expected m8, m9 or m10')
 root = checks / 'root/lib/modules' / kver
 payloads = {}
 for rpm in sorted(rpmdir.glob(f'kernel-*{kver}.rpm')):
@@ -28,8 +28,10 @@ for rpm in sorted(rpmdir.glob(f'kernel-*{kver}.rpm')):
 records = {}
 names = ['spi-hid', 'spi-hid-of', 'spi-hid-acpi', 'spi-geni-qcom', 'gpi',
          'fixed', 'hid-multitouch', 'uinput']
-if milestone == 'm9':
+if milestone in ('m9', 'm10'):
     names += ['ath12k', 'ps883x', 'pmic_glink_altmode']
+if milestone == 'm10':
+    names += ['qcom_glink']
 diagnostics = {
     'pmic_glink_altmode': [
         b'request: cmd=%#x arg=%u acknowledged\n',
@@ -39,7 +41,9 @@ diagnostics = {
         b'assert reset and disable supplies\n',
         b'configure: conn_status=%02x/%02x/%02x reset=%u in_reset=%u\n',
         b'orientation: %u -> %u in_reset=%u\n',
-        b'set: mode=%lu svid=%04x orientation=%u in_reset=%u ret=%d\n']}
+        b'set: mode=%lu svid=%04x orientation=%u in_reset=%u ret=%d\n'],
+    'qcom_glink': [
+        b'sp11-glink: tx VERSION ', b'sp11-glink: tx OPEN ', b'sp11-glink: tx OPEN_ACK ']}
 for name in names:
     found = list(root.rglob(f'{name}.ko.xz'))
     require(len(found) == 1, f'Expected exactly one packaged {name} module')
@@ -96,7 +100,7 @@ record = dict(packaged_dtb_sha256=hashlib.sha256(dtb.read_bytes()).hexdigest(),
               touch_modules={name: records[name] for name in names[:8]},
               qspi_protocol_guard=True, gpi_qspi_tre_path=True,
               rfc0014_removed=True)
-if milestone == 'm9':
+if milestone in ('m9', 'm10'):
     record['new_modules'] = {name: records[name] for name in names[8:]}
     record['cma_dma32'] = record['wiring']['cma_dma32']
 (checks / f'{milestone}.json').write_text(json.dumps(record, indent=2) + '\n')

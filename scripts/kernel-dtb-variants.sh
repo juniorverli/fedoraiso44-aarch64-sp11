@@ -20,6 +20,9 @@
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/kernel-common.sh"
 kver="${1:-$KERNEL_KVER}"
+if [[ $KERNEL_SERIES_REV == 7 ]]; then
+  exec "$KERNEL_REPO/scripts/kernel-dtb-m10.sh" "$kver"
+fi
 if [[ $KERNEL_SERIES_REV == 6 ]]; then
   exec "$KERNEL_REPO/scripts/kernel-dtb-m9.sh" "$kver"
 fi

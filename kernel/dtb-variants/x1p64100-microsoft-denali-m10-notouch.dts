@@ -1,0 +1,7 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/* M10 fallback: disable only the touch child; preserve the full M9 wiring. */
+#include "x1p64100-microsoft-denali-m10.dts"
+
+&{/soc@0/geniqup@ac0000/spi@a88000/touchscreen@0} {
+	status = "disabled";
+};

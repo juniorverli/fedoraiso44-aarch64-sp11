@@ -49,10 +49,12 @@ def read_tree(dtb):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('dtb', type=Path)
-    parser.add_argument('--variant', choices=['packaged', 'm8', 'm8-notouch', 'm9', 'm9-notouch'],
+    parser.add_argument('--variant', choices=['packaged', 'm8', 'm8-notouch', 'm9', 'm9-notouch', 'm10', 'm10-notouch'],
                         required=True)
     parser.add_argument('--baseline', type=Path)
     parser.add_argument('--previous', type=Path, help='M8 DTB: require only the CMA range addition')
+    parser.add_argument('--previous-unchanged', action='store_true',
+                        help='With --previous (M9 DTB): require no DT difference at all')
     parser.add_argument('--cma-dma32', action='store_true', help='Require the M9 DMA32 CMA window')
     args = parser.parse_args()
     fallback = args.variant.endswith('-notouch')
@@ -61,7 +63,7 @@ def main():
     symbols = {k: strings(v)[0] for k, v in nodes['/__symbols__'].items()}
 
     cma_record = None
-    if args.cma_dma32 or args.variant.startswith('m9'):
+    if args.cma_dma32 or args.variant.startswith(('m9', 'm10')):
         pools = [(p, props) for p, props in nodes.items() if 'linux,cma-default' in props]
         require(len(pools) == 1, 'Missing/ambiguous default CMA pool')
         path, pool = pools[0]
@@ -207,9 +209,12 @@ def main():
                 if a.get(key) != b.get(key):
                     previous_changes.append(dict(path=path, property=key,
                                                  before=a.get(key), after=b.get(key)))
-        require(previous_changes == [dict(path='/reserved-memory/linux,cma', property='alloc-ranges',
-                                         before=None, after='<0x00 0x80000000 0x00 0x80000000>')],
-                f'Unexpected changes from M8: {previous_changes}')
+        if args.previous_unchanged:
+            require(previous_changes == [], f'Unexpected changes from M9: {previous_changes}')
+        else:
+            require(previous_changes == [dict(path='/reserved-memory/linux,cma', property='alloc-ranges',
+                                             before=None, after='<0x00 0x80000000 0x00 0x80000000>')],
+                    f'Unexpected changes from M8: {previous_changes}')
 
     print(json.dumps(dict(variant=args.variant, s1_ok=True, watched_count=len(watched),
                           wifi=dict(perst_gpio=146, wake_gpio=148, active_low=True, pinctrl='pcie4_default'),

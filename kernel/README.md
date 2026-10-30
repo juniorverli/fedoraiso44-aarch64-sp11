@@ -81,6 +81,7 @@ The RPM release carries the series revision through Fedora's `buildid`: `65.sp11
 | 4 | M7: display 0001–0003, Wi-Fi 0001, USB-C 0001, SAM 0001/0003, touch diagnostic 0014, S1 | `kernel-7.3.0-65.sp11.4.fc44.aarch64` |
 | 5 | M8: retained M7 fixes/S1, GPU off, spi-hid v7 0001–0011 and touch 0016–0020; RFC 0014 retired | `kernel-7.3.0-65.sp11.5.fc44.aarch64` |
 | 6 | M9: retain M8; Surface ath12k rfkill workaround, DMA32 CMA window, PMIC-GLINK/PS8830 diagnostics | `kernel-7.3.0-65.sp11.6.fc44.aarch64` |
+| 7 | M10: retain M9; read-only GLINK OPEN_ACK diagnostic (R-K1) | `kernel-7.3.0-65.sp11.7.fc44.aarch64` |
 
 - `kernel/base.toml` holds `series_rev` and `series_sha256` (sha256 of the `<path> <patch sha256>` lines of `kernel/series`). Changing `kernel/series` or a patch in it without bumping both makes `scripts/kernel-build.sh` and `scripts/kernel-check` fail and print the new hash.
 - A build that succeeds archives the RPMs of every other `series_rev` from `out/rpms/` into `out/rpms/archive/<ver>-<rel>.sp11[.<rev>]/` before it copies the new ones. The record `out/rpms/<nevra>.json` has `series_rev` and the series hash.
@@ -339,9 +340,58 @@ Before release, `scripts/kernel-dev.sh --check m9 dtbs` completed in **46 s**; a
 
 JSON record SHA-256: `x1p64100-microsoft-denali-m9.json` `5e8452a4c95c7878d00211f24c4c030d526f82b32d245f720403d84c523f6c6b`; `x1p64100-microsoft-denali-m9-notouch.json` `0edb7a9a707dbcc20d914cde7d4d6044eb5dc562cd31e54aadbb9114035426d3`. No device boot was performed.
 
+## M10 series revision 7 (2026-10-30)
+
+Revision 7 retains all 28 M9 patches and appends one patch after PMIC-GLINK/PS8830 diagnostics (position 29): `hardware/dsp-subsystems/patches/0001-rpmsg-glink-log-open-ack-timeout.patch`. It is the read-only GLINK OPEN_ACK diagnostic (request R-K1 in `hardware/dsp-subsystems/README.md`): `sp11-glink:` log lines, no behaviour change. Remove it after the evidence is collected. Series SHA-256: `1720dd674bc69f90f0a3003645076c7a0d62954d436e34f6fa512e52b6c4b06f`. No DT change: M10 DTBs are byte-identical to M9 (same SHA-256).
+
+Script changes: `scripts/kernel-dtb-m10.sh` (copy of the M9 script; compares against the M9 variant DTBs and requires zero DT difference via the new `--previous-unchanged` flag of `scripts/kernel-m8-check.py`), `scripts/kernel-dtb-variants.sh` dispatch for revision 7, `scripts/kernel-check` milestone `m10`, `scripts/kernel-m8-rpm-check.py` milestone `m10` (adds the `qcom_glink` module with its `sp11-glink:` strings). New variant sources `kernel/dtb-variants/x1p64100-microsoft-denali-m10{,-notouch}.dts`.
+
+Disk guard: the first launch was refused (headroom 53 GiB < 60 GiB, WSL C: free 18 GiB). Freed 23 GiB by deleting the finished M9 rpmbuild scratch `out/build/kernel/rpmbuild/BUILD` (M9 RPMs, record and checks stay published); headroom then 78 GiB. No threshold override. Nothing archived was deleted.
+
+### M10 release artifacts
+
+`scripts/kernel-build.sh -j 6` rpmbuild: rc 0, UTC `2026-10-30T07:34:57+00:00` to `2026-10-30T08:26:22+00:00`, **3085 s (51 min 25 s)**. Step 6 (archive sp11.6 RPMs to `out/rpms/archive/7.3.0-65.sp11.6/`, collect, `scripts/kernel-check`) ran inside the script: **PASS**, record `built_utc` 2026-10-30T08:29:05Z.
+
+- BTF: `vmlinux` `.BTF` size `0x76c5c4`; **5934/5934** modules have BTF, zero missing. All 73 fragment symbols hold. `CHECK_DTBS=y` rc 0; `dt-validate` zero diagnostics.
+- Packaged LCD DTB SHA-256 `784de3eb644bc6a169cbe0c6da51cef0f984984493a44e6fbfd00b18cd792709` (unchanged from M9). S1, GPU off, Wi-Fi/USB-C/touch wiring and the 2-4 GiB CMA window pass.
+- `qcom_glink.ko.xz` (RPM `kernel-modules-core`, module SHA-256 `2d6a9811e7b079ac10a523131006e910eb89f2ada3016fb14c96a0a30a28bf38`) contains `sp11-glink: tx VERSION`, `tx OPEN` and `tx OPEN_ACK`. `qcom_glink_native` is part of this module (`CONFIG_RPMSG_QCOM_GLINK=m`), not vmlinux. `ath12k` (`0bd74f4b52c2e6aa24cc71004eb938b3e2d5ab40870045b967b5a82f7f177afb`), `ps883x` (`ca3ab1db966362c9ff57d54971afb1ba85d70c250400932acc79502696fd12dc`), `pmic_glink_altmode` (`1e6c9f4a7aa916945701f68ec326c87e1fa2ff5a01ea5a2aa5df4b7086931d0c`) and the touch modules keep their M9 effects.
+- Resource accounting: peak cgroup 9674182656 bytes; peak anonymous 3336982528 bytes. ccache hit rate 99.65% (2239 direct + 24287 preprocessed hits, 93 misses).
+- Config SHA-256: fragment `4a34894d4e50150bede28a45c937c2a63fd9fa96724f2291c022a2a8d857ee98`; shipped `e25b1f099a471321d37e84816d773785d5cd075046ac6d66a317f4fdfa549d23`.
+- Release record: `out/rpms/kernel-7.3.0-65.sp11.7.fc44.aarch64.json`, SHA-256 `34d945f5c749e739d2bc141a08ff8fa0945a79a9331b13e919fe88764313cc27`.
+
+| RPM (revision 7, aarch64) | SHA-256 |
+|:--|:--|
+| `kernel-7.3.0-65.sp11.7.fc44.aarch64.rpm` | `d2b679f4c471361658f2205d3bb5d23f63037eb84ef46441550f326a6856079d` |
+| `kernel-core-7.3.0-65.sp11.7.fc44.aarch64.rpm` | `59e5ecd1d8cbc085f2fee5341b6f462bd313dbf01da8df541a476eb0319efb5f` |
+| `kernel-debuginfo-7.3.0-65.sp11.7.fc44.aarch64.rpm` | `bff0c4e795549d0b6a7d405aaf87b65156a5d2c91b2872f4baa45b5a351f0960` |
+| `kernel-debuginfo-common-aarch64-7.3.0-65.sp11.7.fc44.aarch64.rpm` | `c86096c6ccc72b782bbd64e758eab0f485b74bb8cfb862522dc1a45aaa200c95` |
+| `kernel-devel-7.3.0-65.sp11.7.fc44.aarch64.rpm` | `6bd54d39f81e8edbe392cd42a60c73482c63bf9db4c5b7c4d0addf3f2994acff` |
+| `kernel-devel-matched-7.3.0-65.sp11.7.fc44.aarch64.rpm` | `78b1c31b7c7463d09b232f69c402aa309836f9331f8cb82b6c2b5a9582a6a8b9` |
+| `kernel-kmap-internal-7.3.0-65.sp11.7.fc44.aarch64.rpm` | `f40109f36643fa8904dd6fe394fa8a7d4e82b5117a199d34dbe047513ea104c0` |
+| `kernel-modules-7.3.0-65.sp11.7.fc44.aarch64.rpm` | `43d134650d95926fd90bbb007e58170bc6092b0b7e1f053a68c33478906ae862` |
+| `kernel-modules-core-7.3.0-65.sp11.7.fc44.aarch64.rpm` | `e2c41e52ba85ed1b8e0c986f6d3ee346f3b72a7fa8c141c122a45095747131bc` |
+| `kernel-modules-extra-7.3.0-65.sp11.7.fc44.aarch64.rpm` | `8b0b79fbfaeff046e9a58b7ddd7c8f38410f126e0cbf58c02e189c3b0da53fc3` |
+| `kernel-modules-extra-matched-7.3.0-65.sp11.7.fc44.aarch64.rpm` | `dc2c8fb0ac2300533bbd1496e90c06ca88c51583a4663ff9b589c2267f1923de` |
+| `kernel-modules-internal-7.3.0-65.sp11.7.fc44.aarch64.rpm` | `8e232938f25ab52da7867564b6eb3e740a56c870552d5fff209cdbccedb41713` |
+| `kernel-uki-dtbloader-7.3.0-65.sp11.7.fc44.aarch64.rpm` | `2b33b418b937d665b4da5464ada86d7c69f77f77750870e6de6c9d12ea35fe29` |
+| `kernel-uki-virt-7.3.0-65.sp11.7.fc44.aarch64.rpm` | `c10ca4367721b4ed20055fa10c36c38efd78ee821fe8af2bac6424aadfdf2b34` |
+| `kernel-uki-virt-addons-7.3.0-65.sp11.7.fc44.aarch64.rpm` | `b2e0684e51c314be6a4a6904888168c4412310b847dff40e011d6a651d534413` |
+
+### M10 DTB variants
+
+`scripts/kernel-dtb-variants.sh` (dispatching to `scripts/kernel-dtb-m10.sh`) ran after the release check; output `out/dtb-variants/7.3.0-65.sp11.7.fc44.aarch64/qcom/`, checks in `out/build/dtb-m10-checks/`. Both variants pass `CHECK_DTBS=y`, `dt-validate`, S1, GPU-off, wiring, parity and zero-difference-from-M9 checks.
+
+| DTB | Build time | SHA-256 |
+|:--|--:|:--|
+| `x1p64100-microsoft-denali-m10.dtb` | 45 s | `4130f2988a593847a0cd490bccd90ee65e16f74a5f3adf019cfd24dda5aec65a` |
+| `x1p64100-microsoft-denali-m10-notouch.dtb` | 12 s | `5704f68668538f6dd3e6fc37f67e8e9830f771124c57475c0ebca81d8c750519` |
+
+JSON record SHA-256: `x1p64100-microsoft-denali-m10.json` `3b22b47bfd05cde7923e992707b90a1caac627bf19e0d072d9910138d515079d`; `x1p64100-microsoft-denali-m10-notouch.json` `318516c0c7598068f92d37d4f4bdb7acb1f151f4f94d0f16263007f40fb44e5b`. No device boot was performed.
+
 ## Log
 
 - 2026-10-29: built M8 revision 5 (25 patches; RFC 0014 retired; spi-hid/QSPI touch and packaged GPU isolation). Release 3313 s; kernel-check PASS with BTF in vmlinux and all 5934 modules, 73 config symbols, packaged schema/S1/GPU/wiring and eight RPM module payload checks. M8/M8-notouch DTBs and JSON pass (63/14 s; complete run 214.464 s). Final index/syntax/whitespace checks pass; build/source locks are free and no task process remains. Recorded hashes/times and explicit image/owner requests; no device test. Changes remain uncommitted for the orchestrator (D24).
 
 - 2026-10-29: built and statically validated M7 revision 4 (nine patches, ATH12K_DEBUG, packaged S1): RPM build 3279 s; BTF in vmlinux and all 5930 modules; config, schema, S1, wiring and RFC message pass. M7/M7-touchdiag DTBs and JSON records pass (43/12 s; complete run 164.110 s). Recorded times/hashes and owner requests; no device test or task process left running. Work remains uncommitted under D24; orchestrator rebase/review/commit and image L0/L1 are next.
 - 2026-10-28: built and statically validated M6/M6GPU DT-only artifacts and JSON records; no RPM, series, revision or config change. Prepared the unbuilt revision 4 plan; component integration requests remain in Requests. Kernel is a service worker with no `component.toml`; hardware component status files are owned by their workers. Changes left uncommitted for the orchestrator (D24).
+- 2026-10-30: built M10 revision 7 (29 patches; GLINK OPEN_ACK diagnostic). Release 3085 s; kernel-check PASS; M10/M10-notouch DTBs pass and equal M9. Freed 23 GiB of finished M9 rpmbuild scratch for the disk guard. No device test, no commit.
