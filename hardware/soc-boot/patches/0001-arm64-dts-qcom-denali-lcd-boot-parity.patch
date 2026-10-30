@@ -1,0 +1,72 @@
+From: juniorverli <25966843+juniorverli@users.noreply.github.com>
+Date: Fri, 30 Oct 2026 12:00:00 +0000
+Subject: [PATCH] arm64: dts: qcom: denali-lcd: match the ten-core boot topology
+
+The LCD Surface Pro 11 with X1P64100 exposes ten enabled CPUs in its
+Windows MADT. GICC UID 7 (MPIDR 0x10300) and UID 11 (MPIDR 0x20300)
+have the enabled flag clear. Remove those CPU nodes, their cpu-map
+entries and their PSCI CPU power domains from the LCD board. Keep
+all three cluster and SCMI performance domains for the remaining CPUs.
+
+Also remove the system power domain's SS3 idle-state reference, while
+retaining CPU C4 and cluster CL4/CL5. This carries the existing D20
+boot-parity configuration into the packaged LCD DTB; it does not claim
+that SS3 caused the earlier reset. The M5 GPU-off boot used this
+configuration and reached GNOME, whereas the GPU-on boot reset at
+session start. SS3 can be reconsidered with a separate device test.
+
+The MADT is sources/windows/live-inventory/acpi/apic.dat, SHA-256
+50b032d657ad12b06793d4de71f0425d93a143fbf45965645203b40009a038d0.
+The GICC records start at 0x25c and 0x39c; their flags are at 0x268
+and 0x3a8, and MPIDRs at 0x2a0 and 0x3e0, respectively.
+
+Limit the change to the LCD board and preserve the separately applied
+speaker and GPU disablement. Device variant builders using this series
+must omit the legacy parity deletions: inherit the patched board once.
+
+Assisted-by: Codex gpt-6.1-sol
+---
+ arch/arm64/boot/dts/qcom/x1p64100-microsoft-denali.dts | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/x1p64100-microsoft-denali.dts b/arch/arm64/boot/dts/qcom/x1p64100-microsoft-denali.dts
+--- a/arch/arm64/boot/dts/qcom/x1p64100-microsoft-denali.dts
++++ b/arch/arm64/boot/dts/qcom/x1p64100-microsoft-denali.dts
+@@ -9,6 +9,11 @@
+ 
+ #include "hamoa.dtsi"
+ #include "x1-microsoft-denali.dtsi"
++
++/delete-node/ &cpu7;
++/delete-node/ &cpu11;
++/delete-node/ &cpu_pd7;
++/delete-node/ &cpu_pd11;
+ 
+ &{/sound} {
+ 	status = "disabled";
+@@ -83,6 +88,14 @@
+ 	status = "okay";
+ };
+ 
++&{/cpus/cpu-map/cluster1} {
++	/delete-node/ core3;
++};
++
++&cpu_map_cluster2 {
++	/delete-node/ core3;
++};
++
+ &gpi_dma1 {
+ 	status = "okay";
+ };
+@@ -108,6 +121,10 @@
+ 	};
+ };
+ 
++&system_pd {
++	/delete-property/ domain-idle-states;
++};
++
+ &tlmm {
+ 	qup_spi10_data23: qup-spi10-data23-state {
+ 		pins = "gpio49", "gpio50";
