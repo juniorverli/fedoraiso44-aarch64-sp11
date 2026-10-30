@@ -86,10 +86,12 @@ Two WSA8845 smart amplifiers on SoundWire, driven by the ADSP through AudioReach
 - firmware: install path for `qcom/x1e80100/X1E80100-Microsoft-Surface-Pro-11-tplg.bin` (SHA-256 `b192044f...da8c03`, built from upstream source, not a Windows file).
 - dsp-subsystems: take the SPF timeout (Q5) with the audio owners; H1 evidence needs no speaker path.
 - orchestrator: S1 stays; decide whether the operator wants Path E (exception) or waits for Path P (`evidence/2026-10-30-audio-plan.md` section 8). Run REA R6 and R7 first, then R1 to R5, when REA is free. Cross-check (`agents/protocol.md` §5.1) any value that enters a patch or safety decision: the ceilings 81 and 6 and the WSA port map.
+- kernel: after the flash review, add `patches/0004` (wsa884x: write the cached PA gain at attach) and `patches/0005` (wsa macro: EAR SPKR PA Gain stays below the user volume) to `kernel/series` after `0003`. Latent while speakers are off; both must be in any kernel that boots a speaker-enabled DTB. Apply-checked on the full series, checkpatch clean, not built. See `hardware/ec-sam/evidence/2026-10-30-flash-review-verdicts.md`.
 
 ## 9. Log
 
 - 2026-10-23: dossier created from the static survey.
+- 2026-10-30: flash review follow-up patches 0004, 0005 (latent safety, speakers still off everywhere)
 - 2026-10-30: audio plan (`evidence/2026-10-30-audio-plan.md`): M8/M10 state, DT, safety layers, topology/UCM, patches 0001 to 0003, REA questions; status `designed`.
 
 ## Requests (2026-10-30, orchestrator)

@@ -1,0 +1,65 @@
+From 70edba0d6ea369d9e5767658ede5c61a11492340 Mon Sep 17 00:00:00 2001
+From: v <a@b>
+Date: Fri, 30 Oct 2026 14:48:46 +0000
+Subject: [PATCH 4/5] ASoC: codecs: wsa884x: write the cached PA gain when the
+ slave attaches
+
+The reset gain that patch 0001 put into wsa884x_defaults only exists in
+the regmap cache. The amplifier itself powers up with CSR gain 2, which
+"PA Volume" reads back as 29 (+34.5 dB). Nothing guarantees that value
+reaches the hardware:
+
+ - after a cold boot the cache is not dirty (no cache-only write has
+   happened yet), so regcache_sync() returns without writing;
+ - after a re-attach regcache_mark_dirty() sets no_sync_defaults, so the
+   sync skips every register whose cached value equals its table default,
+   which is exactly the 0 dB value;
+ - setting "PA Volume" to its already-cached value is a no-op in
+   regmap_update_bits(), so user space cannot repair it either.
+
+The only write that happened to carry the gain was the read-modify-write
+of the GAIN_EN bit in wsa884x_set_gain_parameters(), and only when the
+compander port is disabled at that moment.
+
+Write DRE_CTL_1 explicitly from the cache in wsa884x_init(), before the
+gain parameters are applied. The register is not volatile, so the read
+returns the cached intended value (0 dB, or what user space set within
+the machine driver limit).
+
+Assisted-by: Claude Sonnet 5.5
+---
+ sound/soc/codecs/wsa884x.c | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/sound/soc/codecs/wsa884x.c b/sound/soc/codecs/wsa884x.c
+index eed036602..bb440247c 100644
+--- a/sound/soc/codecs/wsa884x.c
++++ b/sound/soc/codecs/wsa884x.c
+@@ -1520,6 +1520,7 @@ static void wsa884x_init(struct wsa884x_priv *wsa884x)
+ {
+ 	unsigned int wo_ctl_0;
+ 	unsigned int variant = 0;
++	unsigned int gain;
+ 
+ 	if (!regmap_read(wsa884x->regmap, WSA884X_OTP_REG_0, &variant))
+ 		variant = variant & WSA884X_OTP_REG_0_ID_MASK;
+@@ -1539,6 +1540,16 @@ static void wsa884x_init(struct wsa884x_priv *wsa884x)
+ 				       WSA884X_ANA_WO_CTL_0_PA_AUX_0_DB);
+ 	regmap_write(wsa884x->regmap, WSA884X_ANA_WO_CTL_0, wo_ctl_0);
+ 
++	/*
++	 * The cache holds the intended PA gain (0 dB unless user space lowered
++	 * it), but the amplifier is at its power-on gain here. After a cold boot
++	 * the cache is not dirty and regcache_sync() writes nothing; after a
++	 * re-attach it skips values equal to the table default. Write the cached
++	 * value explicitly so the hardware never keeps +34.5 dB.
++	 */
++	if (!regmap_read(wsa884x->regmap, WSA884X_DRE_CTL_1, &gain))
++		regmap_write(wsa884x->regmap, WSA884X_DRE_CTL_1, gain);
++
+ 	wsa884x_set_gain_parameters(wsa884x);
+ 
+ 	wsa884x->hw_init = true;
+-- 
+2.43.0
+
