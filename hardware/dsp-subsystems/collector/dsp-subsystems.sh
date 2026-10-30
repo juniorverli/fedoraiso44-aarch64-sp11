@@ -149,3 +149,28 @@ if [ -r /sys/kernel/tracing/trace ]; then
 else
 	echo "(tracefs not readable)"
 fi
+
+echo
+echo "## SMP2P, AOSS, RPMh and genpd trace (read only; system names in 7.3: qcom_smp2p, qcom_aoss, rpmh, power)"
+for f in events/qcom_smp2p/enable events/qcom_aoss/enable events/rpmh/enable events/power/power_domain_target/enable; do
+	[ -r "/sys/kernel/tracing/$f" ] && echo "$f: $(R "/sys/kernel/tracing/$f")"
+done
+if [ -r /sys/kernel/tracing/trace ]; then
+	echo "== qcom_smp2p (all edges; names carry the edge)"
+	timeout 8 grep -E " (smp2p_[a-z_]+):" /sys/kernel/tracing/trace 2>&1 | head -n 200
+	echo "== qcom_aoss (load_state and other QMP sends)"
+	timeout 8 grep -E " aoss_send(_done)?:" /sys/kernel/tracing/trace 2>&1 | head -n 100
+	echo "== genpd performance state (nsp, mxc, cx)"
+	timeout 8 grep -E " power_domain_target:.*(nsp|mxc|cx)" /sys/kernel/tracing/trace 2>&1 | head -n 100
+	echo "== rpmh sends (counts only, can be large)"
+	timeout 8 grep -c -E " rpmh_send_msg:" /sys/kernel/tracing/trace 2>&1
+else
+	echo "(tracefs not readable)"
+fi
+
+echo
+echo "## handover and proxy power domain state (patch 0003 log, genpd)"
+T dmesg | grep -E "handover: proxy power domains|remoteproc[0-9]+: (powering up|remote processor)" | head -n 20
+for d in nsp mxc cx; do
+	grep -E "^$d " /sys/kernel/debug/pm_genpd/pm_genpd_summary 2>/dev/null
+done
