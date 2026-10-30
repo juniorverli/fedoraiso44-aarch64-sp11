@@ -1,0 +1,389 @@
+From 57b8647d57063f55d6579a2fd1dbb34655563361 Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Fri, 30 Oct 2026 23:10:17 +0000
+Subject: [PATCH 12/16] ASoC: qcom: add a speaker protection guard for the
+ Surface Pro 11
+
+The Surface Pro 11 speakers are protected by a closed loop in the DSP
+(speaker protection module fed by voltage and current sense). Speaker
+playback must be refused unless that loop is up.
+
+Add a small module, "sp11", that keeps the state of the loop: the graph
+with its control links, the sense capture streams, the R0/T0 calibration
+and a latched fault. The producers are in-kernel only; there is no sysfs,
+ioctl or mixer control that changes the state, and a fault stays latched
+until reboot. A boot parameter, sp11.nospk, disables speaker playback
+permanently, and sp11.allow_nominal accepts a calibration that was not
+measured. The module parameters are read-only. The state is readable in
+debugfs.
+
+Assisted-by: Claude Sonnet 5.5
+---
+ include/sound/sp11-guard.h  |  53 ++++++++
+ sound/soc/qcom/Kconfig      |   9 ++
+ sound/soc/qcom/Makefile     |   2 +
+ sound/soc/qcom/sp11-guard.c | 248 ++++++++++++++++++++++++++++++++++++
+ 4 files changed, 312 insertions(+)
+ create mode 100644 include/sound/sp11-guard.h
+ create mode 100644 sound/soc/qcom/sp11-guard.c
+
+diff --git a/include/sound/sp11-guard.h b/include/sound/sp11-guard.h
+new file mode 100644
+index 000000000..204172a4a
+--- /dev/null
++++ b/include/sound/sp11-guard.h
+@@ -0,0 +1,53 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++/*
++ * Speaker protection guard for the Surface Pro 11 (microsoft,denali).
++ *
++ * One kernel-side object decides whether the WSA884x speakers may play.
++ * The state is written only by in-kernel producers (the AudioReach core, the
++ * WSA884x codec) and read by the machine driver. There is no sysfs, ioctl or
++ * mixer path that sets it, and a fault latches until reboot.
++ */
++#ifndef __SOUND_SP11_GUARD_H
++#define __SOUND_SP11_GUARD_H
++
++#include <linux/errno.h>
++#include <linux/types.h>
++
++struct device;
++
++enum sp11_guard_stream {
++	SP11_STREAM_VI,
++	SP11_STREAM_CPS,
++	SP11_STREAM_MAX,
++};
++
++/* Speaker channels that need a calibration (left and right) */
++#define SP11_CAL_ALL_MASK	0x3
++
++#if IS_REACHABLE(CONFIG_SND_SOC_SP11_GUARD)
++/* Producers */
++void sp11_guard_graph(bool up, bool cps_required);
++void sp11_guard_stream(enum sp11_guard_stream stream, bool start);
++void sp11_guard_calibrated(unsigned int ch_mask, bool nominal);
++void sp11_guard_fault(const char *src, u32 code);
++void sp11_guard_set_mute(void (*mute)(void *data), void *data);
++void sp11_guard_clear_mute(void *data);
++
++/* Consumers */
++int sp11_guard_check(struct device *dev);
++bool sp11_guard_faulted(void);
++bool sp11_guard_nospk(void);
++#else
++static inline void sp11_guard_graph(bool up, bool cps_required) { }
++static inline void sp11_guard_stream(enum sp11_guard_stream stream, bool start) { }
++static inline void sp11_guard_calibrated(unsigned int ch_mask, bool nominal) { }
++static inline void sp11_guard_fault(const char *src, u32 code) { }
++static inline void sp11_guard_set_mute(void (*mute)(void *data), void *data) { }
++static inline void sp11_guard_clear_mute(void *data) { }
++static inline bool sp11_guard_faulted(void) { return true; }
++static inline bool sp11_guard_nospk(void) { return true; }
++/* Without the guard the speakers are never allowed */
++static inline int sp11_guard_check(struct device *dev) { return -EOPNOTSUPP; }
++#endif
++
++#endif /* __SOUND_SP11_GUARD_H */
+diff --git a/sound/soc/qcom/Kconfig b/sound/soc/qcom/Kconfig
+index e6e24f3b9..903eed88e 100644
+--- a/sound/soc/qcom/Kconfig
++++ b/sound/soc/qcom/Kconfig
+@@ -240,10 +240,19 @@ config SND_SOC_SC7280
+ 	  SC7280 SoC-based systems.
+ 	  Say Y or M if you want to use audio device on this SoCs.
+ 
++config SND_SOC_SP11_GUARD
++	tristate "Speaker protection guard for the Surface Pro 11"
++	help
++	  Kernel-side gate for the WSA884x speakers of the Surface Pro 11.
++	  Playback is refused until the closed-loop speaker protection is
++	  running, calibrated and fault free. Boot parameters: sp11.nospk,
++	  sp11.allow_nominal. Say Y or M on that machine.
++
+ config SND_SOC_X1E80100
+ 	tristate "SoC Machine driver for X1E80100 boards"
+ 	depends on QCOM_APR && SOUNDWIRE
+ 	depends on COMMON_CLK
++	select SND_SOC_SP11_GUARD
+ 	select SND_SOC_QDSP6
+ 	select SND_SOC_QCOM_COMMON
+ 	select SND_SOC_QCOM_SDW
+diff --git a/sound/soc/qcom/Makefile b/sound/soc/qcom/Makefile
+index 985ce2ae2..7cbf13635 100644
+--- a/sound/soc/qcom/Makefile
++++ b/sound/soc/qcom/Makefile
+@@ -30,6 +30,7 @@ snd-soc-sc8280xp-y := sc8280xp.o
+ snd-soc-qcom-common-y := common.o
+ snd-soc-qcom-sdw-y := sdw.o
+ snd-soc-x1e80100-y := x1e80100.o
++sp11-y := sp11-guard.o
+ snd-soc-qcom-offload-utils-objs := usb_offload_utils.o
+ 
+ obj-$(CONFIG_SND_SOC_STORM) += snd-soc-storm.o
+@@ -43,6 +44,7 @@ obj-$(CONFIG_SND_SOC_SM8250) += snd-soc-sm8250.o
+ obj-$(CONFIG_SND_SOC_QCOM_COMMON) += snd-soc-qcom-common.o
+ obj-$(CONFIG_SND_SOC_QCOM_SDW) += snd-soc-qcom-sdw.o
+ obj-$(CONFIG_SND_SOC_X1E80100) += snd-soc-x1e80100.o
++obj-$(CONFIG_SND_SOC_SP11_GUARD) += sp11.o
+ obj-$(CONFIG_SND_SOC_QCOM_OFFLOAD_UTILS) += snd-soc-qcom-offload-utils.o
+ 
+ #DSP lib
+diff --git a/sound/soc/qcom/sp11-guard.c b/sound/soc/qcom/sp11-guard.c
+new file mode 100644
+index 000000000..ca7839eca
+--- /dev/null
++++ b/sound/soc/qcom/sp11-guard.c
+@@ -0,0 +1,248 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Speaker protection guard for the Surface Pro 11.
++ *
++ * Speaker playback is allowed only while all of this holds:
++ *  - the closed-loop AudioReach graph (speaker protection module and its
++ *    control links) was opened,
++ *  - the V/I sense capture stream is running (and the CPS stream, when the
++ *    topology asks for it),
++ *  - a calibration (R0/T0) was applied to both speakers,
++ *  - no fault was latched, and "sp11.nospk" is not set on the kernel command
++ *    line.
++ * Every input is written from kernel code only. The module parameters are
++ * read-only (0444) so they can be set at boot, never at run time.
++ */
++
++#include <linux/debugfs.h>
++#include <linux/device.h>
++#include <linux/module.h>
++#include <linux/moduleparam.h>
++#include <linux/seq_file.h>
++#include <linux/spinlock.h>
++#include <linux/workqueue.h>
++#include <sound/sp11-guard.h>
++
++#undef MODULE_PARAM_PREFIX
++#define MODULE_PARAM_PREFIX "sp11."
++
++static bool nospk;
++module_param(nospk, bool, 0444);
++MODULE_PARM_DESC(nospk, "Kill switch: never allow speaker playback (boot-time only)");
++
++static bool allow_nominal;
++module_param(allow_nominal, bool, 0444);
++MODULE_PARM_DESC(allow_nominal,
++		 "Accept a nominal (not measured) R0/T0 start (boot-time only)");
++
++struct sp11_guard {
++	spinlock_t lock;	/* protects all fields below */
++	unsigned int streams[SP11_STREAM_MAX];
++	unsigned int cal_mask;
++	bool cal_nominal;
++	bool graph_up;
++	bool cps_required;
++	bool fault;
++	char fault_src[24];
++	u32 fault_code;
++	void (*mute)(void *data);
++	void *mute_data;
++	struct work_struct mute_work;
++	struct dentry *debugfs;
++};
++
++static struct sp11_guard guard = {
++	.lock = __SPIN_LOCK_UNLOCKED(guard.lock),
++};
++
++static void sp11_guard_mute_work(struct work_struct *work)
++{
++	void (*mute)(void *data);
++	void *data;
++
++	spin_lock_irq(&guard.lock);
++	mute = guard.mute;
++	data = guard.mute_data;
++	spin_unlock_irq(&guard.lock);
++
++	if (mute)
++		mute(data);
++}
++
++void sp11_guard_graph(bool up, bool cps_required)
++{
++	unsigned long flags;
++
++	spin_lock_irqsave(&guard.lock, flags);
++	guard.graph_up = up;
++	guard.cps_required = up && cps_required;
++	spin_unlock_irqrestore(&guard.lock, flags);
++}
++EXPORT_SYMBOL_GPL(sp11_guard_graph);
++
++void sp11_guard_stream(enum sp11_guard_stream stream, bool start)
++{
++	unsigned long flags;
++
++	if (stream >= SP11_STREAM_MAX)
++		return;
++
++	spin_lock_irqsave(&guard.lock, flags);
++	if (start)
++		guard.streams[stream]++;
++	else if (guard.streams[stream])
++		guard.streams[stream]--;
++	spin_unlock_irqrestore(&guard.lock, flags);
++}
++EXPORT_SYMBOL_GPL(sp11_guard_stream);
++
++void sp11_guard_calibrated(unsigned int ch_mask, bool nominal)
++{
++	unsigned long flags;
++
++	spin_lock_irqsave(&guard.lock, flags);
++	guard.cal_mask |= ch_mask & SP11_CAL_ALL_MASK;
++	guard.cal_nominal = nominal;
++	spin_unlock_irqrestore(&guard.lock, flags);
++}
++EXPORT_SYMBOL_GPL(sp11_guard_calibrated);
++
++void sp11_guard_fault(const char *src, u32 code)
++{
++	unsigned long flags;
++	bool first;
++
++	spin_lock_irqsave(&guard.lock, flags);
++	first = !guard.fault;
++	if (first) {
++		guard.fault = true;
++		guard.fault_code = code;
++		strscpy(guard.fault_src, src, sizeof(guard.fault_src));
++	}
++	spin_unlock_irqrestore(&guard.lock, flags);
++
++	if (first) {
++		pr_err("sp11: speaker fault latched (%s, 0x%08x), speakers muted until reboot\n",
++		       src, code);
++		/* Mute from a worker: the producers may run in atomic context */
++		schedule_work(&guard.mute_work);
++	}
++}
++EXPORT_SYMBOL_GPL(sp11_guard_fault);
++
++void sp11_guard_set_mute(void (*mute)(void *data), void *data)
++{
++	unsigned long flags;
++
++	spin_lock_irqsave(&guard.lock, flags);
++	guard.mute = mute;
++	guard.mute_data = data;
++	spin_unlock_irqrestore(&guard.lock, flags);
++}
++EXPORT_SYMBOL_GPL(sp11_guard_set_mute);
++
++void sp11_guard_clear_mute(void *data)
++{
++	unsigned long flags;
++
++	spin_lock_irqsave(&guard.lock, flags);
++	if (guard.mute_data == data) {
++		guard.mute = NULL;
++		guard.mute_data = NULL;
++	}
++	spin_unlock_irqrestore(&guard.lock, flags);
++	flush_work(&guard.mute_work);
++}
++EXPORT_SYMBOL_GPL(sp11_guard_clear_mute);
++
++bool sp11_guard_faulted(void)
++{
++	return READ_ONCE(guard.fault);
++}
++EXPORT_SYMBOL_GPL(sp11_guard_faulted);
++
++bool sp11_guard_nospk(void)
++{
++	return nospk;
++}
++EXPORT_SYMBOL_GPL(sp11_guard_nospk);
++
++/* Returns the reason a speaker stream is refused, NULL when it is allowed */
++static const char *sp11_guard_reason(void)
++{
++	if (nospk)
++		return "sp11.nospk is set";
++	if (guard.fault)
++		return "a speaker fault is latched";
++	if (!guard.graph_up)
++		return "the closed-loop graph is not up";
++	if (!guard.streams[SP11_STREAM_VI])
++		return "the V/I sense stream is not running";
++	if (guard.cps_required && !guard.streams[SP11_STREAM_CPS])
++		return "the CPS stream is not running";
++	if ((guard.cal_mask & SP11_CAL_ALL_MASK) != SP11_CAL_ALL_MASK)
++		return "no R0/T0 calibration was applied";
++	if (guard.cal_nominal && !allow_nominal)
++		return "only a nominal calibration exists and sp11.allow_nominal is not set";
++
++	return NULL;
++}
++
++int sp11_guard_check(struct device *dev)
++{
++	const char *reason;
++	unsigned long flags;
++
++	spin_lock_irqsave(&guard.lock, flags);
++	reason = sp11_guard_reason();
++	spin_unlock_irqrestore(&guard.lock, flags);
++
++	if (!reason)
++		return 0;
++
++	dev_warn_ratelimited(dev, "speaker playback refused: %s\n", reason);
++
++	return -EOPNOTSUPP;
++}
++EXPORT_SYMBOL_GPL(sp11_guard_check);
++
++static int sp11_guard_show(struct seq_file *s, void *unused)
++{
++	const char *reason;
++
++	spin_lock_irq(&guard.lock);
++	reason = sp11_guard_reason();
++	seq_printf(s, "allowed: %s\n", reason ? "no" : "yes");
++	seq_printf(s, "reason: %s\n", reason ?: "-");
++	seq_printf(s, "graph_up: %d\nvi_streams: %u\ncps_streams: %u\ncps_required: %d\n",
++		   guard.graph_up, guard.streams[SP11_STREAM_VI],
++		   guard.streams[SP11_STREAM_CPS], guard.cps_required);
++	seq_printf(s, "cal_mask: 0x%x\ncal_nominal: %d\n", guard.cal_mask, guard.cal_nominal);
++	seq_printf(s, "fault: %d (%s, 0x%08x)\nnospk: %d\nallow_nominal: %d\n",
++		   guard.fault, guard.fault ? guard.fault_src : "-", guard.fault_code,
++		   nospk, allow_nominal);
++	spin_unlock_irq(&guard.lock);
++
++	return 0;
++}
++DEFINE_SHOW_ATTRIBUTE(sp11_guard);
++
++static int __init sp11_guard_init(void)
++{
++	INIT_WORK(&guard.mute_work, sp11_guard_mute_work);
++	guard.debugfs = debugfs_create_dir("sp11", NULL);
++	debugfs_create_file("guard", 0444, guard.debugfs, NULL, &sp11_guard_fops);
++
++	return 0;
++}
++module_init(sp11_guard_init);
++
++static void __exit sp11_guard_exit(void)
++{
++	debugfs_remove_recursive(guard.debugfs);
++	cancel_work_sync(&guard.mute_work);
++}
++module_exit(sp11_guard_exit);
++
++MODULE_DESCRIPTION("Surface Pro 11 speaker protection guard");
++MODULE_LICENSE("GPL");
+-- 
+2.43.0
+

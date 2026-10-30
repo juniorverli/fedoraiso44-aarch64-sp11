@@ -90,6 +90,7 @@ Two WSA8845 smart amplifiers on SoundWire, driven by the ADSP through AudioReach
 
 ## 9. Log
 
+- 2026-10-30 (closed-loop session): REA of `qcaucd8380.sys` (amplifier init, sense gain table, interrupts); patches 0010 to 0016 (binding, amplifier settings, `sp11` guard, V/I and CPS capture, AudioReach control links and calibration, machine driver gate, DT fragment); generator `userspace/build-topology/` for the private supplement files; stage 4 plan. Offline only. See `evidence/2026-10-30-closed-loop.md`.
 - 2026-10-30 (D26 session): GPR callback race verified and fixed (0006, 0007); D26 marker fragment (0008) and WSA playback gate (0009); variants `m13` (mics) and `m13-spk` (marked, gated); `kernel-dtb-safety.py --profile`; `userspace/overlay-speakers/`; closed-loop V/I design from the ACDB. Stages 0 and 1 done, 2 to 5 open. See `evidence/2026-10-30-d26-audio.md`.
 - 2026-10-23: dossier created from the static survey.
 - 2026-10-30: flash review follow-up patches 0004, 0005 (latent safety, speakers still off everywhere)
@@ -106,3 +107,16 @@ Full text in `evidence/2026-10-30-d26-audio.md` section 9.
 - kernel: add 0006 to 0009 after 0005; add `patches/dtb-variants/x1p64100-microsoft-denali-m13.dts` and `-m13-spk.dts` to `kernel/dtb-variants/`; `kernel-dtb-safety.py --profile d26` only for `m13-spk`, `default` for every other DTB. A kernel that boots `m13-spk` must contain 0001, 0002, 0004, 0005, 0009.
 - image: entries `no speakers` (M12 DTB), `microphones` (`m13`, `overlay/`), extra `speakers (gated)` (`m13-spk`, `overlay/` + `overlay-speakers/`); `m13-spk` is not the default until the first test (evidence section 7) passes; L0 2.18 accepts speaker DTBs only for that entry with the `d26` profile.
 - orchestrator: Stage 2 (wsa884x TX ports and sense registers, port map, second reset) needs a REA session on `qcaucd8380.sys` and `qcadcm8380.sys`; REA was not used in this session.
+
+## Requests (2026-10-30, closed-loop session)
+
+Full text and grades in `evidence/2026-10-30-closed-loop.md`.
+
+- kernel: add `patches/0010` to `0016` to `kernel/series` in that order after `0009` (0010 binding, 0011 amplifier settings, 0012 guard, 0013 amplifier capture and faults, 0014 AudioReach, 0015 machine driver, 0016 DT). 0015 replaces the unconditional refusal of 0009 with the guard of 0012; both must be in the same kernel. Config: `CONFIG_SND_SOC_SP11_GUARD=m` (selected by `CONFIG_SND_SOC_X1E80100`). Copy the updated `patches/dtb-variants/x1p64100-microsoft-denali-m13-spk.dts` (now includes `x1-microsoft-denali-audio-closedloop.dtsi`) over the old one; it is the only variant that includes the fragment. Run `kernel-dtb-safety.py --profile d26` on it (checked on the compiled DTB of this session: accepted) and `--profile default` on every other DTB. Check the module `sp11.ko` is in the RPM and that `modules.dep` lists it before `snd-soc-x1e80100`.
+- image: boot entries: keep `SP11 speakers (gated)` (`m13-spk`), add `SP11 speakers kill` (same DTB plus the kernel argument `sp11.nospk`). Never add `sp11.allow_nominal` to a default entry. Private mode only (D25, S5): install `out/firmware-private/audio/qcom/x1e80100/X1E80100-Microsoft-Surface-Pro-11-sp11cl.bin` (and `...-sp11cal.bin` if present) to `/usr/lib/firmware/qcom/x1e80100/`; the public ISO never carries them; record hashes only. Run `userspace/build-topology/build-closedloop.sh` before the private image build (hook: it writes into `out/firmware-private/audio/`; add `--nominal-cal` only for the operator's first test, `--with-cps` only when the topology has the CPS chain). UCM: the speaker verb must not start playback by itself; a user-space supervisor that opens the V/I capture stream before any playback is needed once the topology has one (not yet possible, evidence section 6). Collector for stage 4: evidence section 8 (`/sys/kernel/debug/sp11/guard`, the V/I recording, `/proc/cmdline`, hashes of the private files).
+- firmware: the topology file name is unchanged (`X1E80100-Microsoft-Surface-Pro-11-tplg.bin`, public, no SP/VI). The two new private files above are Windows-derived: keep them out of `firmware/` manifests that feed public output.
+- orchestrator: (1) decide the V/I link design before the first hardware test: separate back-end links (this series) or the RFC style link on the playback back end (evidence section 3; it needs an ASoC core change and has hardware testing). (2) Cross-check (`agents/protocol.md` section 5.1) the values of evidence section 7 with a reader that does not see the answers: the amplifier registers of the two-cell set, the sense gains (-21 dB, +12 dB), the control link ports and intents. (3) `qcadcm8380.sys` was not opened; the SPv5 diagnostics payload and the R0/T0 flow of the Windows driver are still Unknown. (4) S1 stays; this series does not lift it.
+
+## Test plan additions
+
+See `test-plan.md` section T4 and evidence section 8.

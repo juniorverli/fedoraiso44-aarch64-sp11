@@ -6,6 +6,7 @@
 # Expected SHA-256 (built 2026-10-30 with alsa-topology-utils 1.2.16):
 #         b192044f01e97eabe7f6df9ae0d394086badb3c30124573210bc781093da8c03
 # The topology has NO speaker protection (SP/VI) modules. Owner of the install path: image/firmware worker.
+# Closed-loop data (private, Windows-derived): build-topology/build-closedloop.sh, see evidence/2026-10-30-closed-loop.md.
 set -euo pipefail
 out=${1:?usage: build-topology.sh OUT_DIR}
 mkdir -p "$out"

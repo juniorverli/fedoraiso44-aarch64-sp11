@@ -5,8 +5,12 @@
  * /chosen/sp11,speaker-policy = "d26-open-loop-v1" (audio-speakers patch 0008).
  * Playback on the WSA links is refused by the machine driver (patch 0009) until the closed-loop
  * protection is validated, so enumerating the amplifiers does not make the speakers audible.
- * Any kernel that boots this DTB MUST contain audio-speakers patches 0001, 0002, 0004, 0005 and 0009.
+ * Any kernel that boots this DTB MUST contain audio-speakers patches 0001, 0002, 0004, 0005, 0006 to 0016
+ * (0015 replaces the unconditional refusal of 0009 by the guard of 0012, which still refuses by default).
+ * Patch 0016 adds the V/I and CPS feedback links, the second amplifier reset line and the two-cell, 4 ohm
+ * amplifier settings. It is included in this variant only.
  * The packaged default DTB and the M13 microphone variant never include the marker.
  */
 #include "x1p64100-microsoft-denali-m12.dts"
 #include "x1-microsoft-denali-audio-d26.dtsi"
+#include "x1-microsoft-denali-audio-closedloop.dtsi"
