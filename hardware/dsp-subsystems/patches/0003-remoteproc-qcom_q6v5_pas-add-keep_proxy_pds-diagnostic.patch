@@ -1,0 +1,73 @@
+From 8be9a6e0c868c9c057d318f8a4acc81dab086557 Mon Sep 17 00:00:00 2001
+From: Junior Mverli <25966843+juniorverli@users.noreply.github.com>
+Date: Fri, 30 Oct 2026 21:55:10 +0000
+Subject: [PATCH] remoteproc: qcom_q6v5_pas: add keep_proxy_pds diagnostic
+ parameter
+
+On the Surface Pro 11 the CDSP reads only the first eight bytes of what
+Apps writes to the GLINK SMEM FIFO and then stops, while the NSP and MXC
+power domains show off in genpd after the handover IRQ. Whether the
+Microsoft-signed firmware relies on the Apps proxy votes beyond the
+handover cannot be told from the logs.
+
+Add a read-only module parameter, default off, that keeps the proxy power
+domain votes after the handover IRQ and releases them when the remote
+processor is stopped. Log the handover so its time can be compared with
+the GLINK log. No behaviour change unless the parameter is set.
+
+Assisted-by: Claude Sonnet 5.5
+---
+ drivers/remoteproc/qcom_q6v5_pas.c | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+
+diff --git a/drivers/remoteproc/qcom_q6v5_pas.c b/drivers/remoteproc/qcom_q6v5_pas.c
+index a005546c2..e88cc499e 100644
+--- a/drivers/remoteproc/qcom_q6v5_pas.c
++++ b/drivers/remoteproc/qcom_q6v5_pas.c
+@@ -32,6 +32,11 @@
+ #include "qcom_common.h"
+ #include "qcom_pil_info.h"
+ #include "qcom_q6v5.h"
++
++static bool keep_proxy_pds;
++module_param(keep_proxy_pds, bool, 0444);
++MODULE_PARM_DESC(keep_proxy_pds,
++		 "Diagnostic: keep the proxy power domain votes after the handover IRQ (default: off)");
+ #include "remoteproc_internal.h"
+ 
+ #define QCOM_PAS_DECRYPT_SHUTDOWN_DELAY_MS	100
+@@ -81,6 +86,7 @@ struct qcom_pas {
+ 	struct device *proxy_pds[3];
+ 
+ 	int proxy_pd_count;
++	bool proxy_pds_held;
+ 
+ 	const char *dtb_firmware_name;
+ 	int pas_id;
+@@ -398,6 +404,14 @@ static void qcom_pas_handover(struct qcom_q6v5 *q6v5)
+ 		regulator_disable(pas->cx_supply);
+ 	clk_disable_unprepare(pas->aggre2_clk);
+ 	clk_disable_unprepare(pas->xo);
++
++	dev_info(pas->dev, "handover: proxy power domains %s\n",
++		 keep_proxy_pds ? "kept" : "released");
++	if (keep_proxy_pds) {
++		pas->proxy_pds_held = true;
++		return;
++	}
++
+ 	qcom_pas_pds_disable(pas, pas->proxy_pds, pas->proxy_pd_count);
+ }
+ 
+@@ -436,6 +450,11 @@ static int qcom_pas_stop(struct rproc *rproc)
+ 	if (handover)
+ 		qcom_pas_handover(&pas->q6v5);
+ 
++	if (pas->proxy_pds_held) {
++		qcom_pas_pds_disable(pas, pas->proxy_pds, pas->proxy_pd_count);
++		pas->proxy_pds_held = false;
++	}
++
+ 	if (pas->smem_host_id)
+ 		ret = qcom_smem_bust_hwspin_lock_by_host(pas->smem_host_id);
+ 
