@@ -1,0 +1,52 @@
+From 2a8f90ee70be5ed8de43ebea803ba74bec9a317d Mon Sep 17 00:00:00 2001
+From: cam <cam@x.invalid>
+Date: Fri, 30 Oct 2026 23:20:40 +0000
+Subject: [PATCH] dt-bindings: media: i2c: st,vd55g1: describe the VD55G0
+
+The Surface Pro 11 infrared camera is an STMicroelectronics VD55G0, a
+monochrome global shutter sensor with one CSI-2 D-PHY lane that the
+vd55g1 schema already describes in every other respect: clock, the vcore,
+vddio and vana supplies, the active low reset and the one-lane endpoint.
+
+Add st,vd55g0 to the compatible list. The VD55G0 reports another model
+identifier (0x3047 in the 16 bit register at offset 0 on this device,
+against 0x53354731 and 0x53354733 for the others) and takes another
+firmware patch, so vd55g1.c does not bind it: the node stays inert until
+a driver exists. The address is not fixed to 0x10 on this board, which
+uses 0x60.
+
+Assisted-by: Claude Sonnet 5.5
+---
+ .../devicetree/bindings/media/i2c/st,vd55g1.yaml          | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/media/i2c/st,vd55g1.yaml b/Documentation/devicetree/bindings/media/i2c/st,vd55g1.yaml
+index 58b1f9e85..629541741 100644
+--- a/Documentation/devicetree/bindings/media/i2c/st,vd55g1.yaml
++++ b/Documentation/devicetree/bindings/media/i2c/st,vd55g1.yaml
+@@ -14,7 +14,8 @@ maintainers:
+ description: |-
+  The STMicroelectronics VD55G1 is a global shutter image sensor with an active
+  array size of 804H x 704V. It is programmable through I2C interface. The I2C
+- address is fixed to 0x10.
++ address of the VD55G1 and VD55G4 is fixed to 0x10; a board may use another
++ address for the VD55G0.
+ 
+  Image data is sent through MIPI CSI-2, which is configured as only 1 data
+  lane. The sensor provides 4 GPIOS that can be used for external LED signal
+@@ -26,11 +27,14 @@ allOf:
+ properties:
+   compatible:
+     enum:
++      - st,vd55g0
+       - st,vd55g1
+       - st,vd55g4
+       - st,vd65g4
+     description:
+-      VD55G1 and VD55G4 are monochrome variants, while VD65G4 is a color one.
++      VD55G0, VD55G1 and VD55G4 are monochrome variants, while VD65G4 is a
++      color one. The VD55G0 has another model identifier and another firmware
++      patch than the others, so the vd55g1 driver does not bind it.
+ 
+   reg:
+     maxItems: 1

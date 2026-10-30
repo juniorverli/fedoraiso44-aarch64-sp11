@@ -1,0 +1,420 @@
+From 5205dc9ae6c3d3d5f78a2cde5bed9873925995ee Mon Sep 17 00:00:00 2001
+From: cam <cam@x.invalid>
+Date: Fri, 30 Oct 2026 23:09:43 +0000
+Subject: [PATCH] media: i2c: ov13858: load additional modes from a register
+ blob
+
+The Surface Pro 11 drives its rear OV13858 at 1185.6 Mbit/s per lane in
+three modes (4076x2806, 4064x2286 and 3736x2802) that exist neither in
+the datasheet-derived mode tables of this driver nor in any public
+document. Their register sequences are vendor data that cannot be part
+of the kernel source.
+
+When the devicetree names a register blob with firmware-name, parse it
+with the helpers of sensor-regblob.h and append its modes to the
+built-in ones. A blob mode carries its complete register list, PLL
+included, so the driver skips its own PLL list for it. The modes of one
+blob share a link frequency, which becomes a third entry of the
+LINK_FREQ menu and must be offered by the endpoint. The pixel rate and
+the line length come from the blob.
+
+A blob mode is accepted only if it uses four lanes, the driver's
+SGRBG10 bus code or none, plain register writes and a frame length the
+VTS register can hold. A missing or unusable blob is not an error: the
+sensor keeps working with the built-in modes. ACPI systems and
+devicetrees without the property are unchanged.
+
+Whether the Bayer order of these modes matches the built-in SGRBG10
+code is not known; a RAW capture on the device decides.
+
+Assisted-by: Claude Sonnet 5.5
+---
+ drivers/media/i2c/Kconfig   |   1 +
+ drivers/media/i2c/ov13858.c | 228 ++++++++++++++++++++++++++++++++----
+ 2 files changed, 205 insertions(+), 24 deletions(-)
+
+diff --git a/drivers/media/i2c/Kconfig b/drivers/media/i2c/Kconfig
+index 5c52007f9..fd8b14796 100644
+--- a/drivers/media/i2c/Kconfig
++++ b/drivers/media/i2c/Kconfig
+@@ -465,6 +465,7 @@ config VIDEO_OV08X40
+ 
+ config VIDEO_OV13858
+ 	tristate "OmniVision OV13858 sensor support"
++	select CRC32
+ 	help
+ 	  This is a Video4Linux2 sensor driver for the OmniVision
+ 	  OV13858 camera.
+diff --git a/drivers/media/i2c/ov13858.c b/drivers/media/i2c/ov13858.c
+index 5a43c4b3d..8093bb1f1 100644
+--- a/drivers/media/i2c/ov13858.c
++++ b/drivers/media/i2c/ov13858.c
+@@ -4,6 +4,7 @@
+ #include <linux/acpi.h>
+ #include <linux/clk.h>
+ #include <linux/delay.h>
++#include <linux/firmware.h>
+ #include <linux/gpio/consumer.h>
+ #include <linux/i2c.h>
+ #include <linux/module.h>
+@@ -15,6 +16,8 @@
+ #include <media/v4l2-event.h>
+ #include <media/v4l2-fwnode.h>
+ 
++#include "sensor-regblob.h"
++
+ #define OV13858_REG_VALUE_08BIT		1
+ #define OV13858_REG_VALUE_16BIT		2
+ #define OV13858_REG_VALUE_24BIT		3
+@@ -119,6 +122,8 @@ struct ov13858_mode {
+ 
+ 	/* Index of Link frequency config to be used */
+ 	u32 link_freq_index;
++	/* Line length of a mode loaded from firmware, 0 for the built-in ones */
++	u32 pixels_per_line;
+ 	/* Default register values */
+ 	struct ov13858_reg_list reg_list;
+ };
+@@ -942,6 +947,8 @@ static const char * const ov13858_test_pattern_menu[] = {
+ 
+ /* Configurations for supported link frequencies */
+ #define OV13858_NUM_OF_LINK_FREQS	2
++/* Modes loaded from firmware may add one more link frequency */
++#define OV13858_MAX_LINK_FREQS		(OV13858_NUM_OF_LINK_FREQS + 1)
+ #define OV13858_LINK_FREQ_540MHZ	540000000ULL
+ #define OV13858_LINK_FREQ_270MHZ	270000000ULL
+ #define OV13858_LINK_FREQ_INDEX_0	0
+@@ -1056,6 +1063,16 @@ struct ov13858 {
+ 	struct v4l2_ctrl *hblank;
+ 	struct v4l2_ctrl *exposure;
+ 
++	/* Modes: the built-in ones, then the ones loaded from firmware */
++	const struct ov13858_mode *modes;
++	unsigned int num_modes;
++	/* Link frequencies of the modes, the built-in ones first */
++	s64 link_freqs[OV13858_MAX_LINK_FREQS];
++	unsigned int num_link_freqs;
++	/* Link frequencies the endpoint offers */
++	u64 dt_link_freqs[OV13858_MAX_LINK_FREQS];
++	unsigned int num_dt_link_freqs;
++
+ 	/* Current mode */
+ 	const struct ov13858_mode *cur_mode;
+ 
+@@ -1065,6 +1082,12 @@ struct ov13858 {
+ 
+ #define to_ov13858(_sd)	container_of(_sd, struct ov13858, sd)
+ 
++static u32 ov13858_mode_ppl(const struct ov13858_mode *mode)
++{
++	return mode->pixels_per_line ?:
++	       link_freq_configs[mode->link_freq_index].pixels_per_line;
++}
++
+ /* Read registers up to 4 at a time */
+ static int ov13858_read_reg(struct ov13858 *ov13858, u16 reg, u32 len,
+ 			    u32 *val)
+@@ -1303,15 +1326,17 @@ static int ov13858_enum_frame_size(struct v4l2_subdev *sd,
+ 				   struct v4l2_subdev_state *sd_state,
+ 				   struct v4l2_subdev_frame_size_enum *fse)
+ {
+-	if (fse->index >= ARRAY_SIZE(supported_modes))
++	struct ov13858 *ov13858 = to_ov13858(sd);
++
++	if (fse->index >= ov13858->num_modes)
+ 		return -EINVAL;
+ 
+ 	if (fse->code != MEDIA_BUS_FMT_SGRBG10_1X10)
+ 		return -EINVAL;
+ 
+-	fse->min_width = supported_modes[fse->index].width;
++	fse->min_width = ov13858->modes[fse->index].width;
+ 	fse->max_width = fse->min_width;
+-	fse->min_height = supported_modes[fse->index].height;
++	fse->min_height = ov13858->modes[fse->index].height;
+ 	fse->max_height = fse->min_height;
+ 
+ 	return 0;
+@@ -1376,8 +1401,7 @@ ov13858_set_pad_format(struct v4l2_subdev *sd,
+ 	if (fmt->format.code != MEDIA_BUS_FMT_SGRBG10_1X10)
+ 		fmt->format.code = MEDIA_BUS_FMT_SGRBG10_1X10;
+ 
+-	mode = v4l2_find_nearest_size(supported_modes,
+-				      ARRAY_SIZE(supported_modes),
++	mode = v4l2_find_nearest_size(ov13858->modes, ov13858->num_modes,
+ 				      width, height,
+ 				      fmt->format.width, fmt->format.height);
+ 	ov13858_update_pad_format(mode, fmt);
+@@ -1387,7 +1411,7 @@ ov13858_set_pad_format(struct v4l2_subdev *sd,
+ 	} else {
+ 		ov13858->cur_mode = mode;
+ 		__v4l2_ctrl_s_ctrl(ov13858->link_freq, mode->link_freq_index);
+-		link_freq = link_freq_menu_items[mode->link_freq_index];
++		link_freq = ov13858->link_freqs[mode->link_freq_index];
+ 		pixel_rate = link_freq_to_pixel_rate(link_freq);
+ 		__v4l2_ctrl_s_ctrl_int64(ov13858->pixel_rate, pixel_rate);
+ 
+@@ -1401,9 +1425,7 @@ ov13858_set_pad_format(struct v4l2_subdev *sd,
+ 			OV13858_VTS_MAX - ov13858->cur_mode->height, 1,
+ 			vblank_def);
+ 		__v4l2_ctrl_s_ctrl(ov13858->vblank, vblank_def);
+-		h_blank =
+-			link_freq_configs[mode->link_freq_index].pixels_per_line
+-			 - ov13858->cur_mode->width;
++		h_blank = ov13858_mode_ppl(mode) - ov13858->cur_mode->width;
+ 		__v4l2_ctrl_modify_range(ov13858->hblank, h_blank,
+ 					 h_blank, 1, h_blank);
+ 	}
+@@ -1435,13 +1457,16 @@ static int ov13858_start_streaming(struct ov13858 *ov13858)
+ 		return ret;
+ 	}
+ 
+-	/* Setup PLL */
++	/* Setup PLL; a mode loaded from firmware carries its own PLL setup */
+ 	link_freq_index = ov13858->cur_mode->link_freq_index;
+-	reg_list = &link_freq_configs[link_freq_index].reg_list;
+-	ret = ov13858_write_reg_list(ov13858, reg_list);
+-	if (ret) {
+-		dev_err(ov13858->dev, "%s failed to set plls\n", __func__);
+-		return ret;
++	if (link_freq_index < OV13858_NUM_OF_LINK_FREQS) {
++		reg_list = &link_freq_configs[link_freq_index].reg_list;
++		ret = ov13858_write_reg_list(ov13858, reg_list);
++		if (ret) {
++			dev_err(ov13858->dev, "%s failed to set plls\n",
++				__func__);
++			return ret;
++		}
+ 	}
+ 
+ 	/* Apply default values of current mode */
+@@ -1572,7 +1597,9 @@ static int ov13858_init_controls(struct ov13858 *ov13858)
+ 	s64 hblank;
+ 	s64 pixel_rate_min;
+ 	s64 pixel_rate_max;
++	s64 pixel_rate_def;
+ 	const struct ov13858_mode *mode;
++	unsigned int i;
+ 	int ret;
+ 
+ 	ctrl_hdlr = &ov13858->ctrl_handler;
+@@ -1585,19 +1612,27 @@ static int ov13858_init_controls(struct ov13858 *ov13858)
+ 	ov13858->link_freq = v4l2_ctrl_new_int_menu(ctrl_hdlr,
+ 				&ov13858_ctrl_ops,
+ 				V4L2_CID_LINK_FREQ,
+-				OV13858_NUM_OF_LINK_FREQS - 1,
++				ov13858->num_link_freqs - 1,
+ 				0,
+-				link_freq_menu_items);
++				ov13858->link_freqs);
+ 	if (ov13858->link_freq)
+ 		ov13858->link_freq->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+ 
+-	pixel_rate_max = link_freq_to_pixel_rate(link_freq_menu_items[0]);
+-	pixel_rate_min = link_freq_to_pixel_rate(link_freq_menu_items[1]);
++	pixel_rate_def = ov13858->link_freqs[ov13858->cur_mode->link_freq_index];
++	pixel_rate_def = link_freq_to_pixel_rate(pixel_rate_def);
++	pixel_rate_min = link_freq_to_pixel_rate(ov13858->link_freqs[0]);
++	pixel_rate_max = pixel_rate_min;
++	for (i = 1; i < ov13858->num_link_freqs; i++) {
++		s64 rate = link_freq_to_pixel_rate(ov13858->link_freqs[i]);
++
++		pixel_rate_min = min(pixel_rate_min, rate);
++		pixel_rate_max = max(pixel_rate_max, rate);
++	}
+ 	/* By default, PIXEL_RATE is read only */
+ 	ov13858->pixel_rate = v4l2_ctrl_new_std(ctrl_hdlr, &ov13858_ctrl_ops,
+ 						V4L2_CID_PIXEL_RATE,
+-						pixel_rate_min, pixel_rate_max,
+-						1, pixel_rate_max);
++						pixel_rate_min, pixel_rate_max, 1,
++						pixel_rate_def);
+ 
+ 	mode = ov13858->cur_mode;
+ 	vblank_def = mode->vts_def - mode->height;
+@@ -1607,8 +1642,7 @@ static int ov13858_init_controls(struct ov13858 *ov13858)
+ 				vblank_min, OV13858_VTS_MAX - mode->height, 1,
+ 				vblank_def);
+ 
+-	hblank = link_freq_configs[mode->link_freq_index].pixels_per_line -
+-		 mode->width;
++	hblank = ov13858_mode_ppl(mode) - mode->width;
+ 	ov13858->hblank = v4l2_ctrl_new_std(
+ 				ctrl_hdlr, &ov13858_ctrl_ops, V4L2_CID_HBLANK,
+ 				hblank, hblank, 1, hblank);
+@@ -1747,6 +1781,12 @@ static int ov13858_get_of_resources(struct ov13858 *ov13858)
+ 		goto free_endpoint;
+ 	}
+ 
++	ov13858->num_dt_link_freqs = min_t(unsigned int,
++					   ep.nr_of_link_frequencies,
++					   ARRAY_SIZE(ov13858->dt_link_freqs));
++	for (i = 0; i < ov13858->num_dt_link_freqs; i++)
++		ov13858->dt_link_freqs[i] = ep.link_frequencies[i];
++
+ 	/* All existing modes remain advertised, so require both PLL rates. */
+ 	for (i = 0; i < ARRAY_SIZE(link_freq_menu_items); i++) {
+ 		for (j = 0; j < ep.nr_of_link_frequencies; j++)
+@@ -1779,6 +1819,142 @@ static int ov13858_get_of_resources(struct ov13858 *ov13858)
+ 	return 0;
+ }
+ 
++/* Index of @freq among the link frequencies of the modes, -1 if absent */
++static int ov13858_find_link_freq(struct ov13858 *ov13858, u64 freq)
++{
++	unsigned int i;
++
++	for (i = 0; i < ov13858->num_link_freqs; i++)
++		if (ov13858->link_freqs[i] == freq)
++			return i;
++
++	return -1;
++}
++
++/*
++ * Add the modes of a register blob to the built-in ones. A blob mode carries
++ * its complete register list, PLL included, and is rejected when it needs
++ * something this driver cannot do. All the modes of one blob share one link
++ * frequency, which the endpoint has to offer.
++ */
++static int ov13858_add_fw_modes(struct ov13858 *ov13858, const struct srb *srb)
++{
++	struct device *dev = ov13858->dev;
++	struct ov13858_mode *modes;
++	unsigned int i, j, n = ARRAY_SIZE(supported_modes);
++	s64 freq = 0;
++	int idx;
++
++	if (!srb->n_modes)
++		return 0;
++
++	modes = devm_kcalloc(dev, n + srb->n_modes, sizeof(*modes), GFP_KERNEL);
++	if (!modes)
++		return -ENOMEM;
++	memcpy(modes, supported_modes, sizeof(supported_modes));
++
++	for (i = 0; i < srb->n_modes; i++) {
++		struct ov13858_reg *regs;
++		struct srb_mode m;
++
++		srb_get_mode(srb, i, &m);
++
++		if (m.lanes != 4 ||
++		    (m.mbus_code && m.mbus_code != MEDIA_BUS_FMT_SGRBG10_1X10) ||
++		    m.vts_min < m.height || m.vts > OV13858_VTS_MAX ||
++		    (freq && freq != m.link_freq))
++			return -EINVAL;
++		freq = m.link_freq;
++
++		regs = devm_kcalloc(dev, m.ops.count, sizeof(*regs), GFP_KERNEL);
++		if (!regs)
++			return -ENOMEM;
++
++		for (j = 0; j < m.ops.count; j++) {
++			const u8 *op = m.ops.p + j * SRB_OP_SIZE;
++
++			/* The driver writes plain register lists only */
++			if (op[3] != SRB_OP_WRITE8)
++				return -EINVAL;
++			regs[j].address = get_unaligned_le16(op);
++			regs[j].val = op[2];
++		}
++
++		modes[n + i].width = m.width;
++		modes[n + i].height = m.height;
++		modes[n + i].vts_def = m.vts;
++		modes[n + i].vts_min = m.vts_min;
++		modes[n + i].pixels_per_line = m.hts;
++		modes[n + i].reg_list.num_of_regs = m.ops.count;
++		modes[n + i].reg_list.regs = regs;
++	}
++
++	/* The endpoint must offer the link frequency the blob modes use */
++	for (i = 0; i < ov13858->num_dt_link_freqs; i++)
++		if (ov13858->dt_link_freqs[i] == freq)
++			break;
++	if (i == ov13858->num_dt_link_freqs)
++		return -EINVAL;
++
++	idx = ov13858_find_link_freq(ov13858, freq);
++	if (idx < 0) {
++		idx = ov13858->num_link_freqs;
++		ov13858->link_freqs[ov13858->num_link_freqs++] = freq;
++	}
++	for (i = 0; i < srb->n_modes; i++)
++		modes[n + i].link_freq_index = idx;
++
++	ov13858->modes = modes;
++	ov13858->num_modes = n + srb->n_modes;
++
++	return 0;
++}
++
++/*
++ * Use the built-in modes, and add the ones of the register blob that the
++ * "firmware-name" property names. A missing or unusable blob is not an
++ * error: the sensor still works with the built-in modes.
++ */
++static int ov13858_setup_modes(struct ov13858 *ov13858)
++{
++	struct device *dev = ov13858->dev;
++	const struct firmware *fw;
++	const char *name;
++	struct srb srb;
++	unsigned int i;
++	int ret;
++
++	ov13858->modes = supported_modes;
++	ov13858->num_modes = ARRAY_SIZE(supported_modes);
++	ov13858->num_link_freqs = OV13858_NUM_OF_LINK_FREQS;
++	for (i = 0; i < OV13858_NUM_OF_LINK_FREQS; i++)
++		ov13858->link_freqs[i] = link_freq_menu_items[i];
++
++	if (!dev_of_node(dev) ||
++	    device_property_read_string(dev, "firmware-name", &name))
++		return 0;
++
++	ret = request_firmware(&fw, name, dev);
++	if (ret) {
++		dev_warn(dev, "no register blob %s (%d), built-in modes only\n",
++			 name, ret);
++		return 0;
++	}
++
++	ret = srb_parse(dev, fw, &srb);
++	if (!ret)
++		ret = ov13858_add_fw_modes(ov13858, &srb);
++	if (ret)
++		dev_warn(dev, "register blob %s not usable (%d), built-in modes only\n",
++			 name, ret);
++	else
++		dev_info(dev, "%u modes loaded from %s\n", srb.n_modes, name);
++
++	release_firmware(fw);
++
++	return ret == -ENOMEM ? ret : 0;
++}
++
+ static const struct dev_pm_ops ov13858_pm_ops = {
+ 	SET_RUNTIME_PM_OPS(ov13858_power_off, ov13858_power_on, NULL)
+ 	SET_SYSTEM_SLEEP_PM_OPS(pm_runtime_force_suspend, pm_runtime_force_resume)
+@@ -1814,6 +1990,10 @@ static int ov13858_probe(struct i2c_client *client)
+ 	if (ret)
+ 		return ret;
+ 
++	ret = ov13858_setup_modes(ov13858);
++	if (ret)
++		return ret;
++
+ 	ret = ov13858_power_on(ov13858->dev);
+ 	if (ret)
+ 		return ret;
+@@ -1826,7 +2006,7 @@ static int ov13858_probe(struct i2c_client *client)
+ 	}
+ 
+ 	/* Set default mode to max resolution */
+-	ov13858->cur_mode = &supported_modes[0];
++	ov13858->cur_mode = &ov13858->modes[0];
+ 
+ 	ret = ov13858_init_controls(ov13858);
+ 	if (ret)

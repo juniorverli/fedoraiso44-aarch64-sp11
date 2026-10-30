@@ -1,0 +1,122 @@
+From d83e0ca796376bf05501c9953bc9f7b9d78bea54 Mon Sep 17 00:00:00 2001
+From: cam <cam@x.invalid>
+Date: Fri, 30 Oct 2026 23:10:38 +0000
+Subject: [PATCH] arm64: dts: qcom: x1-microsoft-denali: refine the rear camera
+ description
+
+Apply what the Windows platform data established about the rear camera:
+
+- The rear OV13858 has its own recording indicator on GPIO105, active
+  high. GPIO225 is the indicator of the front and IR sensors. Add an LED
+  node for GPIO105 with its own pin state (GPIO function, the pin
+  defaults to cci_i2c), and point the rear sensor's leds property at it,
+  so the V4L2 core lights it while the rear sensor streams.
+- Windows runs the rear camera I2C bus at 400 kHz, the only timing known
+  to work on this board. Override the 1 MHz default of hamoa.dtsi on
+  CCI0 bus 1.
+- Name the optional register blob with the three Windows modes
+  (1185.6 Mbit/s per lane, 592.8 MHz link frequency) and offer that link
+  frequency on the endpoint. The built-in modes are unchanged and the
+  sensor works without the file.
+
+- The Windows platform data configures the master clock pins with drive
+  strength code 1, which is 4 mA, not the 2 mA of the first description.
+  Raise the rear clock state to 4 mA.
+
+The Windows CSIPHY power data also votes two more rails
+(LDO3_J 0.88 V, LDO2_J 1.2 V) that the CAMSS binding has no supply
+property for. Both are already enabled for the USB and PCIe PHYs of this
+board, so nothing is added for them.
+
+All nodes stay disabled.
+
+Assisted-by: Claude Sonnet 5.5
+---
+ .../boot/dts/qcom/x1-microsoft-denali.dtsi    | 36 +++++++++++++++----
+ 1 file changed, 29 insertions(+), 7 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi b/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi
+index bd1f39a6a..40e0263e7 100644
+--- a/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi
++++ b/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi
+@@ -23,7 +23,7 @@ aliases {
+ 	camera-leds {
+ 		compatible = "gpio-leds";
+ 
+-		pinctrl-0 = <&cam_indicator_en>;
++		pinctrl-0 = <&cam_indicator_en>, <&cam_rear_indicator_en>;
+ 		pinctrl-names = "default";
+ 
+ 		/* Disabled until the camera indicator wiring is confirmed on this unit */
+@@ -36,6 +36,15 @@ camera_indicator: led-camera-indicator {
+ 			linux,default-trigger = "none";
+ 			default-state = "off";
+ 		};
++
++		camera_indicator_rear: led-camera-indicator-rear {
++			function = LED_FUNCTION_INDICATOR;
++			function-enumerator = <1>;
++			color = <LED_COLOR_ID_WHITE>;
++			gpios = <&tlmm 105 GPIO_ACTIVE_HIGH>;
++			linux,default-trigger = "none";
++			default-state = "off";
++		};
+ 	};
+ 
+ 	gpio-keys {
+@@ -790,6 +799,7 @@ &cci0 {
+ 
+ &cci0_i2c1 {
+ 	/* Rear camera bus, GPIO103 (SDA) and GPIO104 (SCL) */
++	clock-frequency = <400000>;
+ 	#address-cells = <1>;
+ 	#size-cells = <0>;
+ 
+@@ -813,18 +823,23 @@ rear_camera: camera@10 {
+ 		orientation = <1>;
+ 
+ 		/*
+-		 * The only camera indicator known on this unit is GPIO225. Light it
+-		 * whenever the rear sensor streams until the rear indicator, if
+-		 * any, is identified.
++		 * The rear sensor lights its own indicator, GPIO105. GPIO225 is
++		 * the indicator of the front and IR sensors.
+ 		 */
+-		leds = <&camera_indicator>;
++		leds = <&camera_indicator_rear>;
+ 		led-names = "privacy";
+ 
++		/*
++		 * Optional register blob with the three modes Windows uses
++		 * (1185.6 Mbit/s per lane), generated locally on the device.
++		 */
++		firmware-name = "ov13858-mshw0491.bin";
++
+ 		port {
+ 			rear_camera_ep: endpoint {
+ 				bus-type = <MEDIA_BUS_TYPE_CSI2_DPHY>;
+ 				data-lanes = <1 2 3 4>;
+-				link-frequencies = /bits/ 64 <270000000 540000000>;
++				link-frequencies = /bits/ 64 <270000000 540000000 592800000>;
+ 				remote-endpoint = <&camss_csiphy1_ep>;
+ 			};
+ 		};
+@@ -1354,10 +1369,17 @@ cam_indicator_en: cam-indicator-en-state {
+ 		bias-disable;
+ 	};
+ 
++	cam_rear_indicator_en: cam-rear-indicator-en-state {
++		pins = "gpio105";
++		function = "gpio";
++		drive-strength = <2>;
++		bias-disable;
++	};
++
+ 	cam_mclk1_default: cam-mclk1-state {
+ 		pins = "gpio97";
+ 		function = "cam_mclk";
+-		drive-strength = <2>;
++		drive-strength = <4>;
+ 		bias-disable;
+ 	};
+ 
