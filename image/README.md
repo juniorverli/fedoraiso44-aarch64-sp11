@@ -799,7 +799,7 @@ One private ISO for the operator's device (D25/S5); never share it. The extracte
 | Menu | 9 entries: 8 device entries using 3 selectable DTBs, plus the VM entry |
 | Wi-Fi board | Fedora generic; no derived override installed |
 | L0 | **215 passed, 0 failed, 0 skipped**, including private checks 7.6–7.10; `.l0.txt` |
-| QEMU L1 | Running with `--until-session --decoy` |
+| QEMU L1 | **21 PASS, 0 FAIL** with `--until-session --decoy` (`out/iso/…m11-private-20261030T121406Z.l1.txt`, verified by the orchestrator after the Codex usage limit cut the worker off) |
 
 Menu checked in the built ISO. All device entries keep the M10 verbose/live arguments, clock/domain overrides, root delay and D23 blacklists; `nodsp` replaces the rd blacklist as below. Every selectable DTB keeps the GPU and WSA speaker bus/amplifiers off.
 
