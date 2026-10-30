@@ -3,7 +3,7 @@ name = "Cameras: front IMX681, rear OV13858, IR VD55G0 + illuminator, CAMSS, CCI
 phase = 4
 status = "survey"
 depends_on = ["soc-boot"]
-updated = "2026-10-24"
+updated = "2026-10-30"
 
 [windows]
 hardware_ids = ["ACPI\\VEN_SONY&DEV_0681&SUBSYS_MSHW0490", "ACPI\\VEN_OVTI&DEV_D858&SUBSYS_MSHW0491", "ACPI\\VEN_SMO&DEV_55F0&SUBSYS_MSHW0492", "ACPI\\VEN_QCOM&DEV_0C32&SUBSYS_MSHW0495 (platform)", "ACPI\\VEN_QCOM&DEV_0C25 (ISP)", "ACPI\\VEN_QCOM&DEV_0C98 (MIPI CSI)", "ACPI\\VEN_QCOM&DEV_0C27 (flash)", "ACPI\\VEN_QCOM&DEV_0C33 (JPEG)", "ACPI\\VEN_QCOM&DEV_0CCC (SecureISP)", "ACPI\\VEN_QCOM&DEV_0CF1 (EVA)"]

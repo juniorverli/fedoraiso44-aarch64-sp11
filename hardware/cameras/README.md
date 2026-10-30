@@ -111,9 +111,12 @@ Why CAMSS cannot do the RGB stage on this SoC (Verified, 2026-10-24):
 
 ## 8. Requests
 
-- none yet
+- R1 (kernel, operator): none can be written yet. A camera DT/driver patch is blocked: `hamoa.dtsi` has no `camss`/`cci`/CSIPHY nodes in v7.3, CAMSS rejects C-PHY (front IMX681), no IMX681 driver, `ov13858.c` has no OF match, regulators or reset GPIO. Recommended first target: rear OV13858 (D-PHY, 4 lanes, cci0 bus 1, csiphy1).
+- R2 (operator, next boot): run the read-only collector in `evidence/2026-10-30-rea-windows.md`; no `i2cdetect` without confirmation.
+- R3 (sources): upstream lore check of the CAMSS X1E DT and C-PHY series (no network this session).
 
 ## 9. Log
 
 - 2026-10-23: dossier created from the static survey.
 - 2026-10-24: RAW-to-RGB requirement recorded; OV13858 Bayer order verified.
+- 2026-10-30: REA of the Windows camera stack: per-camera CCI, lanes, PHY, reset, clocks, supplies and power-up order recorded in `evidence/2026-10-30-rea-windows.md`; front is C-PHY (unsupported by CAMSS in 7.3).
