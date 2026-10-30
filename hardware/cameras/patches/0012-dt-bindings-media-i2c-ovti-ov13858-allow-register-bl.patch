@@ -1,0 +1,50 @@
+From 525e10d0e9ae1747c486536a08b1fd5c9430ecbc Mon Sep 17 00:00:00 2001
+From: cam <cam@x.invalid>
+Date: Fri, 30 Oct 2026 23:09:36 +0000
+Subject: [PATCH] dt-bindings: media: i2c: ovti,ov13858: allow register blob
+ modes
+
+Add the optional firmware-name property, which names a register blob that
+adds sensor modes to the built-in ones, and allow a third link frequency
+for the link frequency of those modes.
+
+The Surface Pro 11 programs the OV13858 for 1185.6 Mbit/s per lane,
+which is a 592.8 MHz link frequency that no built-in mode uses.
+
+Assisted-by: Claude Sonnet 5.5
+---
+ .../devicetree/bindings/media/i2c/ovti,ov13858.yaml | 13 ++++++++++++-
+ 1 file changed, 12 insertions(+), 1 deletion(-)
+
+diff --git a/Documentation/devicetree/bindings/media/i2c/ovti,ov13858.yaml b/Documentation/devicetree/bindings/media/i2c/ovti,ov13858.yaml
+index 12d707eba..64621e51b 100644
+--- a/Documentation/devicetree/bindings/media/i2c/ovti,ov13858.yaml
++++ b/Documentation/devicetree/bindings/media/i2c/ovti,ov13858.yaml
+@@ -41,6 +41,14 @@ properties:
+     description: Active low sensor reset.
+     maxItems: 1
+ 
++  firmware-name:
++    maxItems: 1
++    description:
++      Name of an optional register blob that adds sensor modes to the built-in
++      ones, loaded with request_firmware(). The blob format is documented in
++      drivers/media/i2c/sensor-regblob.h. The driver works with its built-in
++      modes when the property or the file is missing.
++
+   port:
+     $ref: /schemas/graph.yaml#/$defs/port-base
+     unevaluatedProperties: false
+@@ -55,8 +63,11 @@ properties:
+             minItems: 4
+             maxItems: 4
+           link-frequencies:
++            description:
++              The 270 MHz and 540 MHz of the built-in modes, plus the link
++              frequency of the modes in the register blob, if any.
+             minItems: 2
+-            maxItems: 2
++            maxItems: 3
+         required:
+           - data-lanes
+           - link-frequencies

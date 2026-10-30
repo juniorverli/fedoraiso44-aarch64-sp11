@@ -1,0 +1,58 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * Diagnostic variant: enable all three camera paths for a test boot.
+ *
+ * The cameras patches 0001-0019 describe CCI0, CCI1, CAMSS, the pm8010 and pm8550
+ * regulators, the rear OV13858 (CCI0 bus 1), the front IMX681 (CCI1 bus 1, C-PHY)
+ * and the IR VD55G0 (CCI0 bus 0) with both camera indicators, all disabled. This file
+ * switches on that chain and nothing else.
+ *
+ * - Rear: ov13858 probes. It loads the three Windows modes only if
+ *   /usr/lib/firmware/ov13858-mshw0491.bin exists (private image mode).
+ * - Front: imx681 needs imx681-mshw0490.bin and fails to probe without it, before it
+ *   touches the hardware.
+ * - IR: no driver binds the node yet, so nothing but the supplies is described.
+ *
+ * The IR emitter and the flash stay undescribed (risk S2); the actuator rail
+ * vreg_l16b_2p9 stays disabled because nothing consumes it.
+ * Not a patch, not part of the RPM; built with scripts/kernel-dev.sh variant.
+ */
+#include "x1p64100-microsoft-denali.dts"
+
+&apps_rsc {
+	regulators-8 {
+		status = "okay";
+	};
+};
+
+&vreg_l7b_2p8 {
+	status = "okay";
+};
+
+&{/camera-leds} {
+	status = "okay";
+};
+
+&camss {
+	status = "okay";
+};
+
+&cci0 {
+	status = "okay";
+};
+
+&cci0_i2c0 {
+	status = "okay";
+};
+
+&cci0_i2c1 {
+	status = "okay";
+};
+
+&cci1 {
+	status = "okay";
+};
+
+&cci1_i2c1 {
+	status = "okay";
+};

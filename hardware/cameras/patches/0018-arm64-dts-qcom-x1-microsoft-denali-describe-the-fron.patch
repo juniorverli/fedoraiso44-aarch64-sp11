@@ -1,0 +1,195 @@
+From fda8a89d43d9f98db924b75b47166e8916f22ec0 Mon Sep 17 00:00:00 2001
+From: cam <cam@x.invalid>
+Date: Fri, 30 Oct 2026 23:21:15 +0000
+Subject: [PATCH] arm64: dts: qcom: x1-microsoft-denali: describe the front
+ camera, disabled
+
+Describe the Surface Pro 11 front Sony IMX681 on the always-on CCI1
+master 1 (GPIO235 SDA and GPIO236 SCL, pin function aon_cci) at 7-bit
+address 0x10 (8-bit 0x20 in the Windows platform data), CSIPHY2 with one
+C-PHY trio, master clock 4 (GPIO100, function cam_aon) at 19.2 MHz and
+reset on GPIO237. The sensor shares the recording indicator of GPIO225
+with the IR sensor. The 2.4 Gsym/s trio rate of the Windows modes is a
+1.2 GHz link frequency.
+
+The two sensor rails follow the Windows power sequence: B-LDO7 2.8 V and
+pm8010 LDO3 1.8 V. The Denali DT had neither: add the pm8550 L7B
+regulator, whose input supply (vdd-l6-l7, BOB2) is already described,
+and the pm8010 L3M one. Also add the pm8550 L16B regulator of the rear
+camera actuator (2.9 V from BOB1); nothing consumes it because no lens
+driver or actuator node exists. The pm8550 additions are disabled so the
+packaged devicetree does not change; the pm8010 supply parents are still
+not described. The Windows master clock pins use drive strength code 1
+(4 mA), which the front clock state follows.
+
+The IMX681 driver needs a register blob named by firmware-name. The
+Bayer order of the sensor is not known; the blob carries the media bus
+code. Everything stays disabled.
+
+Assisted-by: Claude Sonnet 5.5
+---
+ .../boot/dts/qcom/x1-microsoft-denali.dtsi    | 116 ++++++++++++++++++
+ 1 file changed, 116 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi b/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi
+index 40e0263e7..256247407 100644
+--- a/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi
++++ b/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi
+@@ -497,6 +497,18 @@ vreg_l6b_1p8: ldo6 {
+ 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+ 		};
+ 
++		/*
++		 * Front IMX681 analog rail (B-LDO7, 2.8 V in the Windows data).
++		 * Disabled with the front camera.
++		 */
++		vreg_l7b_2p8: ldo7 {
++			regulator-name = "vreg_l7b_2p8";
++			regulator-min-microvolt = <2800000>;
++			regulator-max-microvolt = <2800000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++			status = "disabled";
++		};
++
+ 		vreg_l8b_3p0: ldo8 {
+ 			regulator-name = "vreg_l8b_3p0";
+ 			regulator-min-microvolt = <3072000>;
+@@ -546,6 +558,19 @@ vreg_l15b_1p8: ldo15 {
+ 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+ 		};
+ 
++		/*
++		 * Rear camera actuator rail (B-LDO16, 2.9 V in the Windows data).
++		 * Nothing consumes it: the lens driver and the actuator node are
++		 * not described yet.
++		 */
++		vreg_l16b_2p9: ldo16 {
++			regulator-name = "vreg_l16b_2p9";
++			regulator-min-microvolt = <2900000>;
++			regulator-max-microvolt = <2900000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++			status = "disabled";
++		};
++
+ 		vreg_l17b_2p5: ldo17 {
+ 			regulator-name = "vreg_l17b_2p5";
+ 			regulator-min-microvolt = <2504000>;
+@@ -758,6 +783,13 @@ vreg_l1m_1p2: ldo1 {
+ 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+ 		};
+ 
++		vreg_l3m_1p8: ldo3 {
++			regulator-name = "vreg_l3m_1p8";
++			regulator-min-microvolt = <1800000>;
++			regulator-max-microvolt = <1800000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
+ 		vreg_l5m_2p8: ldo5 {
+ 			regulator-name = "vreg_l5m_2p8";
+ 			regulator-min-microvolt = <2800000>;
+@@ -789,6 +821,17 @@ camss_csiphy1_ep: endpoint {
+ 				remote-endpoint = <&rear_camera_ep>;
+ 			};
+ 		};
++
++		/* CSIPHY2, front IMX681 over C-PHY, one trio */
++		port@2 {
++			reg = <2>;
++
++			camss_csiphy2_ep: endpoint {
++				bus-type = <MEDIA_BUS_TYPE_CSI2_CPHY>;
++				data-lanes = <0>;
++				remote-endpoint = <&front_camera_ep>;
++			};
++		};
+ 	};
+ };
+ 
+@@ -846,6 +889,58 @@ rear_camera_ep: endpoint {
+ 	};
+ };
+ 
++&cci1 {
++	pinctrl-0 = <&cci1_i2c1_default>;
++	pinctrl-names = "default";
++};
++
++&cci1_i2c1 {
++	/* Front camera bus on the always-on CCI, GPIO235 (SDA) and GPIO236 (SCL) */
++	clock-frequency = <400000>;
++	#address-cells = <1>;
++	#size-cells = <0>;
++
++	front_camera: camera@10 {
++		compatible = "sony,imx681";
++		reg = <0x10>;
++
++		clocks = <&camcc CAM_CC_MCLK4_CLK>;
++		assigned-clocks = <&camcc CAM_CC_MCLK4_CLK>;
++		assigned-clock-rates = <19200000>;
++
++		reset-gpios = <&tlmm 237 GPIO_ACTIVE_LOW>;
++
++		pinctrl-0 = <&cam_mclk4_default>, <&cam_front_rst_n>;
++		pinctrl-names = "default";
++
++		/* The rail roles follow the voltages, 1.8 V I/O and 2.8 V analog */
++		dovdd-supply = <&vreg_l3m_1p8>;
++		avdd-supply = <&vreg_l7b_2p8>;
++
++		orientation = <0>;
++
++		/*
++		 * Register blob generated locally on the device: every sensor
++		 * register sequence, the modes and the Bayer order are in it.
++		 */
++		firmware-name = "imx681-mshw0490.bin";
++
++		/* GPIO225, shared with the IR sensor */
++		leds = <&camera_indicator>;
++		led-names = "privacy";
++
++		port {
++			front_camera_ep: endpoint {
++				bus-type = <MEDIA_BUS_TYPE_CSI2_CPHY>;
++				data-lanes = <1>;
++				/* 2.4 Gsym/s per trio, half the symbol rate */
++				link-frequencies = /bits/ 64 <1200000000>;
++				remote-endpoint = <&camss_csiphy2_ep>;
++			};
++		};
++	};
++};
++
+ &gpu {
+ 	status = "okay";
+ };
+@@ -1376,6 +1471,27 @@ cam_rear_indicator_en: cam-rear-indicator-en-state {
+ 		bias-disable;
+ 	};
+ 
++	cam_front_rst_n: cam-front-reset-n-state {
++		pins = "gpio237";
++		function = "gpio";
++		drive-strength = <2>;
++		bias-disable;
++	};
++
++	cam_mclk4_default: cam-mclk4-state {
++		pins = "gpio100";
++		function = "cam_aon";
++		drive-strength = <4>;
++		bias-disable;
++	};
++
++	cci1_i2c1_default: cci1-i2c1-state {
++		pins = "gpio235", "gpio236";
++		function = "aon_cci";
++		drive-strength = <2>;
++		bias-pull-up;
++	};
++
+ 	cam_mclk1_default: cam-mclk1-state {
+ 		pins = "gpio97";
+ 		function = "cam_mclk";
