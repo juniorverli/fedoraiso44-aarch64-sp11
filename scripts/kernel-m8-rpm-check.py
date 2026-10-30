@@ -38,7 +38,7 @@ def elf_symbol(data, wanted):
 
 checks, kver, rpmdir = Path(sys.argv[1]), sys.argv[2], Path(sys.argv[3])
 milestone = sys.argv[4] if len(sys.argv) > 4 else 'm8'
-require(milestone in ('m8', 'm9', 'm10', 'm11'), 'Expected m8, m9, m10 or m11')
+require(milestone in ('m8', 'm9', 'm10', 'm11', 'm12'), 'Expected m8, m9, m10, m11 or m12')
 root = checks / 'root/lib/modules' / kver
 payloads = {}
 for rpm in sorted(rpmdir.glob(f'kernel-*{kver}.rpm')):
@@ -50,12 +50,14 @@ for rpm in sorted(rpmdir.glob(f'kernel-*{kver}.rpm')):
 records = {}
 names = ['spi-hid', 'spi-hid-of', 'spi-hid-acpi', 'spi-geni-qcom', 'gpi',
          'fixed', 'hid-multitouch', 'uinput']
-if milestone in ('m9', 'm10', 'm11'):
+if milestone in ('m9', 'm10', 'm11', 'm12'):
     names += ['ath12k', 'ps883x', 'pmic_glink_altmode']
-if milestone in ('m10', 'm11'):
+if milestone in ('m10', 'm11', 'm12'):
     names += ['qcom_glink']
-if milestone == 'm11':
+if milestone in ('m11', 'm12'):
     names += ['snd-soc-wsa884x', 'snd-soc-x1e80100']
+if milestone == 'm12':
+    names += ['snd-soc-lpass-wsa-macro']
 diagnostics = {
     'pmic_glink_altmode': [
         b'request: cmd=%#x arg=%u acknowledged\n',
@@ -68,7 +70,7 @@ diagnostics = {
         b'set: mode=%lu svid=%04x orientation=%u in_reset=%u ret=%d\n'],
     'qcom_glink': [
         b'sp11-glink: tx VERSION ', b'sp11-glink: tx OPEN ', b'sp11-glink: tx OPEN_ACK ']}
-if milestone == 'm11':
+if milestone in ('m11', 'm12'):
     diagnostics['qcom_glink'] += [b'sp11-glink: FIFO tx head=%u tail=%u rx head=%u tail=%u\n']
 for name in names:
     found = list(root.rglob(f'{name}.ko.xz'))
@@ -122,14 +124,21 @@ for name in names:
                          elf_sha256=hashlib.sha256(data).hexdigest())
     if name in diagnostics:
         records[name]['diagnostic_strings'] = [m.decode().rstrip() for m in diagnostics[name]]
-    if name in ('snd-soc-wsa884x', 'snd-soc-x1e80100'):
-        relative = ('sound/soc/codecs/wsa884x.o' if name == 'snd-soc-wsa884x'
-                    else 'sound/soc/qcom/x1e80100.o')
+    if name in ('snd-soc-wsa884x', 'snd-soc-x1e80100', 'snd-soc-lpass-wsa-macro'):
+        relative = {'snd-soc-wsa884x': 'sound/soc/codecs/wsa884x.o',
+                    'snd-soc-x1e80100': 'sound/soc/qcom/x1e80100.o',
+                    'snd-soc-lpass-wsa-macro': 'sound/soc/codecs/lpass-wsa-macro.o'}[name]
         objects = list((checks.parent / 'rpmbuild/BUILD').glob('**/' + relative))
         require(len(objects) == 1, f'Missing/ambiguous release audio object: {relative}')
         obj = objects[0]
         object_data = obj.read_bytes()
-        if name == 'snd-soc-wsa884x':
+        if name == 'snd-soc-lpass-wsa-macro':
+            pass
+        elif name == 'snd-soc-wsa884x':
+            if milestone == 'm12':
+                # audio 0004: explicit DRE_CTL_1 (0x34b1) read-back and write at attach.
+                text = subprocess.run(['objdump', '-dr', str(obj)], check=True, capture_output=True, text=True).stdout
+                require(re.search(r'#0x34b1\b', text), 'Release WSA object lacks the explicit DRE_CTL_1 write (0004)')
             defaults = elf_symbol(object_data, 'wsa884x_defaults')
             require([v for r, v in struct.iter_unpack('<II', defaults) if r == 0x34b1] == [0x32],
                     'Release WSA object lacks safe PA reset')
@@ -164,7 +173,7 @@ record = dict(packaged_dtb_sha256=hashlib.sha256(dtb.read_bytes()).hexdigest(),
               touch_modules={name: records[name] for name in names[:8]},
               qspi_protocol_guard=True, gpi_qspi_tre_path=True,
               rfc0014_removed=True)
-if milestone in ('m9', 'm10', 'm11'):
+if milestone in ('m9', 'm10', 'm11', 'm12'):
     record['new_modules'] = {name: records[name] for name in names[8:]}
     record['cma_dma32'] = record['wiring']['cma_dma32']
 (checks / f'{milestone}.json').write_text(json.dumps(record, indent=2) + '\n')

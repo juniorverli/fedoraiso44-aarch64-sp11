@@ -49,7 +49,7 @@ def read_tree(dtb):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('dtb', type=Path)
-    parser.add_argument('--variant', choices=['packaged', 'm8', 'm8-notouch', 'm9', 'm9-notouch', 'm10', 'm10-notouch', 'm11', 'm11-notouch', 'm11-audio'],
+    parser.add_argument('--variant', choices=['packaged', 'm8', 'm8-notouch', 'm9', 'm9-notouch', 'm10', 'm10-notouch', 'm11', 'm11-notouch', 'm11-audio', 'm12', 'm12-notouch', 'm12-audio'],
                         required=True)
     parser.add_argument('--baseline', type=Path)
     parser.add_argument('--previous', type=Path, help='M8 DTB: require only the CMA range addition')
@@ -65,7 +65,7 @@ def main():
     symbols = {k: strings(v)[0] for k, v in nodes['/__symbols__'].items()}
 
     cma_record = None
-    if args.cma_dma32 or args.variant.startswith(('m9', 'm10', 'm11')):
+    if args.cma_dma32 or args.variant.startswith(('m9', 'm10', 'm11', 'm12')):
         pools = [(p, props) for p, props in nodes.items() if 'linux,cma-default' in props]
         require(len(pools) == 1, 'Missing/ambiguous default CMA pool')
         path, pool = pools[0]
@@ -102,7 +102,7 @@ def main():
     watched = json.loads(safety.stdout)['watched']
     require(len(watched) == 3, 'Unexpected S1 watched-node count')
     require(node('swr0').get('status') == '\"disabled\"', 'swr0 is not disabled')
-    if args.variant == 'm11-audio':
+    if args.variant in ('m11-audio', 'm12-audio'):
         require(enabled('/sound'), 'Microphone sound card disabled')
         require('/sound/wsa-dai-link' not in nodes, 'WSA playback link retained')
         require(strings(nodes['/sound']['audio-routing']) ==
@@ -231,7 +231,7 @@ def main():
                           usb_typec=dict(reset_gpio=176, pinctrl='rtmr1_default', drive_strength=2),
                           cpu_count=len(cpus), no_system_ss3=parity,
                           gpu_enabled=enabled(symbols['gpu']),
-                          microphone_only=args.variant == 'm11-audio',
+                          microphone_only=args.variant in ('m11-audio', 'm12-audio'),
                           se2_enabled=enabled(spi_path), enabled_hid_children=hid,
                           enabled_touch_supply_consumers=consumers,
                           touch_enabled=active_touch, touch_supply_startup_us=500000,

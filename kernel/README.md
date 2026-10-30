@@ -473,6 +473,63 @@ Nine Python regression cases and nine compiled-DTB safety/parity cases pass. The
 Final hand-back checks: `scripts/index.py --check` reports **21 components, 0 errors**; Python/shell syntax, regression and whitespace checks pass. The published sp11.8 RPMs/DTBs/records and the sp11.6/sp11.7 RPM archives match their recorded hashes. Both the shared build lock and M11 source lock are free; no task build, container, sampler or watchdog remains. The temporary git-metadata reference is absent. Kernel is a service worker with no `component.toml`; hardware status files remain owner-managed. All worker changes remain uncommitted for orchestrator review under D24. Image L0/L1, component cross-checks, lint disposition and diagnostic retirement remain the Requests above.
 
 
+## M12 series revision 9 (2026-10-30)
+
+Revision 9 keeps the 34 M11 patches and adds three, for 37 in total. Series SHA-256: `e3a9dbac6f7efbb10e7b3105e13787e60726f92d4048dab010ac7d967bfdc49e`. All 37 apply sequentially to the pinned v7.3 export with `patch --batch --fuzz=0 -p1`; the three new patches apply with zero offset and zero fuzz. `hardware/ec-sam/patches/hold/0006` stays out (held).
+
+| Position | Patch | Integration reason |
+|--:|:--|:--|
+| after touch 0020 | touch-pen 0021 | Verified fix F-09: `spi-hid-of` still cuts the supply when asserting the reset line fails. Touches only `spi-hid-of.c`, after the v7 series that creates it |
+| 36 | audio-speakers 0004 | `wsa884x`: write the cached PA gain (0 dB) when the slave attaches, so the amplifier never keeps its +34.5 dB power-on gain |
+| 37 | audio-speakers 0005 | `lpass-wsa-macro`: keep the EAR/SPKR PA gain below the machine-driver limit. Both are required in any kernel that boots a speaker-enabled DTB; speakers stay off in every DTB (S1) |
+
+The amended dsp-subsystems 0001 (GLINK format fixes) is picked up through the series; this changes the series hash. No DT change: the three M12 DTBs equal their M11 counterparts byte for byte.
+
+Script changes: `scripts/kernel-dtb-m12.sh` (M11 builder; compares every variant against the sp11.8 M11 DTB byte for byte), dispatch in `scripts/kernel-dtb-variants.sh`, milestone `m12` in `scripts/kernel-check`, `scripts/kernel-m8-rpm-check.py` (adds the `snd-soc-lpass-wsa-macro` module and object, and checks `wsa884x` for the explicit `0x34b1` write) and variant names in `scripts/kernel-m8-check.py`. Sources: `kernel/dtb-variants/x1p64100-microsoft-denali-m12{,-notouch,-audio}.dts`.
+
+Disk guard: the first launch was refused (headroom 52 GiB < 60 GiB, C: free 15 GiB). Preserved the M11 logs/stats in `out/build/kernel/history/m11/`, then deleted only the finished M11 scratch `out/build/kernel/rpmbuild/BUILD/kernel-7.3.0-build` (23 GiB). Nothing archived was deleted; no threshold override. Step 6 archived revision 8 into `out/rpms/archive/7.3.0-65.sp11.8/` (sp11.6 and sp11.7 sets remain).
+
+### M12 release artifacts
+
+`scripts/kernel-build.sh -j 6`: rc 0, UTC `2026-10-30T15:26:59+00:00` to `2026-10-30T16:16:52+00:00`, **2993 s (49 min 53 s)**. `scripts/kernel-check` ran inside the script: **PASS**.
+
+- BTF: `vmlinux` `.BTF` size `0x76c5c4`; **5934/5934** modules have BTF, none missing, no bad magic. All 73 fragment symbols hold. `CHECK_DTBS=y` rc 0, 0 warning lines; packaged DTB `dt-validate` clean.
+- Packaged LCD DTB SHA-256 `4130f2988a593847a0cd490bccd90ee65e16f74a5f3adf019cfd24dda5aec65a` (unchanged). S1, GPU off, wiring and CMA window pass.
+- Touch modules, glink strings (including the FIFO format), `ath12k`, `ps883x` and `pmic_glink_altmode` pass. Release objects and modules for `wsa884x` (with 0004), `x1e80100` and `lpass-wsa-macro` (with 0005) are built and recorded under `m12.new_modules`. These checks do not establish speaker protection.
+- Peak cgroup 9689481216 bytes; peak anonymous 3336876032 bytes. ccache 99.64% (2239 direct + 24284 preprocessed hits, 96 misses).
+- Release record `out/rpms/kernel-7.3.0-65.sp11.9.fc44.aarch64.json`, SHA-256 `ea7c2a4aedf96c993f7897e455e290e9bc049d2c95ff0206dd4af39613676bd9`. Logs: `out/build/kernel/m12-driver.log`, `rpmbuild.log`.
+
+| RPM (revision 9, aarch64) | SHA-256 |
+|:--|:--|
+| `kernel-7.3.0-65.sp11.9.fc44.aarch64.rpm` | `1024f6bc0bb31f60be4d638b0f5cc1223c734de710e47302b08201bcdad16cd3` |
+| `kernel-core-7.3.0-65.sp11.9.fc44.aarch64.rpm` | `796e5de470d70bfb4338998d638e15ca4610c56907353865e6d3793925c775ca` |
+| `kernel-debuginfo-7.3.0-65.sp11.9.fc44.aarch64.rpm` | `7a0847c3db4cde1b5ee3d2b8696e30ee4e0f34d7d5d99309333e1a32266eb5c5` |
+| `kernel-debuginfo-common-aarch64-7.3.0-65.sp11.9.fc44.aarch64.rpm` | `d1a87cbbbd6a43008a18ce50c3048344509b41d083aa7d2c751d13659582c78b` |
+| `kernel-devel-7.3.0-65.sp11.9.fc44.aarch64.rpm` | `f680a4c755be5fe86d910aa2140b1c4a8e13c97c2fafa7e32d7c1e0b33bb71b9` |
+| `kernel-devel-matched-7.3.0-65.sp11.9.fc44.aarch64.rpm` | `f3c887572f63b5c330820b4122bd907a3976061bbeb61d134c41483a61203af3` |
+| `kernel-kmap-internal-7.3.0-65.sp11.9.fc44.aarch64.rpm` | `0375a96d504d2617d197736c7ff30b24f6c0c2a67c334b46d943bf51b68cdce5` |
+| `kernel-modules-7.3.0-65.sp11.9.fc44.aarch64.rpm` | `2ab2fd150fe75b56a8f7af4e7edb0bad7444d99e07a66ff30d92928cf21c13c8` |
+| `kernel-modules-core-7.3.0-65.sp11.9.fc44.aarch64.rpm` | `1ec5e9359ec356e926e3affda70bc226c9fe7267e70ee2fc8c4eb47154c1d5b8` |
+| `kernel-modules-extra-7.3.0-65.sp11.9.fc44.aarch64.rpm` | `84d734e5319d6ab3190ef9b28da8460aafb7f5f4fd2925bcc96e9f9b0a72ea6f` |
+| `kernel-modules-extra-matched-7.3.0-65.sp11.9.fc44.aarch64.rpm` | `3e8e8f288fb74826a4869de1d7a590a9c6158051fdc454b00a999ea60a44e948` |
+| `kernel-modules-internal-7.3.0-65.sp11.9.fc44.aarch64.rpm` | `d8d93927181cdfbea1ef63ce246a66ae21440efa840e458245181e8e6de6808b` |
+| `kernel-uki-dtbloader-7.3.0-65.sp11.9.fc44.aarch64.rpm` | `5156d650f3b10920e0920dd4b5b8a03a6bfc227f52cdf384d9d91f8f886952dc` |
+| `kernel-uki-virt-7.3.0-65.sp11.9.fc44.aarch64.rpm` | `1f16d3a8dba272a6f555000aa758131231bb5367ff1b31a5419737370d8436c0` |
+| `kernel-uki-virt-addons-7.3.0-65.sp11.9.fc44.aarch64.rpm` | `6f204724dddee56383c004e2fddb1662c519666ac7297b56fb677aacbca3582b` |
+
+### M12 DTB variants
+
+`scripts/kernel-dtb-variants.sh` (dispatching to `scripts/kernel-dtb-m12.sh`); output `out/dtb-variants/7.3.0-65.sp11.9.fc44.aarch64/qcom/`, checks in `out/build/dtb-m12-checks/`, log `out/build/kernel/m12-variants.log`. All three pass `CHECK_DTBS=y`, `dt-validate`, S1 (microphone-only exception for audio), GPU-off, wiring and the byte-identical-to-M11 check.
+
+| DTB | Build time | SHA-256 |
+|:--|--:|:--|
+| `x1p64100-microsoft-denali-m12.dtb` | 43 s | `4130f2988a593847a0cd490bccd90ee65e16f74a5f3adf019cfd24dda5aec65a` |
+| `x1p64100-microsoft-denali-m12-notouch.dtb` | 12 s | `5704f68668538f6dd3e6fc37f67e8e9830f771124c57475c0ebca81d8c750519` |
+| `x1p64100-microsoft-denali-m12-audio.dtb` | 11 s | `4515442e5531544c60bb416b4c3206bdb152cbf4f1ecf0248a571a446879b6ca` |
+
+JSON record SHA-256: `m12.json` `cbc247ce36d962ac7f96d10f7e8d760983b981370c1a406085c57cd97ac8c183`; `m12-notouch.json` `272086024a0c2541fec900c3674fd6b589e0b2f789647989bb7fd6d3c66316f3`; `m12-audio.json` `a8529a7ffb8a3ffb5444c979428d575f9ed2aad4944f16800a451138b4ee5280`. No device boot. No speaker variant built.
+
+
 ## Log
 
 - 2026-10-29: built M8 revision 5 (25 patches; RFC 0014 retired; spi-hid/QSPI touch and packaged GPU isolation). Release 3313 s; kernel-check PASS with BTF in vmlinux and all 5934 modules, 73 config symbols, packaged schema/S1/GPU/wiring and eight RPM module payload checks. M8/M8-notouch DTBs and JSON pass (63/14 s; complete run 214.464 s). Final index/syntax/whitespace checks pass; build/source locks are free and no task process remains. Recorded hashes/times and explicit image/owner requests; no device test. Changes remain uncommitted for the orchestrator (D24).
@@ -482,3 +539,4 @@ Final hand-back checks: `scripts/index.py --check` reports **21 components, 0 er
 - 2026-10-30: built M10 revision 7 (29 patches; GLINK OPEN_ACK diagnostic). Release 3085 s; kernel-check PASS; M10/M10-notouch DTBs pass and equal M9. Freed 23 GiB of finished M9 rpmbuild scratch for the disk guard. No device test, no commit.
 
 - 2026-10-30: built M11 revision 8 (34 patches; FIFO diagnostic, packaged parity, audio safety/fragments). Release 3289 s; automatic and repeated kernel-check PASS, BTF in vmlinux/all 5934 modules; all three DTB variants and JSON pass. Recorded times/hashes, regression evidence and owner requests. No device test or git write; changes remain uncommitted for the orchestrator (D24).
+- 2026-10-30: built M12 revision 9 (37 patches; touch F-09, audio 0004/0005, amended GLINK 0001). Release 2993 s; kernel-check PASS, BTF in vmlinux/all 5934 modules; m12, m12-notouch, m12-audio DTBs equal M11. Freed 23 GiB of finished M11 scratch. No device test, no commit.

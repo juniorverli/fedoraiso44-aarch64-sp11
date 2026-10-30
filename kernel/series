@@ -32,6 +32,8 @@ hardware/touch-pen/patches/0017-dmaengine-qcom-gpi-qspi.patch
 hardware/touch-pen/patches/0018-spi-geni-qcom-qspi.patch
 hardware/touch-pen/patches/0019-spi-hid-mshw0484.patch
 hardware/touch-pen/patches/0020-denali-lcd-touch.patch
+# M12: verified review fix F-09 (spi-hid-of: disable supply when reset assert fails).
+hardware/touch-pen/patches/0021-spi-hid-of-disable-supply-on-reset-assert-failure.patch
 # M9: append after the complete M8 touch series; these change independent
 # ath12k code, the existing CMA pool, and USB-C diagnostics, respectively.
 hardware/wifi/patches/0002-wifi-ath12k-skip-broken-surface-rfkill.patch
@@ -47,3 +49,6 @@ hardware/soc-boot/patches/0001-arm64-dts-qcom-denali-lcd-boot-parity.patch
 hardware/audio-speakers/patches/0001-ASoC-codecs-wsa884x-reset-the-PA-gain-to-0-dB-instea.patch
 hardware/audio-speakers/patches/0002-ASoC-qcom-x1e80100-also-limit-the-WSA-MIX-path-digit.patch
 hardware/audio-speakers/patches/0003-arm64-dts-qcom-x1-microsoft-denali-add-opt-in-audio-.patch
+# M12: follow-up safety patches; required in any kernel that boots a speaker-enabled DTB. Speakers stay off in every DTB (S1).
+hardware/audio-speakers/patches/0004-ASoC-codecs-wsa884x-write-the-cached-PA-gain-when-th.patch
+hardware/audio-speakers/patches/0005-ASoC-codecs-lpass-wsa-macro-keep-EAR-SPKR-PA-Gain-be.patch

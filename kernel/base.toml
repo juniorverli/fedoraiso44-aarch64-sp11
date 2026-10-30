@@ -32,7 +32,7 @@ dist = ".fc44"
 # Series revision: the RPM release is 65<buildid>.<series_rev><dist>, e.g. kernel-7.3.0-65.sp11.3.fc44.
 # Bump series_rev whenever kernel/series or a patch in it changes, and set series_sha256 to the value
 # scripts/kernel-build.sh prints (sha256 of the "<path> <patch sha256>" lines of kernel/series).
-# 0 = M1 (empty series), 3 = M3 (display-lcd 0001-0003), 4 = M7 (nine patches), 5 = M8 (touch/QSPI, GPU off), 6 = M9 (rfkill, DMA32 CMA, USB-C diagnostics), 7 = M10 (GLINK OPEN_ACK diagnostic), 8 = M11 (FIFO diagnostic, packaged parity, audio safety/fragments).
+# 0 = M1 (empty series), 3 = M3 (display-lcd 0001-0003), 4 = M7 (nine patches), 5 = M8 (touch/QSPI, GPU off), 6 = M9 (rfkill, DMA32 CMA, USB-C diagnostics), 7 = M10 (GLINK OPEN_ACK diagnostic), 8 = M11 (FIFO diagnostic, packaged parity, audio safety/fragments), 9 = M12 (spi-hid-of supply fix F-09, audio safety 0004/0005).
 # kernel-build.sh and kernel-check fail on a mismatch.
-series_rev = 8
-series_sha256 = "f4360a491d178d56c26b1f3d45df388071c461037d4df870b914957b30136cc5"
+series_rev = 9
+series_sha256 = "e3a9dbac6f7efbb10e7b3105e13787e60726f92d4048dab010ac7d967bfdc49e"
