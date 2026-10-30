@@ -1,0 +1,91 @@
+From 89e491d0c03a4781473318d13502e62e5e65d169 Mon Sep 17 00:00:00 2001
+From: Junior Mverli <25966843+juniorverli@users.noreply.github.com>
+Date: Fri, 30 Oct 2026 10:48:58 +0000
+Subject: [PATCH 3/3] arm64: dts: qcom: x1-microsoft-denali: add opt-in audio
+ fragments
+
+The Surface Pro 11 board DTS disables /sound and &swr0 because the WSA8845
+speaker amplifiers must not run without speaker protection. Add two
+include-only fragments for audio variants so the sound card can be enabled
+without touching that default:
+
+x1-microsoft-denali-audio-mics.dtsi enables the card for the two digital
+microphones only. It removes the WSA playback link and its routes from the
+card and leaves &swr0 disabled, so no amplifier is enumerated or
+programmed.
+
+x1-microsoft-denali-audio-speakers.dtsi re-enables /sound and &swr0 as in
+the original board DTS. It is for a variant that is built only after the
+speaker safety rule has been lifted.
+
+Nothing includes either file; no existing DTB changes and no new DTB is
+added to the Makefile.
+
+Assisted-by: Claude Sonnet 5.5
+---
+ .../qcom/x1-microsoft-denali-audio-mics.dtsi  | 24 +++++++++++++++++++
+ .../x1-microsoft-denali-audio-speakers.dtsi   | 21 ++++++++++++++++
+ 2 files changed, 45 insertions(+)
+ create mode 100644 arch/arm64/boot/dts/qcom/x1-microsoft-denali-audio-mics.dtsi
+ create mode 100644 arch/arm64/boot/dts/qcom/x1-microsoft-denali-audio-speakers.dtsi
+
+diff --git a/arch/arm64/boot/dts/qcom/x1-microsoft-denali-audio-mics.dtsi b/arch/arm64/boot/dts/qcom/x1-microsoft-denali-audio-mics.dtsi
+new file mode 100644
+index 000000000..0004b2b78
+--- /dev/null
++++ b/arch/arm64/boot/dts/qcom/x1-microsoft-denali-audio-mics.dtsi
+@@ -0,0 +1,24 @@
++// SPDX-License-Identifier: BSD-3-Clause
++/*
++ * Surface Pro 11: opt-in sound card with the digital microphones only.
++ *
++ * The board DTS disables the sound card and the WSA SoundWire controller
++ * because the WSA8845 speaker amplifiers must not run without speaker
++ * protection. This fragment re-enables the card for capture and keeps the
++ * speaker path out of it:
++ *
++ *  - the WSA playback link and its routes are removed from the card;
++ *  - &swr0 is not touched, so it stays as the board DTS left it (disabled),
++ *    no WSA8845 is enumerated and the amplifiers are never programmed.
++ *
++ * Include this file only from a DTS whose name says it is an audio variant.
++ */
++
++&{/sound} {
++	status = "okay";
++
++	audio-routing = "VA DMIC0", "vdd-micb",
++			"VA DMIC1", "vdd-micb";
++
++	/delete-node/ wsa-dai-link;
++};
+diff --git a/arch/arm64/boot/dts/qcom/x1-microsoft-denali-audio-speakers.dtsi b/arch/arm64/boot/dts/qcom/x1-microsoft-denali-audio-speakers.dtsi
+new file mode 100644
+index 000000000..7e40a042d
+--- /dev/null
++++ b/arch/arm64/boot/dts/qcom/x1-microsoft-denali-audio-speakers.dtsi
+@@ -0,0 +1,21 @@
++// SPDX-License-Identifier: BSD-3-Clause
++/*
++ * Surface Pro 11: opt-in sound card with the WSA8845 speakers.
++ *
++ * Only for a DTS that is explicitly named as a speaker variant, and only
++ * after the project safety rule S1 has been lifted in plan/risks.md. The
++ * default and every packaged board DTS keep /sound and &swr0 disabled.
++ *
++ * The playback path is limited in software (sound/soc/qcom/x1e80100.c caps
++ * the WSA digital volumes at -3 dB and the PA volumes at 0 dB; wsa884x.c
++ * resets the PA gain to the same 0 dB). That limit is a mitigation, not
++ * speaker protection.
++ */
++
++&{/sound} {
++	status = "okay";
++};
++
++&swr0 {
++	status = "okay";
++};
+-- 
+2.43.0
+

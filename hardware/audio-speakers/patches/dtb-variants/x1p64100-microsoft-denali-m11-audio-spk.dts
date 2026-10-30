@@ -1,0 +1,10 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * M11 speaker variant (stage B). BLOCKED BY S1: do not build into any ISO or menu until
+ * plan/risks.md S1 is lifted on the evidence listed in hardware/audio-speakers/evidence/
+ * 2026-10-30-audio-plan.md. Source kept here so the change is reviewable.
+ * M10 board DT plus the sound card with microphones and the two WSA8845 speakers; the
+ * playback volumes are limited by audio-speakers patches 0001 and 0002 (mitigation, not protection).
+ */
+#include "x1p64100-microsoft-denali-m10.dts"
+#include "x1-microsoft-denali-audio-speakers.dtsi"
