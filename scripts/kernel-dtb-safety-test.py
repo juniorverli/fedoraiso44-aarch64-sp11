@@ -12,10 +12,11 @@ safety = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(safety)
 
 
-def fixture(card='okay', bus='disabled', link=False, amp_status='', parent_status=''):
+def fixture(card='okay', bus='disabled', link=False, amp_status='', parent_status='', marker=None):
+    chosen = ' chosen {\n  sp11,speaker-policy = %s;\n };\n' % marker if marker else ''
     return '''/dts-v1/;
 / {
- sound {
+%s sound {
   compatible = "qcom,x1e80100-sndcard";
   status = "%s";
 %s
@@ -31,7 +32,7 @@ def fixture(card='okay', bus='disabled', link=False, amp_status='', parent_statu
 %s
  };
 };
-''' % (card, '  wsa-dai-link {\n  };' if link else '', amp_status, bus, parent_status)
+''' % (chosen, card, '  wsa-dai-link {\n  };' if link else '', amp_status, bus, parent_status)
 
 
 class SafetyTests(unittest.TestCase):
@@ -65,6 +66,42 @@ class SafetyTests(unittest.TestCase):
 
     def test_empty_tree_fails_closed(self):
         self.assertFalse(safety.check('/ {\n};')['s1_ok'])
+
+
+D26 = '"d26-open-loop-v1"'
+
+
+def speakers(**kw):
+    return fixture(bus='okay', link=True, **kw)
+
+
+class D26Tests(unittest.TestCase):
+    def test_default_profile_rejects_speakers_even_with_marker(self):
+        self.assertFalse(safety.check(speakers(marker=D26))['s1_ok'])
+
+    def test_default_profile_rejects_speakers_without_marker(self):
+        self.assertFalse(safety.check(speakers())['s1_ok'])
+
+    def test_d26_accepts_marked_speakers(self):
+        result = safety.check(speakers(marker=D26), profile='d26')
+        self.assertTrue(result['s1_ok'])
+        self.assertTrue(result['d26_speaker_paths'])
+
+    def test_d26_rejects_unmarked_speakers(self):
+        self.assertFalse(safety.check(speakers(), profile='d26')['s1_ok'])
+
+    def test_d26_rejects_unknown_marker_value(self):
+        self.assertFalse(safety.check(speakers(marker='"yes"'), profile='d26')['s1_ok'])
+
+    def test_marker_not_allowed_in_default_profile_on_microphone_dtb(self):
+        self.assertFalse(safety.check(fixture(marker=D26))['s1_ok'])
+
+    def test_marker_must_be_under_chosen(self):
+        source = speakers().replace('sound {', 'sound {\n  sp11,speaker-policy = %s;' % D26, 1)
+        self.assertFalse(safety.check(source, profile='d26')['s1_ok'])
+
+    def test_d26_empty_tree_fails_closed(self):
+        self.assertFalse(safety.check('/ {\n chosen {\n  sp11,speaker-policy = %s;\n };\n};' % D26, profile='d26')['s1_ok'])
 
 
 if __name__ == '__main__':

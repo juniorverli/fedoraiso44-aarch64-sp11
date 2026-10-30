@@ -1,0 +1,49 @@
+From 5abec3d1fbabca7c4caf0e7340fa21d47ca98aa8 Mon Sep 17 00:00:00 2001
+From: Junior Mverli <25966843+juniorverli@users.noreply.github.com>
+Date: Fri, 30 Oct 2026 22:01:15 +0000
+Subject: [PATCH 7/9] soc: qcom: apr: install the GPR callback before probing
+ the client
+
+apr_device_probe() stores the GPR service callback only after the
+client probe returned. q6apm sends APM_CMD_GET_SPF_STATE from its probe
+and waits for the answer; gpr_do_rx_callback() finds the service but
+svc->callback is still NULL, so the response is dropped silently and the
+command times out after 5 s:
+
+  qcom-apm gprsvc:service:2:1: CMD timeout for [1001021] opcode
+
+The timeout is not fatal (the return value is ignored) but it delays
+the probe by 5 s and leaves apm->state at 0 until a later request.
+
+Install the callback before calling the probe and clear it again when
+the probe fails. For APR devices gpr_callback is NULL, so nothing
+changes there.
+
+Assisted-by: Claude Sonnet 5.5
+---
+ drivers/soc/qcom/apr.c | 11 +++++++++--
+ 1 file changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/soc/qcom/apr.c b/drivers/soc/qcom/apr.c
+index ea7f83916..928bac8ef 100644
+--- a/drivers/soc/qcom/apr.c
++++ b/drivers/soc/qcom/apr.c
+@@ -367,9 +367,16 @@ static int apr_device_probe(struct device *dev)
+ 	struct apr_driver *adrv = to_apr_driver(dev->driver);
+ 	int ret;
+ 
++	/*
++	 * A GPR client may send a command and wait for the response from its
++	 * probe (q6apm asks for the SPF state). The response needs the
++	 * callback, so install it before the probe runs.
++	 */
++	adev->svc.callback = adrv->gpr_callback;
++
+ 	ret = adrv->probe(adev);
+-	if (!ret)
+-		adev->svc.callback = adrv->gpr_callback;
++	if (ret)
++		adev->svc.callback = NULL;
+ 
+ 	return ret;
+ }

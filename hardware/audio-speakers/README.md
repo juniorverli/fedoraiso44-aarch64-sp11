@@ -57,7 +57,7 @@ Two WSA8845 smart amplifiers on SoundWire, driven by the ADSP through AudioReach
 | VI capture path | TBD |
 | amplifier reset GPIO and port map are reference-design values | TBD |
 | UCM profile | Local copy of alsa-ucm-conf master; capped and muted speaker variant on hold (`userspace/`) |
-| SPF query times out at `q6apm` probe (no card possible) | dsp-subsystems with audio input; H1 to H4 in the evidence file |
+| SPF query times out at `q6apm` probe | Root cause found: GPR callback installed after probe (patches 0006, 0007); the timeout does not block the card (evidence `2026-10-30-d26-audio.md` section 2) |
 | PA gain reset to the maximum on SoundWire re-attach | patch 0001 |
 | WSA MIX digital volumes uncapped | patch 0002 |
 | speaker path must be removable per boot entry | patch 0003 and `patches/dtb-variants/` |
@@ -90,6 +90,7 @@ Two WSA8845 smart amplifiers on SoundWire, driven by the ADSP through AudioReach
 
 ## 9. Log
 
+- 2026-10-30 (D26 session): GPR callback race verified and fixed (0006, 0007); D26 marker fragment (0008) and WSA playback gate (0009); variants `m13` (mics) and `m13-spk` (marked, gated); `kernel-dtb-safety.py --profile`; `userspace/overlay-speakers/`; closed-loop V/I design from the ACDB. Stages 0 and 1 done, 2 to 5 open. See `evidence/2026-10-30-d26-audio.md`.
 - 2026-10-23: dossier created from the static survey.
 - 2026-10-30: flash review follow-up patches 0004, 0005 (latent safety, speakers still off everywhere)
 - 2026-10-30: audio plan (`evidence/2026-10-30-audio-plan.md`): M8/M10 state, DT, safety layers, topology/UCM, patches 0001 to 0003, REA questions; status `designed`.
@@ -97,3 +98,11 @@ Two WSA8845 smart amplifiers on SoundWire, driven by the ADSP through AudioReach
 ## Requests (2026-10-30, orchestrator)
 
 - **S1 evidence, Path P:** the Argon REA report (`evidence/2026-10-30-argon-rea-report.md`, spot-checked) shows Windows protects the two 4 ohm speakers with a closed-loop SPv5 speaker-protection module in the ADSP (V/I and CPS feedback, thermal model, 110 C hard limit, 180 s cooldown) plus ACDB calibration, not with a static volume cap. Linux 7.3 has none of that (no V/I sense ports, no IMCL links, no SPv5 calibration). Speakers therefore stay OFF in every DTB and image. Microphones are safe and may proceed (`m11-audio`).
+
+## Requests (2026-10-30, D26 session)
+
+Full text in `evidence/2026-10-30-d26-audio.md` section 9.
+
+- kernel: add 0006 to 0009 after 0005; add `patches/dtb-variants/x1p64100-microsoft-denali-m13.dts` and `-m13-spk.dts` to `kernel/dtb-variants/`; `kernel-dtb-safety.py --profile d26` only for `m13-spk`, `default` for every other DTB. A kernel that boots `m13-spk` must contain 0001, 0002, 0004, 0005, 0009.
+- image: entries `no speakers` (M12 DTB), `microphones` (`m13`, `overlay/`), extra `speakers (gated)` (`m13-spk`, `overlay/` + `overlay-speakers/`); `m13-spk` is not the default until the first test (evidence section 7) passes; L0 2.18 accepts speaker DTBs only for that entry with the `d26` profile.
+- orchestrator: Stage 2 (wsa884x TX ports and sense registers, port map, second reset) needs a REA session on `qcaucd8380.sys` and `qcadcm8380.sys`; REA was not used in this session.

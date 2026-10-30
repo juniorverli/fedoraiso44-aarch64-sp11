@@ -25,3 +25,7 @@ Speakers stay off until `plan/risks.md` S1 is lifted. Only the checks marked "S1
 ## T3, first sound (only with the operator present)
 
 Lowest step, short tones, stop on distortion or warmth. Log `hwmon` temperature before, during, after. Acceptance items 1 to 3 of the dossier apply.
+
+## T2b, M13 gated speaker variant (D26)
+
+Entry `m13-spk`, no volume, nothing playing. Expect: card registers, both WSA8845 enumerate, no `CMD timeout for [1001021]`, `aplay -D hw:0,0` fails with `Operation not supported` (gate, patch 0009), microphones record. Power off at once if any playback starts. Details: `evidence/2026-10-30-d26-audio.md` section 7. T3 stays blocked until the closed-loop protection (evidence section 8.4, stages 2 to 5) is validated.

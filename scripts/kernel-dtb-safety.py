@@ -3,7 +3,13 @@
 
 An enabled x1e80100 card is allowed only with no WSA link and an effectively
 disabled swr0. All WSA884x amplifiers must remain effectively disabled.
-Usage: kernel-dtb-safety.py FILE [--json] [--also=PATH-SUFFIX]
+
+Profiles (D26, plan/decisions.md): "default" (packaged DTB and every normal
+entry) never accepts an enabled speaker path and rejects the marker. "d26"
+accepts an enabled speaker path only when /chosen has
+sp11,speaker-policy = "d26-open-loop-v1"; the paths are then listed in
+d26_speaker_paths. The marker is a tooling contract, not protection evidence.
+Usage: kernel-dtb-safety.py FILE [--json] [--also=PATH-SUFFIX] [--profile default|d26]
 Owner: kernel worker.
 """
 import argparse
@@ -12,9 +18,10 @@ from pathlib import Path
 import re
 
 WATCH = ('wsa884', 'sdw20217020400', 'x1e80100-sndcard')
+MARKER = '"d26-open-loop-v1"'
 
 
-def check(source, also=()):
+def check(source, also=(), profile='default'):
     nodes, stack = {}, []
     for line in source.splitlines():
         s = line.strip()
@@ -76,7 +83,16 @@ def check(source, also=()):
             microphones.append(path)
         else:
             failures.append(path)
-    return dict(watched=watched, watched_count=len(watched),
+    marker = nodes.get('/chosen', {}).get('sp11,speaker-policy')
+    d26_paths = []
+    if marker is not None and profile != 'd26':
+        failures.append('/chosen/sp11,speaker-policy (marker not allowed in profile %s)' % profile)
+    elif failures and profile == 'd26' and marker == MARKER:
+        d26_paths, failures = failures, []
+    elif marker is not None and marker != MARKER:
+        failures.append('/chosen/sp11,speaker-policy (unknown value)')
+    return dict(profile=profile, speaker_marker=marker, d26_speaker_paths=d26_paths,
+                watched=watched, watched_count=len(watched),
                 also=[report_node(p) for p in nodes
                       if any(p.endswith('/' + a) or p == a for a in also)],
                 microphone_only_cards=microphones, swr0_effectively_disabled=swr_off,
@@ -88,8 +104,9 @@ def main():
     parser.add_argument('dts', type=Path)
     parser.add_argument('--json', action='store_true')
     parser.add_argument('--also', action='append', default=[])
+    parser.add_argument('--profile', choices=('default', 'd26'), default='default')
     args = parser.parse_args()
-    result = check(args.dts.read_text(), args.also)
+    result = check(args.dts.read_text(), args.also, args.profile)
     print(json.dumps(result, indent=1))
     return 0 if result['s1_ok'] else 1
 

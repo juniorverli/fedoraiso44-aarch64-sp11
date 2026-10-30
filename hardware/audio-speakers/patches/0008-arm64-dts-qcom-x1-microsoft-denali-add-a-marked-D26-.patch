@@ -1,0 +1,45 @@
+From d9295eb856552a499db99a9b7b12415fd94102b5 Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Fri, 30 Oct 2026 22:01:32 +0000
+Subject: [PATCH 8/9] arm64: dts: qcom: x1-microsoft-denali: add a marked D26
+ speaker fragment
+
+Add an include-only fragment for a speaker-enabled test variant. It
+pulls in the full sound card and the WSA bus and adds the property
+/chosen/sp11,speaker-policy, which the project DTB safety check requires
+before it accepts an enabled speaker path. The property is a tooling
+marker only and no driver reads it.
+
+Nothing includes the file and no packaged DTB changes.
+
+Assisted-by: Claude Sonnet 5.5
+---
+ .../qcom/x1-microsoft-denali-audio-d26.dtsi   | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+ create mode 100644 arch/arm64/boot/dts/qcom/x1-microsoft-denali-audio-d26.dtsi
+
+diff --git a/arch/arm64/boot/dts/qcom/x1-microsoft-denali-audio-d26.dtsi b/arch/arm64/boot/dts/qcom/x1-microsoft-denali-audio-d26.dtsi
+new file mode 100644
+index 000000000..6a7b4988d
+--- /dev/null
++++ b/arch/arm64/boot/dts/qcom/x1-microsoft-denali-audio-d26.dtsi
+@@ -0,0 +1,19 @@
++// SPDX-License-Identifier: BSD-3-Clause
++/*
++ * Surface Pro 11: opt-in speaker variant under project decision D26.
++ *
++ * Enables the full sound card and the WSA8845 SoundWire bus, as in
++ * x1-microsoft-denali-audio-speakers.dtsi, and marks the DTB with
++ * /chosen/sp11,speaker-policy. The project image tooling (kernel-dtb-safety)
++ * accepts an enabled speaker path only in a DTB that carries this marker.
++ *
++ * The marker is a tooling contract. No driver reads it, it is not evidence
++ * of speaker protection and it does not make playback audible: the machine
++ * driver refuses WSA playback until the closed-loop protection is validated.
++ * The packaged default DTB never includes this file.
++ */
++#include "x1-microsoft-denali-audio-speakers.dtsi"
++
++&{/chosen} {
++	sp11,speaker-policy = "d26-open-loop-v1";
++};

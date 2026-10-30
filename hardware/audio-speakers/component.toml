@@ -13,7 +13,7 @@ packages = ["qcaudminiport_base8380", "qcaudminiport_apo8380", "qcaucd8380", "su
 drivers = ["sound/soc/qcom/x1e80100.c", "codecs/wsa884x", "codecs/lpass-wsa-macro", "qdsp6 q6apm/audioreach (MODULE_ID_SPEAKER_PROTECTION, _VI)", "soundwire/qcom", "userspace: AudioReach topology, alsa-ucm-conf"]
 dt = ["x1-microsoft-denali.dtsi sound, &swr0 left_spkr/right_spkr, &lpass_tlmm"]
 native = "partial"
-gaps = ["SPF query times out at q6apm probe", "protection graph (SP/VI) not wired in topology", "per-unit calibration (ACDB REV_0D) to Linux format", "VI capture path", "amplifier reset GPIO and port map are reference-design values", "UCM profile"]
+gaps = ["protection graph (SP/VI) not wired in topology", "per-unit calibration (ACDB REV_0D) to Linux format", "VI capture path (design in evidence 2026-10-30-d26-audio.md)", "amplifier reset GPIO and port map are reference-design values", "UCM profile"]
 
 [firmware]
 needs = ["AudioReach topology for X1E80100-Microsoft-Surface-Pro-11", "speaker calibration data"]
