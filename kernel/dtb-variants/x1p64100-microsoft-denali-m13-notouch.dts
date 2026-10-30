@@ -1,0 +1,7 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/* M13 fallback: the M13 microphone variant with only the touch child disabled. */
+#include "x1p64100-microsoft-denali-m13.dts"
+
+&{/soc@0/geniqup@ac0000/spi@a88000/touchscreen@0} {
+	status = "disabled";
+};

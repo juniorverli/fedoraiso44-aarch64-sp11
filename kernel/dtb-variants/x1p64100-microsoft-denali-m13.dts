@@ -1,0 +1,10 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * M13 audio variant, safe stage: the M12 board DT (touch on, GPU off, D20 parity) plus the sound
+ * card with the digital microphones only. Speakers stay off (S1): the WSA playback link is
+ * removed from the card and &swr0 stays disabled, so no WSA8845 is enumerated.
+ * Requires audio-speakers patch 0003 (x1-microsoft-denali-audio-mics.dtsi).
+ * Built by the kernel DTB variants script; not a patch, not part of the RPM.
+ */
+#include "x1p64100-microsoft-denali-m12.dts"
+#include "x1-microsoft-denali-audio-mics.dtsi"

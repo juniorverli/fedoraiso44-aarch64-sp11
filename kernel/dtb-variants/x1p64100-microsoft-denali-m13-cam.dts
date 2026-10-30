@@ -1,0 +1,30 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * M13 rear camera diagnostic: the M13 microphone variant plus the rear OV13858 chain enabled exactly as
+ * hardware/cameras/dtb-variants/x1p64100-microsoft-denali-cam-rear.dts does (CCI0 bus 1, CAMSS, pm8010
+ * regulators, camera indicator LED). The IR emitter and flash stay undescribed (S2); speakers stay off (S1).
+ * Built by the M13 DTB script; not a patch, not part of the RPM.
+ */
+#include "x1p64100-microsoft-denali-m13.dts"
+
+&apps_rsc {
+	regulators-8 {
+		status = "okay";
+	};
+};
+
+&{/camera-leds} {
+	status = "okay";
+};
+
+&camss {
+	status = "okay";
+};
+
+&cci0 {
+	status = "okay";
+};
+
+&cci0_i2c1 {
+	status = "okay";
+};
