@@ -74,7 +74,12 @@ On the device, with logs in `evidence/`, following [test-plan.md](test-plan.md).
 - **power-thermal:** confirm active qcpep binding for `QCOM0CF7`, decode `GpuLimits_R2` CGLC/OGLC policy, map GPU cooling, and give the condition for releasing sustained GPU load. [Evidence and exact INF hashes/lines](evidence/2026-10-24-thermal-policy-request.md).
 - **image:** include `mesa-dri-drivers`, `mesa-vulkan-drivers`, `vulkan-tools`, `glx-utils`, `glmark2`; verify the named test binaries are present. Log collection needs the identified GPU's devfreq readings, DRM chip/fuse value, driver/firmware errors and GPU cooling state. Review/redact debug state before it enters git.
 
+- **kernel (new, 2026-10-30):** build DTB variant `m13-gpu` from `kernel/dtb-variants/x1p64100-microsoft-denali-m13-gpu.dts` (written; M12 plus `&gpu` okay, speakers off) and add the script wiring listed in [two-step evidence](evidence/2026-10-30-two-step.md) section 2. Optional: marker patch or `CONFIG_DYNAMIC_DEBUG=y` (section 4). No speed-bin patch is needed (section 2).
+- **image (new, 2026-10-30):** install `collector/gpu-two-step.sh` as `/usr/libexec/sp11-gpu-two-step`, `collector/sp11-gpu-two-step.service`, and the last menu entry in `collector/grub-entry.txt` (`SP11 debug, GPU diagnostic`, `sp11.gpu_diag=1`, multi-user target, never default). Collector must read the speed-bin as the aligned word at `0x118`.
+- **orchestrator:** run the device test of [test-plan.md](test-plan.md) section 0 on the operator's go; the entry may reset the machine, so it is operator-initiated only.
+
 ## 9. Log
 
 - 2026-10-23: dossier created from the static survey.
 - 2026-10-24: established REV 008A's active unsuffixed base file and 1.25 GHz clock table; mapped Linux fuse/OPPs and unsafe unknown-fuse fallback; confirmed Fedora firmware/Mesa availability, checked zap container and documented thermal hand-off plus staged device tests. Status designed; no kernel patch or git write operation.
+- 2026-10-30: M5 GPU-on traced to DTB `m5gpu` (no `&gpu` override; patch 0002 later disabled it). Designed DTB `m13-gpu` and the reset-surviving two-step collector; found the GPU device's `power/control` is a no-op until the first render open, so step 1 powers the GMU device (CX GDSC) and step 2 is one `open()` (GMU boot and zap cannot be split from userspace). The M5 userspace speed-bin read failed on alignment, the kernel read worked (1.25 GHz ceiling, no patch). See [two-step evidence](evidence/2026-10-30-two-step.md).
