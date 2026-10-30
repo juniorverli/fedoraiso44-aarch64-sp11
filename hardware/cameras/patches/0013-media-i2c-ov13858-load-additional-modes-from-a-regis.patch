@@ -1,4 +1,4 @@
-From 5205dc9ae6c3d3d5f78a2cde5bed9873925995ee Mon Sep 17 00:00:00 2001
+From 89d6a9ea614f05472a0d0985f38aa662e00adc81 Mon Sep 17 00:00:00 2001
 From: cam <cam@x.invalid>
 Date: Fri, 30 Oct 2026 23:09:43 +0000
 Subject: [PATCH] media: i2c: ov13858: load additional modes from a register
@@ -24,8 +24,10 @@ VTS register can hold. A missing or unusable blob is not an error: the
 sensor keeps working with the built-in modes. ACPI systems and
 devicetrees without the property are unchanged.
 
-Whether the Bayer order of these modes matches the built-in SGRBG10
-code is not known; a RAW capture on the device decides.
+The modes of the Windows data start their window on even columns and rows
+and keep the flip bits of the built-in full mode, so the SGRBG10 order is
+expected to hold; a RAW capture on the device confirms it. A blob with a
+delay or a poll operation is refused, the driver writes plain lists only.
 
 Assisted-by: Claude Sonnet 5.5
 ---
@@ -46,7 +48,7 @@ index 5c52007f9..fd8b14796 100644
  	  This is a Video4Linux2 sensor driver for the OmniVision
  	  OV13858 camera.
 diff --git a/drivers/media/i2c/ov13858.c b/drivers/media/i2c/ov13858.c
-index 5a43c4b3d..8093bb1f1 100644
+index 5a43c4b3d..2100f6e67 100644
 --- a/drivers/media/i2c/ov13858.c
 +++ b/drivers/media/i2c/ov13858.c
 @@ -4,6 +4,7 @@
@@ -313,7 +315,7 @@ index 5a43c4b3d..8093bb1f1 100644
 +		for (j = 0; j < m.ops.count; j++) {
 +			const u8 *op = m.ops.p + j * SRB_OP_SIZE;
 +
-+			/* The driver writes plain register lists only */
++			/* Plain register writes only: no delay and no poll (SRB v2) */
 +			if (op[3] != SRB_OP_WRITE8)
 +				return -EINVAL;
 +			regs[j].address = get_unaligned_le16(op);

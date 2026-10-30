@@ -1,4 +1,4 @@
-From d2639e6ea7105ed3a173dcb548c5ea8483bb54b5 Mon Sep 17 00:00:00 2001
+From db31f1e69c97840f15e9dec7d3e03e062f7727e4 Mon Sep 17 00:00:00 2001
 From: cam <cam@x.invalid>
 Date: Fri, 30 Oct 2026 23:15:05 +0000
 Subject: [PATCH] media: i2c: add a driver for the Sony IMX681
@@ -26,6 +26,10 @@ every mode, and the link frequency control follows the modes. The
 privacy LED is switched by the V4L2 core when the devicetree gives the
 sensor leds and led-names.
 
+The sequences may contain poll operations (register, expected value, mask,
+timeout); a poll that times out fails the stream start with an error
+message and the runtime PM reference is dropped.
+
 The native array size is not known and is reported as the largest mode.
 Nothing in this driver has run on hardware.
 
@@ -34,8 +38,8 @@ Assisted-by: Claude Sonnet 5.5
  MAINTAINERS                |   1 +
  drivers/media/i2c/Kconfig  |  14 +
  drivers/media/i2c/Makefile |   1 +
- drivers/media/i2c/imx681.c | 875 +++++++++++++++++++++++++++++++++++++
- 4 files changed, 891 insertions(+)
+ drivers/media/i2c/imx681.c | 892 +++++++++++++++++++++++++++++++++++++
+ 4 files changed, 908 insertions(+)
  create mode 100644 drivers/media/i2c/imx681.c
 
 diff --git a/MAINTAINERS b/MAINTAINERS
@@ -89,10 +93,10 @@ index d04bd5724..82869c2e8 100644
  obj-$(CONFIG_VIDEO_ISL7998X) += isl7998x.o
 diff --git a/drivers/media/i2c/imx681.c b/drivers/media/i2c/imx681.c
 new file mode 100644
-index 000000000..ea5c60c96
+index 000000000..135238536
 --- /dev/null
 +++ b/drivers/media/i2c/imx681.c
-@@ -0,0 +1,875 @@
+@@ -0,0 +1,892 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Sony IMX681 image sensor driver.
@@ -194,6 +198,19 @@ index 000000000..ea5c60c96
 +	struct imx681 *imx681 = ctx;
 +
 +	return cci_write(imx681->regmap, CCI_REG8(reg), val, NULL);
++}
++
++static int imx681_blob_read(void *ctx, u16 reg, u8 *val)
++{
++	struct imx681 *imx681 = ctx;
++	u64 v;
++	int ret;
++
++	ret = cci_read(imx681->regmap, CCI_REG8(reg), &v, NULL);
++	if (!ret)
++		*val = v;
++
++	return ret;
 +}
 +
 +static int imx681_write_ctrl(struct imx681 *imx681, unsigned int kind, u32 val)
@@ -459,13 +476,15 @@ index 000000000..ea5c60c96
 +	if (ret)
 +		return ret;
 +
-+	ret = srb_apply(&imx681->srb.init, imx681_blob_write, imx681);
++	ret = srb_apply(imx681->dev, &imx681->srb.init, imx681_blob_write,
++			imx681_blob_read, imx681);
 +	if (ret) {
 +		dev_err(imx681->dev, "init sequence failed: %d\n", ret);
 +		goto err_put;
 +	}
 +
-+	ret = srb_apply(&mode->ops, imx681_blob_write, imx681);
++	ret = srb_apply(imx681->dev, &mode->ops, imx681_blob_write,
++			imx681_blob_read, imx681);
 +	if (ret) {
 +		dev_err(imx681->dev, "mode sequence failed: %d\n", ret);
 +		goto err_put;
@@ -475,7 +494,8 @@ index 000000000..ea5c60c96
 +	if (ret)
 +		goto err_put;
 +
-+	ret = srb_apply(&imx681->srb.on, imx681_blob_write, imx681);
++	ret = srb_apply(imx681->dev, &imx681->srb.on, imx681_blob_write,
++			imx681_blob_read, imx681);
 +	if (ret) {
 +		dev_err(imx681->dev, "stream on sequence failed: %d\n", ret);
 +		goto err_put;
@@ -496,7 +516,8 @@ index 000000000..ea5c60c96
 +	struct imx681 *imx681 = to_imx681(sd);
 +	int ret;
 +
-+	ret = srb_apply(&imx681->srb.off, imx681_blob_write, imx681);
++	ret = srb_apply(imx681->dev, &imx681->srb.off, imx681_blob_write,
++			imx681_blob_read, imx681);
 +	if (ret)
 +		dev_err(imx681->dev, "stream off sequence failed: %d\n", ret);
 +

@@ -22,7 +22,7 @@ Grades: **Verified** (read from code or data, or reproduced by a script, cited),
 
 | # | File | Content | Checks |
 |:--|:--|:--|:--|
-| 0011 | `media-i2c-add-a-sensor-register-blob-parser` | `drivers/media/i2c/sensor-regblob.h`: header-only parser of the register blob (SRB v1), layout documented in its header comment | compiled in 0013 and 0016, host test (below) |
+| 0011 | `media-i2c-add-a-sensor-register-blob-parser` | `drivers/media/i2c/sensor-regblob.h`: header-only parser of the register blob (SRB v1 and v2; v2 adds a POLL operation), layout documented in its header comment | compiled in 0013 and 0016, host test (below and "Reconciliation") |
 | 0012 | `dt-bindings-media-i2c-ovti-ov13858-allow-register-bl` | `firmware-name`, up to three link frequencies | `dt_binding_check` clean |
 | 0013 | `media-i2c-ov13858-load-additional-modes-from-a-regis` | optional blob modes appended to the built-in ones, own link-frequency entry, `select CRC32` | `ov13858.o` W=1 clean |
 | 0014 | `arm64-dts-qcom-x1-microsoft-denali-refine-the-rear-c` | rear LED on GPIO105 (own pin state), `leds` retargeted, CCI0 bus 1 at 400 kHz, `firmware-name`, 592.8 MHz in `link-frequencies`, MCLK1 drive 4 mA | `CHECK_DTBS` clean |
@@ -60,8 +60,8 @@ Order for `kernel/series` (after cameras 0001-0010): 0011, 0012, 0013, 0014, 001
 | The `vd55g1` driver accepts only model ids `S5G1` (0x53354731) and `S5G3` (0x53354733), reads them as a 32 bit register at offset 0, and loads an embedded firmware patch (`vd55g1_patch_array`, start address 0x2000) after the id check; any other id returns `-ENODEV` before the patch | `vd55g1.c:31,137-165,1696-1725,1209,1763` |
 | Same register offsets in the VD55G0 module data and `vd55g1.c`: EXT_CLOCK 0x0220, MIPI_DATA_RATE 0x0224, LINE_LENGTH 0x0300, firmware patch region 0x2000; different: the id (0x3047 in a 16 bit read at offset 0 on this device), the GPIO control register (0x0468 against `0x051d + 0x50*ctx`) | `vd55g1.c:34,46,47,53,98`; Windows data via `2026-10-30-rea-windows.md` D9 |
 | The three sensor modules carry, per sensor: one `initSetting` array, four driver arrays in the order stream on, stream off, group-hold on, group-hold off, and one `resSettings` array per mode; the stream-on array writes `0x0100 = 1` for OV13858 and IMX681 | local decode of the three modules (this session); roles confirmed by content |
-| Register entries are all 16 bit addresses with 8 bit data (plus 3 entries with 16 bit data that belong to test-pattern or actuator arrays), operation 0 write, operation 4 write followed by a delay in microseconds (VD55G0 only), operation 3 with a slave address is an EEPROM read | decode statistics of the three modules |
-| The blob parser of 0011 parses all three generated blobs (OV13858: 3 modes, 207 operations each; IMX681: 4 modes, init 364, 68 per mode; VD55G0: 1 mode, 605 operations) with ASAN and UBSAN clean; a flipped payload byte and a truncated file are rejected with `-EINVAL` | host test compiling `sensor-regblob.h` against a shim of the kernel headers (scratchpad, not in git) |
+| Register entries are all 16 bit addresses with 8 bit data (plus 3 entries with 16 bit data that belong to test-pattern or actuator arrays), operation 0 write, operation 4 (VD55G0 only; 7 records, all with a non-zero delay) is a POLL, see "Reconciliation" (earlier read as "write then delay", superseded), operation 3 with a slave address is an EEPROM read | decode statistics of the three modules |
+| Superseded by "Reconciliation" below (SRB v2, new test run): the first host test parsed the three SRB v1 blobs of the earlier generator | host test of the earlier session |
 | The generated OV13858 blob has pixel rate 474.24 MHz, matching `link_freq_to_pixel_rate(592.8 MHz)` in `ov13858.c`; the register value of the line length (1122) times 4 is the driver's pixels per line for the 540 MHz mode (4488) | `ov13858.c:61-62,954-960` |
 | The VD55G0 module programs sensor GPIO1 as a strobe output (register 0x0468 = 2); the generator rewrites that one write to 1 (input) and reports it | generator run, `s2_rewrites = 1` |
 | libcamera in Fedora 44: `libcamera-0.7.2-2.fc44`, sub-packages `-ipa`, `-tools` (`cam`), `-qcam`, `-gstreamer`, `-v4l2`; `pipewire-plugin-libcamera-1.6.10-1.fc44`; `snapshot-50.0-1.fc44`; `cheese-44.1-16.fc44`; `v4l-utils-1.32.0-3.fc44` | `dnf repoquery` in the Fedora 44 container |
@@ -78,7 +78,7 @@ Order for `kernel/series` (after cameras 0001-0010): 0011, 0012, 0013, 0014, 001
 | Rail roles of the front: pm8010 LDO3 1.8 V is the I/O rail (`dovdd`), pm8550 L7B 2.8 V the analog rail (`avdd`) | the voltages, the same convention as the OV13858 and the survey (I3) | a datasheet; the sensor is not damaged by the order below, only mis-named |
 | The front power order is clock first (Windows order), then I/O, analog, 1 ms, reset release, 10 ms | the PEP sequence (`rea-windows.md`), delay unit milliseconds (`rea-seven-questions.md` Q3) | none expected |
 | The IR rails are core 1.15 V (pm8010 LDO2), I/O 1.8 V (LDO4), analog 2.8 V (LDO7) | the VD55G1 binding voltages (vcore 1.15, vddio 1.8, vana 2.8) against the Windows rail voltages | a datasheet |
-| Mode `i` is the `i`-th `resSettings`, `streamConfiguration` and `resolutionData` entry | counts equal (6/6/6, 3/3/3, 1/1/1) and the symbols are emitted in this order; the survey's CSV names use the same order | REA: the structure field of a `resolutionData` record that names its `resSettings` |
+| (Resolved, now Verified) Mode `i` owns its `resSettings` and `streamConfiguration` through pointers in its `resolutionData` record | see "Reconciliation"; the symbol-order guess was right for all 9 modes the builder checks (the skipped presence mode is not) | none |
 | IMX681 control registers follow the public MIPI CCS addresses (exposure 0x0202, analogue gain 0x0204, frame length 0x0340, 16 bit big endian) | the IMX681 init writes CCS registers 0x0111 (PHY type), 0x0112 (CSI format), 0x0114 (lanes), 0x0136 (EXTCLK); the module names only the digital gain (0x020e), short exposure (0x0224) and a middle exposure (0x30b2), not the analogue gain | a RAW capture with two exposures; REA of the gain path |
 | The sensor array of the IMX681 is 4032 x 3024 | the module's `dimension` field (0xfc0 x 0xbd0) | the active-array crop of each mode (`activeArrayCropInfo` is zero) |
 | `hts` for the OV13858 is the line-length register times 4 | equality with the Linux driver's pixels per line for the same register value (Verified, above) | a measured frame rate; for the IMX681 and VD55G0 the scale is 1 and their blanking figures are not trusted |
@@ -89,7 +89,7 @@ Order for `kernel/series` (after cameras 0001-0010): 0011, 0012, 0013, 0014, 001
 
 | # | Unknown | What answers it |
 |:--|:--|:--|
-| U1 | Bayer order of the IMX681 (and whether the Windows OV13858 modes keep GRBG) | one RAW capture of a coloured target, or REA of the colour-filter enumeration |
+| U1 | Bayer order of the IMX681 (the generated blob says `rggb` by default, a guess); OV13858 GRBG is an Inference (see "Reconciliation") | one RAW capture of a coloured target, or REA of the colour-filter enumeration |
 | U2 | Whether the C-PHY link locks (CSIPHY C-PHY sequence, CSID bit 24, settle values, trio polarity) | the first stream of the front camera on the device |
 | U3 | IMX681 analogue gain register and gain code law; hblank and frame rate units; active-array crop per mode | REA (questions below) and measurement |
 | U4 | Whether the register blobs boot the sensors: the init/mode split of the Windows tables, the order init then mode, and the stream on/off sequences were read from the module data, never executed | the first stream |
@@ -98,6 +98,54 @@ Order for `kernel/series` (after cameras 0001-0010): 0011, 0012, 0013, 0014, 001
 | U7 | Whether the CSIPHY needs the J rails from the camera path | device test with the J consumers disabled; not needed on the live USB |
 | U8 | What the actuator rail L16B 2.9 V feeds (DW9800 voice coil, EEPROM M24C64 at 8-bit 0xA0): no lens driver, no node | a DW9800 driver decision; nothing consumes the rail |
 | U9 | Whether the front and the IR share one LED safely: the V4L2 core has no use count, so the LED goes off when either sensor stops | the first simultaneous capture; see "Privacy LED" |
+
+## Reconciliation of the generator and the module survey (SRB v2)
+
+Two independent pieces of work disagreed: the generator (SRB v1: write and delay only) and the module survey
+(`2026-10-30-module-data-format.md`: operation 4 is a poll, mode-to-array pointers found, IR file MSHW0492, OV13858 colour code,
+IMX681 colour code). Reconciled in place, because patches 0011 to 0019 are in no built kernel yet. No register address, value
+or table appears in this section (S5).
+
+| Topic | Before | Now | Grade |
+|:--|:--|:--|:--|
+| Blob format | SRB v1: write8, delay | SRB v2: version field 1 or 2, parser reads both. New op 2 POLL takes two 4-byte slots (slot 0: register, expected value, op; slot 1: mask, 24-bit timeout in microseconds). Mask must be non-zero, timeout 1 to 10 s. A v1 file with a poll is invalid. The first poll that times out fails the list with `-ETIMEDOUT` and a `dev_err` naming register, timeout, value read, expected value and mask | design |
+| `srb_apply()` | `(ops, write, ctx)` | `(dev, ops, write, read, ctx)`; `read` may be NULL (a poll then returns `-EOPNOTSUPP`). `imx681` supplies a CCI read; `ov13858` still converts the list to its own register table and refuses every non-write operation, so a delay or poll in an OV13858 blob drops the blob (built-in modes stay) | design |
+| Windows op 4 | write then sleep | POLL until equal, delay field = timeout in microseconds, mask 0xff (the module has no mask). The builder refuses a poll without a timeout, with 16-bit data or above 10 s | Inference, strong (position next to the `vd55g1.c` boot polls); Windows consumer not read |
+| Mode to array mapping | symbol order guess | the builder follows `resolutionData` +0x14/+0x18 (`streamConfiguration`) and +0x6C/+0x70 (`resSettings`), checks symbol names and sizes, and records `mode_pointers_match_symbol_order` in the manifest: true for all three modules | Verified |
+| IR module file | MSHW0492 already selected by name | explicit check in the builder that the file is the MSHW0492 one (the MSHW0472 file belongs to another SKU) | Verified (device id `pnp-present`) |
+| OV13858 Bayer | media bus code 0 (driver default) | GRBG written into every mode, and the only order the builder accepts | Inference, medium (even window origins and flip bits as the Linux full mode, `ov13858.c:1280-1284`) |
+| IMX681 Bayer | mandatory option | option defaulting to `rggb`; every run prints a loud note and the manifest stores it; a RAW capture decides | Unknown |
+| VD55G0 strobe | rewritten to input | unchanged: one write rewritten (manifest `s2_rewrites = 1`) | Verified |
+
+Generated blobs (this machine, `out/firmware-private/cameras/`, mode 0600, never in git): `ov13858-mshw0491.bin` (3 modes, 0 polls),
+`imx681-mshw0490.bin` (4 modes, 1 dropped same-size mode, 0 polls), `vd55g0-mshw0492.bin` (1 mode, 7 polls: 3 in stream on, 4 in
+the mode list). All three are SRB v2. The builder's independent verifier re-checks versions, slot pairs, mask and timeouts.
+
+Kernel parser test (the real, unmodified `drivers/media/i2c/sensor-regblob.h` of the amended 0011, compiled on the host with
+`-fsanitize=address,undefined` against a small shim of the kernel headers, exact-size heap buffers; scratchpad, not in git):
+
+| Case | Result |
+|:--|:--|
+| synthetic v1 and v2 blobs, with and without polls | accepted; `srb_apply` runs them |
+| the three real blobs | accepted as v2 (OV13858 3 modes, IMX681 4, VD55G0 1) |
+| the same three relabelled v1 | OV13858 and IMX681 accepted (no poll); VD55G0 rejected (contains polls) |
+| poll succeeds after 3 not-ready reads (synthetic); the real VD55G0 against a fake device that answers each poll with its expected value after 2 reads | `apply = 0`, all 599 writes issued |
+| poll never ready (50 ms timeout) | `-ETIMEDOUT`, elapsed 55 ms, the list stops at the poll (later writes not issued); the real VD55G0 does the same |
+| poll with a mask | matches under the mask |
+| poll with no read callback | `-EOPNOTSUPP` |
+| v1 with poll, poll cut by the list count, mask 0, timeout 0, timeout above 10 s, unknown op 3, version 0 and 3, header size 48 | all rejected `-EINVAL`; timeout exactly 10 s accepted |
+| every truncation (128 v1 prefixes, 148 v2 prefixes) | all rejected |
+| every payload byte flipped (64 v1, 84 v2), wrong CRC field, bad magic, total size beyond the file | all rejected |
+| 6000 random mutations with the CRC repaired, 30 percent also truncated | 1446 accepted, 4554 rejected, no ASAN or UBSAN report |
+
+Compile tests on the scratch tree (`w/cameras-fts`, rebased: 0011, 0013, 0016 amended): `imx681.o`, `ov13858.o`, `vd55g1.o` with `W=1`:
+no warning. `checkpatch.pl --strict` on all nine commits: only "Missing Signed-off-by". `git apply --cached` of all 62 patches
+(the 48 entries of the current `kernel/series`, which already hold cameras 0001-0005 and the audio 0006-0016 group, then cameras 0006
+to 0019) on `v7.3`: clean, and the camera files equal the scratch branch.
+
+Still Unknown after this reconciliation: whether op 4 really is "equal" (not "not equal" or a bit test) and whether the timeout is the
+poll limit (needs the Windows consumer in `QcDeviceMFT8380.dll`, REA); the IMX681 colour code 3; the OV13858 GRBG (a RAW capture);
+whether the blobs boot the sensors (U4).
 
 ## Front camera: the IMX681 driver
 
@@ -110,15 +158,15 @@ Design (patch 0016): `drivers/media/i2c/imx681.c`, about 870 lines. It contains 
   first device test self-documenting (`dmesg` prints the chip id the sensor returned).
 - Streaming: `enable_streams` runs the init list, the mode list, the control handler setup, then the stream-on list;
   `disable_streams` runs the stream-off list. Runtime PM powers the sensor.
-- Media bus code: the blob's field, which must be a RAW10 Bayer code. The generator has no default for it. `--bayer` is mandatory.
+- Media bus code: the blob's field, which must be a RAW10 Bayer code. The generator defaults the IMX681 to `rggb` (a GUESS, printed as a loud note on every run and stored in the manifest); `--bayer` / `--bayer-imx681` overrides it. The OV13858 is fixed to GRBG.
 - Limits: one mode per frame size; every mode must share the media bus code and the trio count of the endpoint; a link frequency
   of a mode that the endpoint does not list rejects the blob; the native array size is reported as the largest mode (the module
   says 4032 x 3024, not used yet).
 - Reports C-PHY with the endpoint's trio count through `get_mbus_config`; provides link frequency, pixel rate, hblank, vblank,
   exposure, analogue gain (the last three only if the blob lists their registers), plus orientation and rotation from the DT.
 
-Register blob format (SRB v1): documented in the header comment of `sensor-regblob.h` (patch 0011): 64 byte header
-(`SPSRBLOB`, version, size, CRC-32, offsets), 4 byte operations (write8 or delay in milliseconds), 20 byte control records,
+Register blob format (SRB v2, v1 still readable; see "Reconciliation"): documented in the header comment of `sensor-regblob.h` (patch 0011): 64 byte header
+(`SPSRBLOB`, version, size, CRC-32, offsets), 4 byte operations (write8, delay in milliseconds, and in v2 a poll that takes two slots), 20 byte control records,
 40 byte mode records. The kernel parser validates magic, version, size, CRC, offsets, counts, operation codes and every mode
 and control record before any accessor reads a byte. Nothing hardware-specific is in the format.
 
@@ -225,9 +273,10 @@ For the image worker:
 - I2: install `hardware/cameras/collector/cameras.sh` as `/etc/sp11-log-collector.d/cameras.sh` (read-only).
 - I3 (private mode only, D25): install the operator-provided `out/firmware-private/cameras/ov13858-mshw0491.bin` and
   `imx681-mshw0490.bin` to `/usr/lib/firmware/updates/`, and never in the public image. Generate them with
-  `python3 -I hardware/cameras/userspace/build-camera-firmware.py all --bayer-imx681 <rggb|bggr|grbg|gbrg> [--ccs-controls
-  --again-range MIN:MAX:STEP:DEFAULT]` before the image build. The IMX681 Bayer order is Unknown: build the first private
-  ISO with `rggb`, read the colours of the RAW capture, rebuild if red and blue are swapped. The OV13858 blob needs no order.
+  `python3 -I hardware/cameras/userspace/build-camera-firmware.py all [--bayer-imx681 <rggb|bggr|grbg|gbrg>] [--ccs-controls
+  --again-range MIN:MAX:STEP:DEFAULT]` before the image build. The IMX681 Bayer order is Unknown and defaults to `rggb`: build the
+  first private ISO with that, read the colours of the RAW capture, rebuild if red and blue are swapped. The OV13858 blob is
+  GRBG without an option. All blobs are SRB v2 now.
 - I4: check access to `/dev/dma_heap/system` and `/dev/media*` for the live user (the Software ISP needs both).
 
 For the REA owner (after the audio agent releases REA): the six questions above.

@@ -145,12 +145,15 @@ enumeration.
 
 ## Blob formats
 
-1. **SRB v1** (`SPSRBLOB`, kernel patch 0011): the format the drivers load; the existing
-   `build-camera-firmware.py` builds it from the same data. Mapping from the module:
+1. **SRB v2** (`SPSRBLOB`, kernel patch 0011; v1 files stay readable): the format the drivers load;
+   `build-camera-firmware.py` builds it from the same data. Reconciled on 2026-10-30 with this survey (see
+   `2026-10-30-front-ir-rgb.md`, "Reconciliation"): v2 adds a POLL operation, the builder follows the verified mode
+   pointers, emits op 4 as POLL, uses the MSHW0492 IR file, writes GRBG for the OV13858 and keeps the IMX681 order as an
+   option (default `rggb`, a guess). Mapping from the module:
    init, on, off from the sequences above; per mode width/height from `streamConfiguration`,
    lanes from 0x50, link frequency and pixel rate from 0x34, hts/vts from 0x24/0x28 (scaled
    per sensor), mbus code from the colour code (Unknown) and the bit width, ops from
-   `resSettings`. Poll records are not representable in SRB v1 (write and delay only).
+   `resSettings`. Poll records are not representable in SRB v1 (write and delay only); SRB v2 carries them as a two-slot POLL (register, expected value, mask, timeout in microseconds), emitted from op 4 with mask 0xff and the delay field as the timeout.
 2. **SPMODREC v1** (written by `--emit`; superset, raw, lossless; layout in the script's
    docstring): 48-byte header (magic, version 1, header size, total size, CRC-32 of the
    body, mode count, sensor index 0/1/2, colour code, 16-byte sensor name), five
@@ -173,8 +176,9 @@ ignored `out/`).
 
 ## Unknown
 
-- Meaning of the colour filter code for IMX681 (and a firm one for OV13858).
+- Meaning of the colour filter code for IMX681 (and a firm one for OV13858: the blob uses GRBG on the Inference above).
 - Stream configuration words 3 and 4.
 - Units of line length and frame length for IMX681 and VD55G0.
-- Poll semantics of op 4 against the actual Windows consumer (REA of `QcDeviceMFT8380.dll`).
+- Poll semantics of op 4 against the actual Windows consumer (REA of `QcDeviceMFT8380.dll`): the blob now treats it as
+  poll-until-equal with the delay as timeout; "not equal", a bit test or a different timeout meaning is not excluded.
 - Whether the group-hold records matter for a first driver (no).

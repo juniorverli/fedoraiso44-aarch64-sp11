@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the local camera register blobs for the Surface Pro 11 (SRB v1).
+"""Build the local camera register blobs for the Surface Pro 11 (SRB v2).
 
 The kernel drivers imx681 and ov13858 take their sensor register sequences from
 a firmware file (the "register blob", format in drivers/media/i2c/sensor-regblob.h
@@ -10,8 +10,9 @@ out/firmware-private/cameras/, from where the private image mode (D25) installs
 them in /usr/lib/firmware. Nothing this tool writes may be committed, shared or
 published. The manifest it writes holds hashes and counts, never register values.
 
+    python3 -I hardware/cameras/userspace/build-camera-firmware.py all
     python3 -I hardware/cameras/userspace/build-camera-firmware.py all \\
-        --bayer-imx681 rggb          # the Bayer order is Unknown, see below
+        --bayer-imx681 bggr          # IMX681 order Unknown: default rggb, see below
     python3 -I hardware/cameras/userspace/build-camera-firmware.py ov13858
     python3 -I hardware/cameras/userspace/build-camera-firmware.py imx681 --bayer rggb
     python3 -I hardware/cameras/userspace/build-camera-firmware.py vd55g0      # design only
@@ -19,7 +20,8 @@ published. The manifest it writes holds hashes and counts, never register values
 Outputs (default --out out/firmware-private/cameras):
     ov13858-mshw0491.bin    rear; modes only (the driver uses nothing else)
     imx681-mshw0490.bin     front; init, stream on/off, controls, modes
-    vd55g0-mshw0492.bin     IR; same layout, no driver exists yet (design only)
+    vd55g0-mshw0492.bin     IR (module file MSHW0492, never MSHW0472); same layout,
+                            no driver exists yet (design only)
     MANIFEST.json           input and output SHA-256, counts, no register values
 
 What is read (Chromatix "sensor module" data and AeoB "SCFG" data):
@@ -37,25 +39,32 @@ What is read (Chromatix "sensor module" data and AeoB "SCFG" data):
       - per mode: the 'resSettings' symbols.
   * Per mode geometry: 'resolutionData' records of 252 bytes (line length at
     +0x24, frame length +0x28, minimum vertical blanking +0x30, output pixel
-    clock +0x34, lane or trio count +0x50, C-PHY flag +0x60), and the matching
-    'streamConfiguration' arrays (width, height, bit width).
+    clock +0x34, lane or trio count +0x50, C-PHY flag +0x60). Each record owns
+    its arrays through pointers (Verified by hardware/cameras/evidence/
+    2026-10-30-module-data-format.md): (count 1, symbol) of its
+    'streamConfiguration' at +0x14/+0x18 (width, height, bit width) and of its
+    'resSettings' at +0x6C/+0x70. The tool follows these pointers; it does not
+    pair arrays by symbol order any more.
   * SCFG_*.bin (AeoB): the sensor module file name, and the identification
     register and expected value (second integer: high 16 bits value, low 16 bits
     register).
 
 What is Inference or Unknown here (REA, after the audio agent releases it, or a
-RAW capture on the device, settles each; the evidence file
-hardware/cameras/evidence/2026-10-30-front-ir-rgb.md carries the same list):
+RAW capture on the device, settles each; the evidence files in
+hardware/cameras/evidence/ carry the same list):
 
-  1. Mode i is the i-th resSettings array, the i-th streamConfiguration array and
-     the i-th resolutionData record (Inference: the symbols are emitted in this
-     order for all 12 modes; the tool asserts equal counts). REA question:
-     which structure field of a resolutionData record names its resSettings.
+  1. (Resolved) Mode i owns its streamConfiguration and resSettings through the
+     pointers in its resolutionData record. The tool asserts the symbols have
+     the expected names and sizes, and reports in the manifest whether the
+     pointers agree with the older "same order" guess.
   2. Colour filter: the module carries a numeric CamX code (3 for IMX681, 0 for
-     OV13858, 4 for the mono IR) that nothing in the dump ties to an order. The
-     media bus code is therefore an explicit option, with no default for colour
-     sensors: --bayer {rggb,bggr,grbg,gbrg}. A RAW capture of a coloured target
-     on the device decides.
+     OV13858, 4 for the mono IR) with no printable enumeration.
+       - OV13858: GRBG (Inference, medium: the Windows windows start on even
+         columns and rows and keep the flip bits of the Linux full mode, which
+         is GRBG). The tool emits GRBG and accepts no other order.
+       - IMX681: Unknown. --bayer-imx681 / --bayer default to rggb and the tool
+         prints a loud note: the order is a guess and one RAW capture of a
+         coloured target decides (swapped red and blue means bggr).
   3. Control registers of the IMX681: the module names the digital gain
      (0x020e), the short exposure (0x0224) and a non-standard middle exposure
      (0x30b2) only; the analogue gain register and the gain code law are not in
@@ -70,13 +79,20 @@ hardware/cameras/evidence/2026-10-30-front-ir-rgb.md carries the same list):
      in ov13858.c), so the OV13858 profile scales by 4. For the IMX681 and the
      VD55G0 the scale is not known and is 1; their hblank and frame rate
      figures are Unknown until measured.
-  5. Delay entries (operation 4) are written then followed by a delay in
-     microseconds; the tool converts to milliseconds, rounding up.
+  5. Operation 4 of the module (VD55G0 only) is a POLL: read the register until
+     it equals the data value, the delay field being the timeout in microseconds
+     (Inference, strong: the records sit where vd55g1.c polls the boot command
+     and FSM state registers). The tool emits an SRB v2 POLL (expected value,
+     mask 0xff because the module has no mask, timeout in microseconds) and
+     never "write then sleep". A poll without a timeout, with a 16 bit value or
+     with a timeout above the format limit is an error.
   6. IR illuminator (risk S2): the VD55G0 module programs the sensor's GPIO1 as
      a strobe output (register 0x0468 = 2, from the earlier survey's register
      map of the sensor). The VD55G0 profile rewrites that write to 1 (input), so
      the sensor never drives a strobe even if a PMIC flash path were armed.
-     That register map is an Inference (it differs from vd55g1.c).
+     That register map is an Inference (it differs from vd55g1.c). The module
+     file is the MSHW0492 one (the device's hardware id); the MSHW0472 file
+     belongs to another SKU.
 
 Anything the tool does not understand is an error, never a guess.
 """
@@ -93,7 +109,10 @@ import zlib
 MAGIC = b"SPSRBLOB"
 HDR = 64
 OP_SIZE, CTRL_SIZE, MODE_SIZE = 4, 20, 40
-OP_WRITE8, OP_DELAY_MS = 0, 1
+OP_WRITE8, OP_DELAY_MS, OP_POLL = 0, 1, 2
+SRB_VERSION = 2
+SRB_MAX_POLL_US = 10000000
+MOD_POLL = 4          # operation code of a poll record in the Chromatix module
 CTRL_EXPOSURE, CTRL_GAIN, CTRL_FRAME_LENGTH = 1, 2, 3
 BAYER = {"bggr": 0x3007, "gbrg": 0x300E, "grbg": 0x300A, "rggb": 0x300F}
 Y10 = 0x200A
@@ -106,7 +125,7 @@ PROFILES = {
         module="com.surface.sensormodule.rfc_ov13858.bin",
         scfg="SCFG_REAR_MSHW0491.bin",
         phy="dphy", lanes=4, color=True, hts_scale=4, skip_modes=[], stream_reg=0x0100,
-        bayer_choices=["grbg"],
+        bayer_choices=["grbg"], bayer_default="grbg",
     ),
     "imx681": dict(
         name="imx681-mshw0490.bin",
@@ -115,7 +134,7 @@ PROFILES = {
         scfg="SCFG_FRONT_MSHW0490.bin",
         phy="cphy", lanes=1, color=True, hts_scale=1, stream_reg=0x0100,
         skip_modes=[5],  # 504x378 at 3 fps presence mode
-        bayer_choices=list(BAYER),
+        bayer_choices=list(BAYER), bayer_default="rggb",
     ),
     "vd55g0": dict(
         name="vd55g0-mshw0492.bin",
@@ -185,11 +204,15 @@ def pair_arrays(buf, by, sym):
 
 
 def to_ops(rows, what, profile):
-    """Convert regSetting rows to SRB operations: (kind, reg_or_ms, value)."""
+    """Convert regSetting rows to SRB operations.
+
+    Entries: (OP_WRITE8, reg, value), (OP_DELAY_MS, ms, 0) or
+    (OP_POLL, reg, expected, mask, timeout_us).
+    """
     ops, rewrites = [], 0
     for n, r in enumerate(rows):
-        if r["slave"] or r["op"] not in (0, 4):
-            raise Fail("%s row %d: operation %d with slave=%s is not a plain write"
+        if r["slave"] or r["op"] not in (0, MOD_POLL):
+            raise Fail("%s row %d: operation %d with slave=%s is not a plain write or poll"
                        % (what, n, r["op"], r["slave"]))
         if (r["at"], r["dt"], r["addr"]) == (0, 0, 0) and r["data"] in ([0], []):
             continue  # the empty placeholder of the VD55G0 init
@@ -199,6 +222,13 @@ def to_ops(rows, what, profile):
         v, a = r["data"][0], r["addr"]
         if a > 0xFFFF:
             raise Fail("%s row %d: address 0x%x" % (what, n, a))
+        if r["op"] == MOD_POLL:
+            if r["dt"] != 1 or v > 0xFF:
+                raise Fail("%s row %d: poll with data type %d value 0x%x" % (what, n, r["dt"], v))
+            if not 0 < r["delay_us"] <= SRB_MAX_POLL_US:
+                raise Fail("%s row %d: poll timeout %d us" % (what, n, r["delay_us"]))
+            ops.append((OP_POLL, a, v, 0xFF, r["delay_us"]))
+            continue
         if r["dt"] == 1 and v <= 0xFF:
             writes = [(a, v)]
         elif r["dt"] == 2 and v <= 0xFFFF:
@@ -255,9 +285,16 @@ def build_blob(init, on, off, ctrls, modes, ident):
         if not ops:
             return 0, 0
         o = HDR + len(payload)
-        for kind, a, v in ops:
+        slots = 0
+        for op in ops:
+            kind, a, v = op[:3]
             payload.extend(struct.pack("<HBB", a, v, kind))
-        return o, len(ops)
+            slots += 1
+            if kind == OP_POLL:
+                mask, timeout = op[3], op[4]
+                payload.extend(struct.pack("<B", mask) + struct.pack("<I", timeout)[:3])
+                slots += 1
+        return o, slots
 
     init_o = put_ops(init)
     on_o = put_ops(on)
@@ -281,7 +318,7 @@ def build_blob(init, on, off, ctrls, modes, ident):
     total = HDR + len(payload)
     hdr = bytearray(HDR)
     hdr[0:8] = MAGIC
-    struct.pack_into("<HHII", hdr, 8, 1, HDR, total, zlib.crc32(bytes(payload)))
+    struct.pack_into("<HHII", hdr, 8, SRB_VERSION, HDR, total, zlib.crc32(bytes(payload)))
     struct.pack_into("<HH", hdr, 20, len(modes), len(ctrls))
     struct.pack_into("<IIIIII", hdr, 24, init_o[0], init_o[1], on_o[0], on_o[1],
                      off_o[0], off_o[1])
@@ -295,23 +332,37 @@ def verify_blob(blob):
     """Independent re-parse with the checks of srb_parse(); returns a summary."""
     def u16(o): return struct.unpack_from("<H", blob, o)[0]
     def u32(o): return struct.unpack_from("<I", blob, o)[0]
-    assert blob[:8] == MAGIC and u16(8) == 1 and u16(10) == HDR
+    assert blob[:8] == MAGIC and u16(8) == SRB_VERSION and u16(10) == HDR
     total = u32(12)
     assert HDR <= total <= len(blob)
     assert zlib.crc32(blob[HDR:total]) == u32(16), "CRC"
 
     def ops(off, cnt):
+        """Check one list of 'cnt' slots; returns (slots, polls)."""
         if not cnt:
-            return 0
+            return 0, 0
         assert off >= HDR and off % 4 == 0 and off + cnt * OP_SIZE <= total
-        for i in range(cnt):
+        polls, i = 0, 0
+        while i < cnt:
             kind = blob[off + 4 * i + 3]
-            assert kind in (OP_WRITE8, OP_DELAY_MS)
+            assert kind in (OP_WRITE8, OP_DELAY_MS, OP_POLL)
             if kind == OP_DELAY_MS:
                 assert u16(off + 4 * i) <= 1000
-        return cnt
-    summary = dict(init_ops=ops(u32(24), u32(28)), on_ops=ops(u32(32), u32(36)),
-                   off_ops=ops(u32(40), u32(44)), modes=[], controls=u16(22))
+            if kind == OP_POLL:
+                assert i + 1 < cnt
+                mask = blob[off + 4 * i + 4]
+                timeout = int.from_bytes(blob[off + 4 * i + 5:off + 4 * i + 8], "little")
+                assert mask and 0 < timeout <= SRB_MAX_POLL_US
+                polls += 1
+                i += 1
+            i += 1
+        return cnt, polls
+    summary = dict(version=SRB_VERSION, controls=u16(22), modes=[])
+    total_polls = 0
+    for name, o, c in (("init", 24, 28), ("on", 32, 36), ("off", 40, 44)):
+        n, p = ops(u32(o), u32(c))
+        summary[name + "_slots"], summary[name + "_polls"] = n, p
+        total_polls += p
     nm = u16(20)
     mo = u32(52)
     if nm:
@@ -320,11 +371,13 @@ def verify_blob(blob):
         b = mo + i * MODE_SIZE
         w, h, code, lf, pr, hts, vts, vmin = struct.unpack_from("<HHIIIHHH", blob, b)
         assert w and h and lf and pr and hts >= w and vts >= h and vmin <= vts
-        n = ops(u32(b + 24), u32(b + 28))
+        n, p = ops(u32(b + 24), u32(b + 28))
+        total_polls += p
         assert 1 <= blob[b + 32] <= 4
         summary["modes"].append(dict(size="%dx%d" % (w, h), code="0x%x" % code,
                                      link_freq_hz=lf, pixel_rate_hz=pr, hts=hts, vts=vts,
-                                     lanes=blob[b + 32], ops=n))
+                                     lanes=blob[b + 32], op_slots=n, polls=p))
+    summary["polls"] = total_polls
     return summary
 
 
@@ -393,22 +446,38 @@ def build_sensor(key, args):
     if not (len(res) == len(sc) == n_modes):
         raise Fail("mode counts differ: %d resSettings, %d streamConfiguration, %d records"
                    % (len(res), len(sc), n_modes))
+    notes = []
     code = Y10
+    bayer = None
     if prof["color"]:
-        if key == "imx681" and not args.bayer:
-            raise Fail("imx681 needs --bayer one of %s (the order is Unknown, a RAW "
-                       "capture decides)" % ",".join(BAYER))
-        if args.bayer and args.bayer not in prof["bayer_choices"]:
+        bayer = args.bayer or prof["bayer_default"]
+        if bayer not in prof["bayer_choices"]:
             raise Fail("%s accepts --bayer %s only" % (key, ",".join(prof["bayer_choices"])))
-        # 0 = the driver's own code (ov13858: SGRBG10)
-        code = BAYER[args.bayer] if args.bayer else 0
+        code = BAYER[bayer]
+        if key == "imx681":
+            msg = ("IMX681 Bayer order %s is a GUESS (%s): the module's colour code 3 is "
+                   "not decoded. Capture one RAW frame of a coloured target; swapped red "
+                   "and blue means rebuild with --bayer-imx681 bggr." %
+                   (bayer, "default" if not args.bayer else "from the command line"))
+            notes.append(msg)
+            print("build-camera-firmware: LOUD NOTE: " + msg, file=sys.stderr)
+    pointer_order_ok = True
     modes, rewrites = [], rw0 + rw1 + rw2
     for i in range(n_modes):
         if i in prof["skip_modes"]:
             continue
         rec = rdata[0]["foff"] + 252 * i
         u = lambda o: struct.unpack_from("<I", buf, rec + o)[0]
-        scd = struct.unpack_from("<%dI" % (sc[i]["dsz"] // 4), buf, sc[i]["foff"])
+        # the mode owns its arrays through (count 1, symbol) pointers (Verified)
+        if (u(0x14), u(0x6C)) != (1, 1):
+            raise Fail("mode %d: pointer counts %d, %d (expected 1, 1)" % (i, u(0x14), u(0x6C)))
+        sc_sym, rs_sym = by.get(u(0x18)), by.get(u(0x70))
+        if not sc_sym or sc_sym["name"] != "streamConfiguration" or sc_sym["dsz"] != 60:
+            raise Fail("mode %d: streamConfiguration pointer" % i)
+        if not rs_sym or rs_sym["name"] != "resSettings" or rs_sym["dsz"] != 8:
+            raise Fail("mode %d: resSettings pointer" % i)
+        pointer_order_ok = pointer_order_ok and sc_sym is sc[i] and rs_sym is res[i]
+        scd = struct.unpack_from("<15I", buf, sc_sym["foff"])
         width, height, bw = scd[5], scd[6], scd[7]
         hts, vts, min_vb, pix, lanes, cphy = u(0x24), u(0x28), u(0x30), u(0x34), u(0x50), u(0x60)
         if lanes != prof["lanes"] or bool(cphy) != (prof["phy"] == "cphy"):
@@ -422,7 +491,7 @@ def build_sensor(key, args):
         freq = int(round(freq / 1e5)) * 100000        # PLLs are exact multiples
         hts *= prof["hts_scale"]
         vts_min = max(height + min_vb, 0) if min_vb else vts
-        mops, rw = to_ops(decode_regsetting(buf, by, by[_array_sym(buf, by, res[i])]),
+        mops, rw = to_ops(decode_regsetting(buf, by, by[_array_sym(buf, by, rs_sym)]),
                           "mode %d" % i, prof)
         rewrites += rw
         no_stream_write(mops, "mode %d" % i)
@@ -456,6 +525,8 @@ def build_sensor(key, args):
             dict(kind=CTRL_FRAME_LENGTH, width=2, flags=0, reg=0x0340, step=1, min=0,
                  max=0xFFFF, **{"def": 0xFFFF}),
         ]
+    if key == "vd55g0" and "MSHW0492" not in os.path.basename(mod_path):
+        raise Fail("the IR module file must be the MSHW0492 one")
     id_width = 2
     blob = build_blob(init_ops if key != "ov13858" else [], on_ops if key != "ov13858" else [],
                       off_ops if key != "ov13858" else [], ctrls, modes,
@@ -470,7 +541,9 @@ def build_sensor(key, args):
                 inputs={os.path.relpath(mod_path, args.windows_root): sha256(mod_path),
                         os.path.relpath(scfg_path, args.windows_root): sha256(scfg_path)},
                 dropped_same_size_modes=dropped, skipped_modes=prof["skip_modes"],
-                s2_rewrites=rewrites if key == "vd55g0" else 0, summary=summary)
+                s2_rewrites=rewrites if key == "vd55g0" else 0, bayer=bayer,
+                mode_pointers_match_symbol_order=pointer_order_ok, notes=notes,
+                summary=summary)
 
 
 def _array_sym(buf, by, res_sym):
@@ -487,8 +560,11 @@ def main():
     ap.add_argument("sensor", choices=["all", "ov13858", "imx681", "vd55g0"])
     ap.add_argument("--windows-root", default="sources/windows")
     ap.add_argument("--out", default="out/firmware-private/cameras")
-    ap.add_argument("--bayer", choices=list(BAYER), help="media bus code of a colour sensor")
-    ap.add_argument("--bayer-imx681", choices=list(BAYER), help="with 'all': order of the IMX681")
+    ap.add_argument("--bayer", choices=list(BAYER),
+                    help="Bayer order of a colour sensor (ov13858: grbg only; imx681: default "
+                    "rggb, a GUESS that a RAW capture decides)")
+    ap.add_argument("--bayer-imx681", choices=list(BAYER),
+                    help="with 'all': order of the IMX681 (default rggb, a GUESS)")
     ap.add_argument("--ccs-controls", action="store_true",
                     help="IMX681: use the public MIPI CCS exposure, gain and frame length registers")
     ap.add_argument("--again-range", help="MIN:MAX:STEP:DEFAULT gain codes for --ccs-controls")
@@ -519,8 +595,9 @@ def main():
                        note="local, never commit or publish (risk S5, decision D25)",
                        blobs=old + results), f, indent=2)
     for r in results:
-        print("%s: %d bytes, sha256 %s, %d modes" % (r["output"], r["bytes"],
-              r["output_sha256"][:16], len(r["summary"]["modes"])))
+        print("%s: %d bytes, SRB v%d, sha256 %s, %d modes, %d polls" % (
+              r["output"], r["bytes"], r["summary"]["version"], r["output_sha256"][:16],
+              len(r["summary"]["modes"]), r["summary"]["polls"]))
     print("manifest:", manifest)
 
 
