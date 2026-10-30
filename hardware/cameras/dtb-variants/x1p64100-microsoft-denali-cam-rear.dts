@@ -1,0 +1,36 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * Diagnostic variant: enable the rear OV13858 camera path for a first test boot.
+ *
+ * Source: the cameras patches 0001-0005 describe CCI0, CAMSS, the pm8010 regulators, the
+ * rear sensor and the camera indicator LED, all disabled. This file switches on exactly
+ * that chain and nothing else: the IR emitter and the flash stay undescribed (risk S2),
+ * the front IMX681 and the IR VD55G0 are not described at all.
+ *
+ * Expected on the device (see hardware/cameras/test-plan.md): ov13858 probes and reads
+ * the chip id; /dev/media* shows the CAMSS graph; the indicator LED lights while streaming.
+ * Not a patch, not part of the RPM; built with scripts/kernel-dev.sh variant by the kernel worker.
+ */
+#include "x1p64100-microsoft-denali.dts"
+
+&apps_rsc {
+	regulators-8 {
+		status = "okay";
+	};
+};
+
+&{/camera-leds} {
+	status = "okay";
+};
+
+&camss {
+	status = "okay";
+};
+
+&cci0 {
+	status = "okay";
+};
+
+&cci0_i2c1 {
+	status = "okay";
+};

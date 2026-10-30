@@ -1,0 +1,68 @@
+From d83e8c575a7abb7df81d33ce36279eec6845a550 Mon Sep 17 00:00:00 2001
+From: juniorverli <25966843+juniorverli@users.noreply.github.com>
+Date: Fri, 30 Oct 2026 22:10:09 +0000
+Subject: [PATCH 4/5] arm64: dts: qcom: x1-microsoft-denali: describe the
+ camera indicator LED
+
+The board already carries the cam_indicator_en pin state for GPIO225 but
+no consumer. Other X1E80100 laptops (Surface Laptop 7, Dell XPS 13, ASUS
+Zenbook A14) drive the same named pin state as an active high camera
+indicator LED through gpio-leds.
+
+Describe it the same way, as a white indicator LED that stays off by
+default, so sensor nodes can reference it with leds and
+led-names = "privacy": v4l2_async_register_subdev_sensor() then looks up
+the LED named "privacy" and switches it on while the sensor streams.
+
+The node is disabled. That GPIO225 is the indicator of this unit rests on
+the pin-state name and the sibling devices, not on a Windows decode, and
+the Surface Pro 11 IR emitter and flash are separate PMIC flash channels
+that this patch does not describe or drive. CAMP lists a second GPIO,
+105, whose function is not established and is therefore not described.
+
+Assisted-by: Claude Sonnet 5.5
+Assisted-by: Codex gpt-6.1-sol
+---
+ .../boot/dts/qcom/x1-microsoft-denali.dtsi    | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi b/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi
+index 1fb894561..1ca4c4962 100644
+--- a/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi
++++ b/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi
+@@ -7,6 +7,7 @@
+ #include <dt-bindings/gpio/gpio.h>
+ #include <dt-bindings/input/gpio-keys.h>
+ #include <dt-bindings/input/input.h>
++#include <dt-bindings/leds/common.h>
+ #include <dt-bindings/regulator/qcom,rpmh-regulator.h>
+ 
+ #include "hamoa-pmics.dtsi"
+@@ -17,6 +18,24 @@ aliases {
+ 		serial1 = &uart14;
+ 	};
+ 
++	camera-leds {
++		compatible = "gpio-leds";
++
++		pinctrl-0 = <&cam_indicator_en>;
++		pinctrl-names = "default";
++
++		/* Disabled until the camera indicator wiring is confirmed on this unit */
++		status = "disabled";
++
++		camera_indicator: led-camera-indicator {
++			function = LED_FUNCTION_INDICATOR;
++			color = <LED_COLOR_ID_WHITE>;
++			gpios = <&tlmm 225 GPIO_ACTIVE_HIGH>;
++			linux,default-trigger = "none";
++			default-state = "off";
++		};
++	};
++
+ 	gpio-keys {
+ 		compatible = "gpio-keys";
+ 
+-- 
+2.43.0
+
