@@ -141,3 +141,53 @@ Decoder (Verified source constants; expected observations are Inference):
 The command block never rebinds a driver, writes sysfs/debugfs, scans I2C,
 changes PD/charging policy or reads/writes firmware. Preserve the image's
 debugfs allow-list; do not add recursive debugfs capture or DRM test readers.
+
+
+## G. Next boot (M13): one boot that decides (from the M12 diagnostic, `evidence/2026-10-30-m12-diagnostic.md`)
+
+M12 ran the `debug` entry, so patch `0002` printed nothing. Boot **SP11 debug, USB + DSP trace** (`sp11.entry=usbdbg`) and verify before anything else that the trace is live (read-only):
+
+```sh
+cat /proc/cmdline | tr ' ' '\n' | grep -E 'dyndbg|sp11.entry'
+grep -E 'ps883x|pmic_glink_altmode|phy_qcom_qmp_combo|dwc3' /sys/kernel/debug/dynamic_debug/control | grep -c '=p'
+dmesg | grep -E 'notify: port=|apply: port=|configure: conn_status|set: mode=|request: cmd'
+```
+
+The last command must print lines. No lines means the module in the initramfs lacks patch `0002`; stop and report.
+
+Test matrix (the same SS-proven cable and stick for every row; the stick must be proven at 5/10 Gbit/s on Windows with that cable first):
+
+| Row | Boot medium | Port under test | Orientation | Why |
+|:--|:--|:--|:--|:--|
+| 1 | boot stick in port 0 (as M12), no other device | port 1 | normal, then reversed | Port 1 shows both orientations without touching the boot medium. Insert the proven stick, collect, unplug 5 s, flip, collect |
+| 2 | same boot | port 0 | already reverse | Compare the live trace with row 1 reversed |
+| 3 | second boot, boot stick in port 1 | port 0 | normal, then reversed | Port 0 normal has never been seen |
+| 4 | optional | either | normal with the boot stick's own cable replaced by a known SS cable | Separates cable from orientation |
+
+Per insertion, after about 10 seconds, run (all read-only; output private):
+
+```sh
+date --iso-8601=seconds
+for p in /sys/class/typec/port?; do echo "== $p"; grep -H . $p/{orientation,data_role,power_role,usb_capability,power_operation_mode} 2>/dev/null; done
+lsusb -t
+for f in /sys/kernel/debug/usb/xhci/*/ports/port*/portsc /sys/kernel/debug/usb/xhci/*/ports/port*/portli; do echo "$f: $(cat $f)"; done
+grep -E 'gpio(121|123|176) ' /sys/kernel/debug/gpio
+grep -E 'RTMR' /sys/kernel/debug/regulator/regulator_summary
+dmesg --time-format=iso | grep -E 'ps883x|pmic_glink_altmode|usb [0-9]-[0-9]' | grep -vi serial | tail -40
+```
+
+Decision table (use the `usbdbg` lines):
+
+| Observation | Meaning |
+|:--|:--|
+| `notify:` shows mux=0 or no line for the connected port | ADSP path (PAN enable, replay, ack); do not touch the retimer |
+| `notify:` orientation 1 but `typec` orientation `normal`, or the reverse, or `apply:` shows the other enum | Orientation source mismatch; candidate for a minimal mapping patch |
+| `configure: 23/00/00` (reverse) or `21/00/00` (normal), `set: ... ret=0`, SS still `RxDetect` in **both** orientations with the SS-proven cable | PS8830 or QMP sequencing; next work is reset/delay (U7) and the PHY, with a hotplug versus boot comparison |
+| SS works in normal and fails in reverse (or the opposite) | Orientation-specific; compare the tuple bit and QMP lane swap |
+| SS works on port 1 hotplug but not the boot-attached port 0 | Boot-handoff or reset/replay ordering |
+| `-71` repeats with the SS cable at every insertion | HS signalling, repeater or power issue, separate from retimers |
+| `-71` only once at boot with the stick already attached | Host bring-up transient (V8, I3); not a USB-C lane fault |
+
+A 10000M root hub is not SS; only a child of the SS bus at 5000M or 10000M counts.
+
+Collector improvements requested of the image owner (R-I1, read-only): add `portli` to the `xhci-ports.txt` loop, add `grep -E 'ps883x|pmic_glink_altmode|phy_qcom_qmp_combo|dwc3' /sys/kernel/debug/dynamic_debug/control` as `usb-typec-dyndbg.txt` (shows whether patch `0002` is active), copy `/proc/cmdline` into `usb-typec-config.txt`, and add `usb-pd-partner.txt` listing `/sys/class/typec/port*-partner/*` including `number_of_alternate_modes`, `/sys/class/typec/port*-cable` when it exists, and `/sys/class/usb_power_delivery/*` names only. Do not read dwc3 `link_state` or any `test_*` debugfs file.
