@@ -4,7 +4,7 @@
 
 | ID | Rule | Why |
 |:--|:--|:--|
-| S1 | Speaker output on the WSA8845 amplifiers stays disabled until speaker protection (SP with VI feedback) runs and is evidenced on the device. A volume cap is not protection. | Driving micro-speakers without thermal and excursion protection can destroy them |
+| S1 | Speaker output on the WSA8845 amplifiers stays disabled until speaker protection (SP with VI feedback) runs and is evidenced on the device. A volume cap is not protection. | Driving micro-speakers without thermal and excursion protection can destroy them Exception D26 (operator-authorised 2026-10-30): the main entry may enable the speakers with OPEN-LOOP protection only (gain/volume caps, muted by default); the Windows closed-loop protection is absent on Linux and the residual risk is accepted by the operator. A fallback entry keeps speakers off. |
 | S2 | The IR illuminator and the camera flash stay disabled until their eye-safety limits are established. | IR exposure is invisible |
 | S3 | No firmware is written to any device (UEFI, EC, TCON, retimers, touch, Type Cover, pen, NVMe) except through the vendor's signed path with explicit human approval. | Bricking |
 | S4 | The Windows partition is read-only. Never mount it read-write; never touch it while hibernated or BitLocker-encrypted. | Data loss |

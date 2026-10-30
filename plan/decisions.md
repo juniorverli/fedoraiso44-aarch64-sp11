@@ -193,3 +193,11 @@ Append-only. Each entry: number, date, decision, reason, consequence. A later en
 ## D25 (2026-10-29): private image mode
 
 The operator asked that the image generator embed the device's Windows-derived settings so Wi-Fi and Bluetooth work out of the box. Decision: `scripts/image-build.sh --private` reads the git-ignored `sp11-mac.conf` and the locally derived ath12k board file and installs them in the ISO (BT address, persistent Wi-Fi MAC, board-2.bin override). Public mode stays the default and keeps every S5 assertion. Private ISOs are named `-private`, record only hashes and are never shared. S5 carries the exception.
+
+## D26 (2026-10-30): speakers and microphones in the main entry, open-loop protection
+
+Operator instruction (2026-10-30, verbatim intent): put the microphone and the speakers "+ proteção" in the main boot entry; same push for the cameras, with REA and Codex Sol 6.1.
+
+Facts the operator was given: Windows protects the two 4 ohm speakers with a closed-loop SPv5 module in the ADSP (V/I and CPS feedback, thermal model, 110 C limit, per-unit ACDB calibration); Linux 7.3 has no equivalent (hardware/audio-speakers/evidence/2026-10-30-argon-rea-report.md). What Linux can offer is OPEN-LOOP protection only: PA gain reset to 0 dB (patches 0004/0005 on top of 0001/0002), digital and MIX volume caps, speakers muted by default, a conservative user-space ceiling that cannot be raised from the desktop, and no pass-through of the full-scale range. This is the practice of upstream X1E laptops and of the reference project; it reduces but does not remove the risk of speaker damage.
+
+Decision: the main entry (`SP11 debug`) uses a DTB with microphones AND speakers enabled (variant `m13`), gated by those open-loop protections. A fallback entry `SP11 debug, no speakers` keeps the M12 DTB (speakers off, S1 baseline). The operator owns the hardware and accepted the open-loop residual risk by giving this instruction. S1 in plan/risks.md carries the exception. Speaker enablement is also blocked until the sound card really comes up (the ADSP audio state request must stop timing out) and the first test is done at minimum volume.
