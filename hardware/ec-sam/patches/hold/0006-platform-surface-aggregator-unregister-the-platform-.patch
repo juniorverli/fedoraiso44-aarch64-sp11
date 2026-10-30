@@ -1,0 +1,84 @@
+From 48af9abab20c8cbba3ecb6a8b07b94ee5d038392 Mon Sep 17 00:00:00 2001
+From: v <a@b>
+Date: Fri, 30 Oct 2026 14:49:35 +0000
+Subject: [PATCH] platform/surface: aggregator: unregister the platform hub on
+ remove
+
+On DT systems ssam_serial_hub_probe() registers the
+"surface_aggregator_platform_hub" platform device by hand, but nothing
+ever unregisters it. After the serdev driver is unbound, the device
+stays on the platform bus with a stale controller, and binding the
+driver again fails in platform_device_register_simple() with -EEXIST
+because surface_aggregator_platform_hub.0 already exists.
+
+That registration failure also returned from probe without unwinding,
+leaving the controller reference, the IRQ and the open serdev port
+behind.
+
+Keep the device pointer, unregister it first in remove(), and jump to
+a new error label that clears the controller reference when the
+registration fails.
+
+Assisted-by: Claude Sonnet 5.5
+---
+ drivers/platform/surface/aggregator/core.c | 23 +++++++++++++++++++---
+ 1 file changed, 20 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/platform/surface/aggregator/core.c b/drivers/platform/surface/aggregator/core.c
+index 43d5988fb..c0cf1f22b 100644
+--- a/drivers/platform/surface/aggregator/core.c
++++ b/drivers/platform/surface/aggregator/core.c
+@@ -108,6 +108,14 @@ static void ssam_clear_controller(void)
+ 	spin_unlock(&__ssam_controller_lock);
+ }
+ 
++/*
++ * Platform hub device registered by hand on DT systems (see probe). There is
++ * only one controller, so a single reference is enough; it has to be dropped
++ * on remove or a later bind cannot register "surface_aggregator_platform_hub.0"
++ * again and fails with -EEXIST.
++ */
++static struct platform_device *ssam_ph_pdev;
++
+ /**
+  * ssam_client_link() - Link an arbitrary client device to the controller.
+  * @c: The controller to link to.
+@@ -746,9 +754,12 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
+ 		struct platform_device *ph_pdev =
+ 			platform_device_register_simple("surface_aggregator_platform_hub",
+ 							0, NULL, 0);
+-		if (IS_ERR(ph_pdev))
+-			return dev_err_probe(dev, PTR_ERR(ph_pdev),
+-					     "Failed to register the platform hub driver\n");
++		if (IS_ERR(ph_pdev)) {
++			status = dev_err_probe(dev, PTR_ERR(ph_pdev),
++					       "Failed to register the platform hub driver\n");
++			goto err_hub;
++		}
++		ssam_ph_pdev = ph_pdev;
+ 	}
+ 
+ 	if (ssh)
+@@ -756,6 +767,8 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
+ 
+ 	return 0;
+ 
++err_hub:
++	ssam_clear_controller();
+ err_mainref:
+ 	ssam_irq_free(ctrl);
+ err_irq:
+@@ -778,6 +791,10 @@ static void ssam_serial_hub_remove(struct serdev_device *serdev)
+ 	struct ssam_controller *ctrl = serdev_device_get_drvdata(serdev);
+ 	int status;
+ 
++	/* Remove the manually registered platform hub (and its clients) first. */
++	platform_device_unregister(ssam_ph_pdev);
++	ssam_ph_pdev = NULL;
++
+ 	/* Clear static reference so that no one else can get a new one. */
+ 	ssam_clear_controller();
+ 
+-- 
+2.43.0
+

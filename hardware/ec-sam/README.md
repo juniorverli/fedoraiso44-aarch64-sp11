@@ -110,9 +110,11 @@ The predecessor's initramfs inventory predates M5, so the exact M5 omission is n
 - **orchestrator R8:** reproduce/cross-check the held button draft's electrical parameters before release; review upstream POS switch fix against local posture/resume evidence. Sources owner must pin any external patch before adopting it as a new shared input.
 
 - **kernel R9 (helper):** document or add linked-module validation for `kernel-dev.sh module <directory>`: the current directory target produces objects only. A rejected extra-fragment configuration can also leave the prior `.config.sp11-sha` beside a changed `.config`, so retrying the old profile may skip regeneration; invalidate the stamp before changing config. This worker removed only its own generated stamp and used the standard incremental build for final verification.
+- **image R10 (2026-10-30, keyboard dead after reboot):** install `collector/ec-sam.sh` as `/etc/sp11-log-collector.d/ec-sam.sh`; add the units in `evidence/2026-10-30-keyboard-reboot.md` section 5 (shutdown unbind, opt-in `sp11.ssam_rebind` GRUB entry) and run the four-step test there. No kernel patch yet.
 
 ## 9. Log
 
 - 2026-10-23: dossier created from static survey.
 - 2026-10-28: Claude draft added M5 evidence, candidate patches 0001–0004 and SSAM read tool; interrupted during build.
 - 2026-10-28: Codex continuation (D24): corrected endpoint evidence grades and cover scope, applied D23 without a charger gate, documented complete early keyboard path, added private-data-minimized capability/power collectors and UPower charging checks, held insufficiently sourced button DT candidate, and recorded actual validation results. Status remains `designed`; all changes uncommitted.
+- 2026-10-30: M10 keyboard-after-reboot report investigated; logs show normal enumeration, cause Unknown; collector and image mitigation proposed (evidence `2026-10-30-keyboard-reboot.md`).
