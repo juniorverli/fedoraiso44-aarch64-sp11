@@ -1,0 +1,39 @@
+From e18fc842c047113866334521e0668ad023e20599 Mon Sep 17 00:00:00 2001
+From: Junior Mverli <25966843+juniorverli@users.noreply.github.com>
+Date: Fri, 30 Oct 2026 10:48:13 +0000
+Subject: [PATCH 2/3] ASoC: qcom: x1e80100: also limit the WSA MIX path digital
+ volumes
+
+The WSA macro exposes WSA_RX0_MIX and WSA_RX1_MIX Digital Volume controls
+with the same -84..+40 dB range as the main paths. The speaker volume
+limit in the machine driver covers only WSA_RX0 and WSA_RX1, so the MIX
+controls keep their full range and their 0 dB register default, which is
+above the -3 dB ceiling used for the main path.
+
+Apply the same ceiling to the MIX controls of both macro instances until
+speaker protection is available.
+
+Assisted-by: Claude Sonnet 5.5
+---
+ sound/soc/qcom/x1e80100.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/sound/soc/qcom/x1e80100.c b/sound/soc/qcom/x1e80100.c
+index c81df41ac..78606fcae 100644
+--- a/sound/soc/qcom/x1e80100.c
++++ b/sound/soc/qcom/x1e80100.c
+@@ -43,6 +43,11 @@ static int x1e80100_snd_init(struct snd_soc_pcm_runtime *rtd)
+ 		snd_soc_limit_volume(card, "WSA WSA_RX1 Digital Volume", 81);
+ 		snd_soc_limit_volume(card, "WSA2 WSA_RX0 Digital Volume", 81);
+ 		snd_soc_limit_volume(card, "WSA2 WSA_RX1 Digital Volume", 81);
++		/* The MIX paths feed the same amplifier; do not leave them at +40 dB */
++		snd_soc_limit_volume(card, "WSA WSA_RX0_MIX Digital Volume", 81);
++		snd_soc_limit_volume(card, "WSA WSA_RX1_MIX Digital Volume", 81);
++		snd_soc_limit_volume(card, "WSA2 WSA_RX0_MIX Digital Volume", 81);
++		snd_soc_limit_volume(card, "WSA2 WSA_RX1_MIX Digital Volume", 81);
+ 		snd_soc_limit_volume(card, "SpkrLeft PA Volume", 6);
+ 		snd_soc_limit_volume(card, "SpkrRight PA Volume", 6);
+ 		snd_soc_limit_volume(card, "WooferLeft PA Volume", 6);
+-- 
+2.43.0
+

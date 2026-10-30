@@ -1,0 +1,53 @@
+From d84be7e7093ad003c21ce2dea71300ee7d827c4b Mon Sep 17 00:00:00 2001
+From: Junior Mverli <25966843+juniorverli@users.noreply.github.com>
+Date: Fri, 30 Oct 2026 10:48:07 +0000
+Subject: [PATCH 1/3] ASoC: codecs: wsa884x: reset the PA gain to 0 dB instead
+ of the maximum
+
+The init table writes WSA884X_DRE_CTL_1 = 0x04 every time the slave
+attaches. The CSR gain field (bits 5:1) is then 2, which the inverted
+"PA Volume" control reads back as 29, a nominal +34.5 dB with the
+-9 dB / 1.5 dB TLV. The machine driver clips "PA Volume" to 6 only once,
+when the card is created; a later re-attach (bus reset, clock stop,
+amplifier reset) rewrites 0x04 and silently undoes that limit until
+user space writes the control again.
+
+Reset the field to the value that matches "PA Volume" 6 (0 dB), the
+limit x1e80100.c enforces, so a re-attach can never raise the gain
+above it. The GAIN_EN bit stays 0 as before.
+
+Assisted-by: Claude Sonnet 5.5
+---
+ sound/soc/codecs/wsa884x.c | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/sound/soc/codecs/wsa884x.c b/sound/soc/codecs/wsa884x.c
+index a367c94bf..eed036602 100644
+--- a/sound/soc/codecs/wsa884x.c
++++ b/sound/soc/codecs/wsa884x.c
+@@ -415,6 +415,13 @@
+ #define WSA884X_DRE_CTL_1_CSR_GAIN_SHIFT		1
+ #define WSA884X_DRE_CTL_1_CSR_GAIN_EN_MASK		0x01
+ #define WSA884X_DRE_CTL_1_CSR_GAIN_EN_SHIFT		0
++/*
++ * Reset value of the CSR gain field: "PA Volume" 6 (0 dB), not the field
++ * default of 2 which reads back as "PA Volume" 29 (+34.5 dB). The mixer value
++ * is inverted: register field = 0x1f - mixer value.
++ */
++#define WSA884X_DRE_CTL_1_RESET_GAIN \
++	FIELD_PREP_CONST(WSA884X_DRE_CTL_1_CSR_GAIN_MASK, 0x1f - 6)
+ #define WSA884X_DRE_IDLE_DET_CTL	(WSA884X_DIG_CTRL0_BASE + 0xb2)
+ #define WSA884X_GAIN_RAMPING_CTL	(WSA884X_DIG_CTRL0_BASE + 0xb8)
+ #define WSA884X_GAIN_RAMPING_MIN	(WSA884X_DIG_CTRL0_BASE + 0xb9)
+@@ -1109,7 +1116,7 @@ static const struct reg_default wsa884x_defaults[] = {
+ 	{ WSA884X_DEM_BYPASS_DATA2,		0x00 },
+ 	{ WSA884X_DEM_BYPASS_DATA3,		0x00 },
+ 	{ WSA884X_DRE_CTL_0,			0x70 },
+-	{ WSA884X_DRE_CTL_1,			0x04 },
++	{ WSA884X_DRE_CTL_1,			WSA884X_DRE_CTL_1_RESET_GAIN },
+ 	{ WSA884X_DRE_IDLE_DET_CTL,		0x2f },
+ 	{ WSA884X_GAIN_RAMPING_CTL,		0x50 },
+ 	{ WSA884X_GAIN_RAMPING_MIN,		0x12 },
+-- 
+2.43.0
+
