@@ -1,0 +1,23 @@
+[Unit]
+Description=SP11 GPU two-step diagnostic (WARNING: may reset the machine; runs only with sp11.gpu_diag=1)
+# Only the GPU diagnostic GRUB entry has sp11.gpu_diag=1. Every other boot skips this unit.
+ConditionKernelCommandLine=sp11.gpu_diag=1
+# Early, like sp11-log-collector.service: the markers must reach the boot medium before the risky step.
+DefaultDependencies=no
+After=local-fs.target systemd-journald.service systemd-udevd.service sp11-log-collector.service
+Wants=systemd-udevd.service
+# Nothing else may open the render node first: the entry boots to multi-user.target, and no display
+# manager may start before the diagnostic finished.
+Before=display-manager.service graphical.target
+Conflicts=shutdown.target
+Before=shutdown.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/sp11-gpu-two-step
+TimeoutStartSec=600
+Nice=-5
+# No Restart: a reset ends the run; the next boot reports it.
+
+[Install]
+WantedBy=multi-user.target

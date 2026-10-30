@@ -1,0 +1,21 @@
+# GRUB entry for the image owner (image/kiwi/overlay/grub-arm.cfg.iso-template; same shape for the lorax template).
+# Place it last among the device entries (after 'SP11 debug, microphones'); the L1-only
+# 'VM test (no devicetree)' entry stays the final line of the menu, as today.
+# The default entry (set default=0) must never be this one.
+#
+# DTB: x1p64100-microsoft-denali-m13-gpu.dtb (kernel worker, series_rev 10: m12 + GPU on, speakers off).
+# multi-user.target: no GDM, so nothing but the collector opens the render node.
+# The first menu title line is the warning; keep the title exactly as written.
+menuentry 'SP11 debug, GPU diagnostic (WARNING: may reset the machine)' --id sp11-gpu-diag --class fedora --class gnu-linux --class gnu --class os {
+	echo 'WARNING: GPU diagnostic. The machine may reset by itself within 3 minutes. Logs go to the boot USB only.'
+	echo 'After a reset boot this same entry again: it reports which step died. Do not boot Windows in between.'
+	sleep 3
+	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr printk.devkmsg=on log_buf_len=16M systemd.unit=multi-user.target sp11.gpu_diag=1 sp11.entry=gpu-diag
+	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m13-gpu.dtb
+	initrd ($$root)${bootpath}/${initrd_file}
+}
+# Optional retry after a death in a step (the collector otherwise skips that step and later ones for this kernel):
+#   add  sp11.gpu_diag_force=1  to the linux line (press e in GRUB, one boot only).
+# image/tools check-menu: this entry must have a devicetree line, must not contain quiet, rhgb or
+# plymouth, and kernel-dtb-safety.py must pass on its DTB (gpu@3d00000 enabled is allowed ONLY here;
+# S1 still requires /sound, &swr0 and wsa884x off).

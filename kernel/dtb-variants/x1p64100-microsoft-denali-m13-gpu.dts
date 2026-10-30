@@ -1,0 +1,28 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * M13 GPU diagnostic DTB: the M12 board DT (touch on, 10 CPUs with D20 parity, speakers and
+ * microphones off, S1) plus the Adreno X1-85 enabled exactly as the M5 GPU-on entry ran it.
+ *
+ * What "exactly as M5" means (Verified, hardware/gpu/evidence/2026-10-30-two-step.md):
+ *   - M5 "SP11 debug, GPU on" used x1p64100-microsoft-denali-m5gpu.dtb: parity + sound and &swr0 off,
+ *     and NO &gpu override, so the GPU stayed at x1-microsoft-denali.dtsi:719 (&gpu okay, :723 zap
+ *     firmware-name qcom/x1e80100/microsoft/qcdxkmsuc8380.mbn). The GMU node has no status property
+ *     (okay) and is bound through &gpu's qcom,gmu. GPU speed-bin cell, OPP table, interconnect and
+ *     zap memory region are the hamoa.dtsi defaults, unchanged.
+ *   - Kernel patch 0002 (denali-lcd-disable-gpu) disables &gpu in the packaged DTB and in every
+ *     M8..M12 variant. This file only reverts that one property; it adds nothing else.
+ *
+ * Speed-bin: no DT change. The cell gpu-speed-bin@119 (reg 0x119 len 2, bits 7..8) is aligned by
+ * qfprom_fixup_dt_cell_info (drivers/nvmem/qfprom.c:338) and the M5 GPU-on boot shows the kernel
+ * read worked: 11 OPPs, max 1250 MHz, no "missing support for speed-bin" line. The empty read in the
+ * M5 log came from userspace dd at an unaligned sysfs offset. See the evidence file.
+ *
+ * S1: speakers stay off because the M12 base already leaves /sound and &swr0 off. kernel-dtb-safety
+ * must still pass on the result (gpu@3d00000 is expected enabled; sound, swr0 and wsa884x disabled).
+ * Built by the M13 DTB script; not a patch, not part of the RPM.
+ */
+#include "x1p64100-microsoft-denali-m12.dts"
+
+&gpu {
+	status = "okay";
+};

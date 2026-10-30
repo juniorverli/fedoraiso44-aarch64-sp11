@@ -5,6 +5,21 @@ only, after the orchestrator's independent cross-check of the clock limit and
 fuse extraction. Preserve logs locally, then redact unrelated identity fields
 before adding selected evidence to git. Do not dump all of qfprom.
 
+## 0. Two-step diagnostic after the silent reset (M13, operator-initiated)
+
+**Warning:** this entry may reset the machine within seconds. Run it only on the live USB, with the operator present, and
+never before the cross-check of section 1's safety values. Evidence: [two-step](evidence/2026-10-30-two-step.md).
+
+1. Boot `SP11 debug, GPU diagnostic` (DTB `m13-gpu`, `sp11.gpu_diag=1`, multi-user target). Wait up to 3 minutes. If the
+   machine resets, boot the same entry again; do not boot Windows in between.
+2. Collect from the boot USB (`SP11LOGS` or `EFI/sp11-logs`) the folder `gpu-two-step/`: `state.log`, `<boot-id>/previous-boot-report.txt`,
+   `step*.dmesg`, `step*.regulators`, `step*.clocks`, `step*.genpd`, `step*.pm`, `kmsg-follow.txt`, any `pstore/`.
+3. Read the last marker of the dead boot: died in `STEP1` = CX GDSC/GMU device power (rank 2 cause not yet involved);
+   died after `STEP2_SUB open-call` and before `open-returned` = `adreno_load_gpu()` (GMU boot, AHB fence, or PAS 13 zap; the last
+   lines of `kmsg-follow.txt` tell which if the kernel markers exist); survived both = the reset needs the GNOME session
+   (GPU job, or something other than the GPU open).
+4. Record in `hardware/gpu/evidence/`. A death makes later boots skip that step; add `sp11.gpu_diag_force=1` to retry once.
+
 ## 1. Image checks and first fuse read
 
 Image/kernel owners first verify:
