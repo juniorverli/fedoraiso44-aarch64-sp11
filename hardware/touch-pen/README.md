@@ -14,6 +14,9 @@ comparison, commit hashes and firmware resolution are in
 The full BTF Image/modules build and both DT checks pass.
 Software checks and their remaining blockers are in
 [validation](evidence/2026-10-29-validation.md). No device pass is claimed.
+The [2026-10-30 lint triage](evidence/2026-10-30-lint-triage.md) classifies
+every upstream finding, confirms 0016–0020 remain clean, and rechecks the
+current 29-patch integration and enabled DT without a full kernel build.
 
 ## 2. Hardware
 
@@ -69,8 +72,8 @@ part of this change.
   the wrapper (`sources/linux/drivers/soc/qcom/qcom-geni-se.c:125`, `:1553`).
   The working reference makes no touch change to that file.
 - New patches 0016–0020 add bindings, QSPI GPI/host, MSHW0484 transport/reset
-  quirks and a separate LCD DT node. They compose after current `kernel/series`,
-  including its read-only diagnostic and speaker disablement. See
+  quirks and a separate LCD DT node. Current `kernel/series` includes them
+  after v7 and the speaker/GPU disablement; diagnostic RFC 0014 is retired. See
   [patch selection](patches/series) and [patch notes](patches/README.md).
 - No touch firmware-name is added. Fedora's generic QUP image contains no
   protocol 9; the port requires a preprogrammed SE, as the reference does.
@@ -81,7 +84,7 @@ part of this change.
 |:--|:--|
 | GENI/GPI and HID quad path | Implemented as a small port of the working downstream contract; source/build results in validation |
 | Board DT / sequencing | Separate 0020 and MSHW0484 match data use independently cross-checked board values |
-| Strict lint | Five new patches clean; unchanged v7 has six warnings / eleven checks, so the whole selected series is not clean |
+| Strict lint | 0016–0020 clean; all six warnings / eleven checks classified as unchanged upstream v7 findings in the 2026-10-30 triage; orchestrator exception decision pending |
 | Independent review | Newly imported QSPI register/TRE constants and v7 rebind adaptation need Claude cross-check before integration |
 | Actual SE state and first input | Next boot must show protocol9 and HID/iptsd/input enumeration; no device test yet |
 | Userspace | Official f44 repos have no iptsd; image must build/install a native 3.1.0 RPM and preserve its udev/service integration |
@@ -107,11 +110,12 @@ capabilities. All device acceptance remains pending. See [test-plan](test-plan.m
 
 ## 8. Requests
 
-### Kernel: exact candidate integration
+### Kernel: current integration and lint triage
 
-Append these entries, in this order, **after current `kernel/series`**.
-The existing diagnostic 0014 is already in that base; do not apply it twice.
-Keep the S1 speaker-disable patch. Leave old v6 and RFCs 0012/0013/0015 out.
+Current `kernel/series` already includes these entries in this order;
+do not append them again. Diagnostic RFC 0014 is retired, as recorded by
+the kernel worker for M8. Keep the S1 speaker-disable and GPU-disable
+patches. Leave old v6 and RFCs 0012/0013/0015 out.
 The following list is also available as [kernel-series.list](kernel-series.list).
 
 ```text
@@ -144,14 +148,28 @@ the generic host/DMA binding and leaves extra pins untouched; a protocol9
 rejection in that entry is expected after the diagnostic sample. Merge it
 with the image owner's GPU-off/speaker-off variant policy.
 
-This is a **designed candidate**, not automatic sw-ready clearance: resolve
-or explicitly triage upstream v7's strict findings with the orchestrator and
-obtain independent review of the new QSPI/rebind code. Build release RPMs
-only through the kernel owner's normal process after that review. The final
-dev build occupies 7.7 GiB; its last guard report had 54 GiB headroom, below
-the release helper's 60 GiB start threshold. Account for build storage before
-the release build rather than bypassing that guard. Never add
+This remains **designed**: [lint triage](evidence/2026-10-30-lint-triage.md)
+recommends preserving all 17 upstream findings unchanged, with no finding
+in 0016–0020. The raw strict checker still returns findings; the orchestrator
+must decide the upstream exception and obtain independent review of the new
+QSPI/rebind code before sw-ready clearance. Any future release RPM rebuild
+uses the kernel owner's normal process. The retained session-3 full dev
+build occupies 7.7 GiB; this session's DT-only guard reports 29 GiB headroom,
+below the release helper's 60 GiB start threshold. Account for storage before
+a future release build rather than bypassing that guard. Never add
 a broad protocol0-to-SPI firmware workaround. Unexpected protocol must fail.
+
+**2026-10-30 hand-back:** no patch used by `kernel/series` changed; this
+triage requires **no kernel rebuild**. All 29 current patches pass sequential
+`git apply --check`; fresh `CHECK_DTBS=y`, `dt-validate`, binding validation
+and compiled-DTB safety/wiring checks pass. The checked DTB matches M10's
+packaged DTB hash. Kernel owner: add Fedora `python3-ply` to the build
+container's dependencies so checkpatch's SPDX helper can run. The old raw
+touch lint log contains missing-`ply` tracebacks despite the prior validation
+note; this session's replacement log has none. The component lint helper
+now accepts an explicit composed root and fails on tool stderr/missing totals.
+The temporary Fedora RPM dependency and all raw outputs remain under
+`out/agents/touch-pen/lint-20261030/`.
 
 ### Image: native iptsd and one combined read-only collection
 
@@ -221,3 +239,11 @@ silently changing the global default.
   native iptsd request and combined read-only collector. Status designed
   pending full-series strict lint clearance and independent new-code review;
   no device test or git write.
+- 2026-10-30: individually triaged all six upstream v7 warnings and eleven
+  checks; 0016–0020 remain clean and all selected patches unchanged. Rechecked
+  all 29 current integration patches with sequential `git apply --check`,
+  fresh DT-only `CHECK_DTBS=y`, explicit schema and safety/wiring checks.
+  Corrected the missing-ply lint environment using an extracted Fedora RPM;
+  recorded the container dependency request. Status designed pending upstream
+  exception disposition and independent QSPI/rebind cross-check; no full
+  kernel build, device test, rebuild request or git write.

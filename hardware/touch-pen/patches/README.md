@@ -1,8 +1,9 @@
 # Selected touch/pen patches
 
 `series` is the component order; `../kernel-series.list` contains the exact
-repository-relative entries for the kernel worker. Apply after the current
-`kernel/series`, which already contains diagnostic 0014 and speaker safety.
+repository-relative entries for the kernel worker. Current `kernel/series`
+already includes this complete subsequence after speaker/GPU safety;
+do not append it again. Diagnostic RFC 0014 was retired for M8.
 
 | Selection | Purpose |
 |:--|:--|
@@ -21,11 +22,15 @@ were exported as unified mail-style diffs without git mutations.
 Five new patches pass `checkpatch --strict --no-signoff`. The unchanged v7
 baseline has six warnings and eleven checks (new-file/MAINTAINERS, short help,
 trace formatting), with zero errors under that command. These are recorded,
-not suppressed; the whole component remains **designed**. Full command/output
-summaries are in `../evidence/2026-10-29-validation.md`.
+not suppressed; the whole component remains **designed**. The
+[2026-10-30 triage](../evidence/2026-10-30-lint-triage.md) classifies each
+finding and replaces the earlier raw lint log, which contained missing-ply
+tool errors. All sixteen selected patches are unchanged; no rebuild is
+needed for this triage. Upstream exception disposition and independent
+QSPI/rebind cross-check remain open.
 
 Root `0001`–`0011` v6, disabled draft `0012`, sequencing RFC `0013` and binding
-RFC `0015` are historical and excluded. Diagnostic `0014` is already in the
-integration base; do not duplicate it. `0019` supersedes `0013`/`0015` behavior.
+RFC `0015` are historical and excluded. Diagnostic `0014` is retired from the
+integration base. `0019` supersedes `0013`/`0015` behavior.
 See working-reference evidence for why generic firmware/protocol0 patches
 are not part of the selected fix.

@@ -1,5 +1,13 @@
 # Session 3 software validation
 
+2026-10-30 correction: the older raw `checkpatch-final.txt` contains
+missing-`ply` SPDX-helper tracebacks despite the claim below. Use the
+[fresh lint triage](2026-10-30-lint-triage.md) for complete lint evidence and
+current 29-patch application/DT checks. This is a historical session-3
+record: its `verify-series.py` command predates integration and appends the
+component series, so do not run it against today's already-integrated
+`kernel/series`.
+
 Status **designed**. No device test, firmware upload, shared-owner edit or
 write-capable git command was performed. Five new working-reference port
 patches are selected after the unchanged v7 baseline; DT enablement is separate.
