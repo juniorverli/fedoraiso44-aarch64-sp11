@@ -160,3 +160,106 @@ commands and the feature mask were not decompiled; no function was reached.
 3. Capture the CDSP SMP2P `slave-kernel` entry value in a Linux boot log to see
    which bits the firmware raises.
 4. Capture the first GLINK SMEM commands (VERSION, SET_VERSION_ACK, OPEN) on Linux.
+
+## 7. Third pass (2026-10-30): GLINK function bodies and the CDSP -12
+
+Binary: `DriverStore/qcglink8380.inf_arm64_2cf744b14ebcd791/qcglink8380.sys`
+(newer, dated 2025-05-20), SHA-256 `d09b7f2b...617487c2`, matches
+`sources/binary-catalog.tsv` line 362. Ghidra 12.1.4, language still
+auto-from-header arm64 (section header deviation open). One binary open, closed
+afterwards. Evidence ids: `ev_ab8d9fea...` (RX dispatcher), `ev_927d224a...`,
+`ev_b9812a32...`, `ev_7c346003...`. Function addresses are image-relative VAs
+and are identifiers, not Windows bytes.
+
+### 7.1 Windows (qcglink8380)
+
+Verified:
+
+- The SMEM transport RX loop is `0x14000c920` (`xport_smem.c`). It reads
+  8-byte command headers from the ring and switches on the low 16 bits. The
+  command ids equal the Linux ones: 0 VERSION, 1 VERSION_ACK, 2 OPEN, 3 CLOSE,
+  4 OPEN_ACK, 5 RX_INTENT(put), 6 RX_DONE, 7 RX_INTENT_REQ, 8 RX_INTENT_REQ_ACK,
+  9 TX_DATA, 0xb CLOSE_ACK, 0xc TX_DATA_CONT, 0xd READ_NOTIF,
+  0xe RX_DONE_W_REUSE, 0xf SIGNALS. Extra ids 0x10, 0x11 (data variants with a
+  flag) and 0x12 (intentless data) exist; Linux has no 0x10/0x11.
+- OPEN: name length must be at most 0x20 including the terminator (same as
+  Linux `GLINK_NAME_SIZE`); the priority field is read from the upper bytes
+  only if feature bit 1 was negotiated, otherwise the core uses 100. This bit
+  is the Linux `GLINK_FEATURE_INTENTLESS` position.
+- The core-callback table is at `0x140023100` (offset 0x10 version, 0x18
+  version_ack, 0x20 open, 0x28 open_ack, 0x30 close_ack, 0x38 close, 0x40
+  rx_intent put, 0x68 intent_req). Version and version_ack handlers
+  (`0x140002d70`, `0x140002e50`) walk a table of (version, features, callback)
+  records and fall back to a lower entry, i.e. a downgrade negotiation like
+  Linux.
+- OPEN_ACK handler `0x1400042c0`: finds the channel by local id, logs and drops
+  the ack for unknown or closing channels, else moves the channel to state 3
+  and calls the client `notify_state` callback (event `GLINK_EVENT_CH_OPEN_ACK`).
+  It is purely event driven: there is no timer, wait or retry in the ack path.
+  The only `glink_os_event_wait_timeout` user is the SSR notification.
+- INTENT_REQ handler `0x140009040` drops requests for unknown channels and,
+  for known ones, wakes the waiting sender.
+
+Inference:
+
+- Windows queues RX intents from the client after open (strings in 6.2); Linux
+  gives each channel intents only in `qcom_glink_announce_create` after
+  `open_ack`. For the channels that fail here the failure is earlier than any
+  intent, so intents are not the cause.
+
+Unknown:
+
+- The numeric version and feature words Windows advertises. The SMEM transport
+  version table was not located (the (1, 0, callback) record found at
+  `0x140023300` belongs to `glink_ssr`, not to the transport). Linux uses
+  version 1 and a feature mask with only INTENTLESS. Nothing seen suggests
+  Windows offers more.
+- The order Windows sends OPEN versus its RX_INTENT: the TX side was not read.
+
+### 7.2 Linux 7.3: what -12 means (kernel source)
+
+Verified from `drivers/rpmsg/rpmsg_core.c` and `qcom_glink_native.c`:
+
+- The log lines `failed to create endpoint` / `probe ... failed with error -12`
+  come from `rpmsg_dev_probe`. It calls `rpmsg_create_ept()`; if that returns
+  NULL it prints the message and hard-codes `err = -ENOMEM`. The -12 is
+  therefore a placeholder, not a real allocation failure.
+- `qcom_glink_create_ept()` returns NULL for every failure. For a channel the
+  remote opened first (all failing channels have an rpdev, so the remote OPEN
+  was received) the path is `qcom_glink_create_remote()`: send OPEN_ACK, send
+  OPEN, `wait_for_completion_timeout(open_ack, 5 * HZ)`; timeout gives
+  `-ETIMEDOUT`, which is discarded. Other NULL causes: `send_open_req` failing
+  (`idr_alloc_cyclic` -ENOMEM or tx error) and `qcom_glink_alloc_channel`
+  failing. None of these logs anything.
+- Linux GLINK constants: `GLINK_VERSION_1`, command ids 0..15 as above,
+  `GLINK_FEATURE_INTENTLESS = BIT(1)`. Intents are allocated in
+  `qcom_glink_announce_create` (default 5 x 1 KiB or `qcom,intents`), only
+  after `open_ack` completed.
+
+Inference:
+
+- In the M8 log the CDSP edge is up (`remote processor cdsp is now up`),
+  rpdevs for IPCRTR, fastrpcglink-apps-dsp, cdsprmglink-apps-dsp, ipcliteglink
+  and LOOPBACK_CTL_CDSP exist (so CDSP sent OPEN and the Apps side received
+  it), and the qrtr probe failed with the 5 s pattern. Most likely cause: the
+  CDSP never sent OPEN_ACK for our OPEN. The remote-to-Apps direction works,
+  the Apps-to-remote ack does not arrive. Candidates: the CDSP did not
+  process the Apps OPEN (apps-to-cdsp signal / IPCC doorbell or RX FIFO), or
+  CDSP firmware is gated on a readiness step Windows performs (section 6.1:
+  QB ready and data-service ack). Not separable with the data at hand.
+- The 5.05 s gap between "cdsp is now up" and the qrtr failure fits the 5 s
+  timeout, but the probe start time is not logged, so this is not proof.
+
+Unknown: whether the ack is missing, late or dropped; whether IPCC signal
+`IPCC_MPROC_SIGNAL_GLINK_QMP` is delivered to the CDSP.
+
+### 7.3 Decision
+
+No minimal Linux patch is established. Windows shows no extra feature, version
+or ordering requirement in the open path, and its ack path has no timeout
+behaviour that Linux lacks. The honest next step is a trace, not a patch: boot
+with the `qcom_glink` tracepoints enabled
+(`trace_qcom_glink_cmd_open_tx/open_ack_rx/version_*`) and check whether an
+OPEN_ACK ever arrives for `IPCRTR` on the cdsp edge. A diagnostic patch that
+returns the real error from `rpmsg_create_ept` would also help but is not
+Windows-derived and was not written.
