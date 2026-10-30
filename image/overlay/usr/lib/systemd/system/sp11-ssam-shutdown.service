@@ -1,7 +1,13 @@
 [Unit]
 Description=SP11 clean SAM shutdown (unbind surface_serial_hub)
+# Opt-in experiment (untested H1 in hardware/ec-sam/evidence/2026-10-30-keyboard-reboot.md): the kernel
+# already sends display-off and D0-exit from .shutdown, so this only adds an orderly client removal.
+# Enabled in the preset but skipped unless the GRUB line carries sp11.ssam_shutdown.
+ConditionKernelCommandLine=sp11.ssam_shutdown
 DefaultDependencies=no
-After=sp11-log-collector.service
+# Before= (not After=): units stop in reverse start order, so the log collector must stop first and take
+# its final snapshot while SAM is still bound; this unit then unbinds after it.
+Before=sp11-log-collector.service
 Before=shutdown.target umount.target final.target
 Conflicts=shutdown.target
 

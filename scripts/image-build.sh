@@ -93,6 +93,12 @@ if [ "$inside" = 0 ]; then
 				board_args=(--board "$SP11_WIFI_BOARD2" --fedora "${SP11_WIFI_FEDORA_BOARD2:-$out/image-inputs/wifi/fedora-board-2.bin.xz}")
 				[ -n "${SP11_WIFI_BOARD2_SHA256:-}" ] && board_args+=(--board-sha256 "$SP11_WIFI_BOARD2_SHA256")
 			fi
+			# scrub on every exit path, including Ctrl-C/SIGTERM/SIGHUP while the container runs, a failed
+			# stage, and a container killed without running its own trap
+			trap 'rm -rf "$out/private-stage"' EXIT
+			trap 'exit 130' INT
+			trap 'exit 143' TERM
+			trap 'exit 129' HUP
 			echo "image-build: PRIVATE build: embeds device addresses; never share the ISO"
 			python3 -I "$here/image/tools/private-stage.py" stage --mac-conf "$macconf" "${board_args[@]}" --out "$out/private-stage" || exit 6
 			kargs+=(--private)

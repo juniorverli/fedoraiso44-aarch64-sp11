@@ -40,6 +40,10 @@ def check(root, repo, record, release):
         assert script.stat().st_mode & 0o111 and script.read_bytes() == (repo / 'image/overlay' / script.relative_to(root)).read_bytes(), script.name
     rebind = (root / 'usr/lib/systemd/system/sp11-ssam-rebind.service').read_text()
     assert 'ConditionKernelCommandLine=sp11.ssam_rebind' in rebind, 'rebind not opt-in'
+    shutdown = (root / 'usr/lib/systemd/system/sp11-ssam-shutdown.service').read_text()
+    assert 'ConditionKernelCommandLine=sp11.ssam_shutdown' in shutdown, 'shutdown unit not opt-in'
+    assert 'Before=sp11-log-collector.service' in shutdown and 'After=sp11-log-collector.service' not in shutdown, 'shutdown ordering'
+    assert all('sp11.ssam_shutdown' not in e['linux_args'] for e in record['grub_entries']), 'automatic shutdown unbind in menu'
     assert all('sp11.ssam_rebind' not in e['linux_args'] for e in record['grub_entries']), 'automatic rebind in menu'
     dsp = (root / 'etc/sp11-log-collector.d/dsp-subsystems.sh').read_text()
     assert 'for f in trace0 resource_table' in dsp and 'timeout 5 head -c 262144' in dsp, 'remoteproc bounded reads absent'
