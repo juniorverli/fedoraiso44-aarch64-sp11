@@ -82,6 +82,7 @@ The RPM release carries the series revision through Fedora's `buildid`: `65.sp11
 | 5 | M8: retained M7 fixes/S1, GPU off, spi-hid v7 0001–0011 and touch 0016–0020; RFC 0014 retired | `kernel-7.3.0-65.sp11.5.fc44.aarch64` |
 | 6 | M9: retain M8; Surface ath12k rfkill workaround, DMA32 CMA window, PMIC-GLINK/PS8830 diagnostics | `kernel-7.3.0-65.sp11.6.fc44.aarch64` |
 | 7 | M10: retain M9; read-only GLINK OPEN_ACK diagnostic (R-K1) | `kernel-7.3.0-65.sp11.7.fc44.aarch64` |
+| 8 | M11: retain M10; FIFO diagnostic, packaged parity, audio safety and opt-in fragments | `kernel-7.3.0-65.sp11.8.fc44.aarch64` |
 
 - `kernel/base.toml` holds `series_rev` and `series_sha256` (sha256 of the `<path> <patch sha256>` lines of `kernel/series`). Changing `kernel/series` or a patch in it without bumping both makes `scripts/kernel-build.sh` and `scripts/kernel-check` fail and print the new hash.
 - A build that succeeds archives the RPMs of every other `series_rev` from `out/rpms/` into `out/rpms/archive/<ver>-<rel>.sp11[.<rev>]/` before it copies the new ones. The record `out/rpms/<nevra>.json` has `series_rev` and the series hash.
@@ -119,11 +120,16 @@ Against the packaged DTB (`/lib/modules/<kver>/dtb/qcom/x1p64100-microsoft-denal
 
 ## Requests
 
-- soc-boot (via orchestrator): Q1 is answered by the MADT: MPIDR `0x10300` (UID 7) and `0x20300` (UID 11) are disabled. A real patch for `hardware/soc-boot/patches/` would delete `cpu7`, `cpu11`, `cpu_pd7`, `cpu_pd11` and their `cpu-map` entries; `kernel/dtb-variants/x1p64100-microsoft-denali-parity.dts` shows the working form.
-- soc-boot (via orchestrator): also carry the parity deletion of `domain-idle-states` from `&system_pd` (no system SS3; retain CL4/CL5) in the component patch. M7 carries these changes in its DTB variants until the component patch arrives; the packaged DT retains the upstream CPU/idle description.
-- audio-speakers (via orchestrator): take ownership of `kernel/patches/0001-arm64-dts-qcom-denali-lcd-disable-unprotected-speakers.patch`. The operator explicitly authorized kernel to write this integration patch for M7. It copies the M5/M6 overrides into the packaged LCD DTB: `/sound` and `&swr0` disabled. Preserve both until speaker protection is evidenced, arrange the independent safety cross-check, and validate with `scripts/kernel-dtb-safety.py`.
+- image (M11): consume revision-8 RPMs and the `m11`, `m11-notouch`, `m11-audio` DTBs only after the release/variant checks below pass. Default remains touch on, GPU off, speakers and `/sound` off; microphone entry alone enables the card with no WSA link and `swr0` off. Keep D19–D24, the fixed/touch module chain, D23 blacklist and image L0/L1 gates. Adapt the image S1 check to the same narrow microphone exception; speaker-enabled entries must fail. No `m11-audio-spk` build or boot is authorized by this delivery.
+- dsp-subsystems (M11, R-K1 format follow-up): the retained 0001 diagnostic emits the same three compiler format warnings as M10: two `%#x` arguments are `unsigned long` (lines 407/422), and `size=%u` receives `size_t` (line 754). Correct the diagnostic types in an owner patch or retire 0001 after evidence; no component patch was modified by kernel. Full-size printed intent values must not be inferred from a truncated log field.
+- dsp-subsystems (M11, R-K3 via orchestrator): FIFO diagnostic 0002 is integrated after R-K1. Collect its ratelimited FIFO line with the existing OPEN_ACK log during the next scheduled boot, using the owner's read-only collector requests; remove both temporary diagnostics once sufficient evidence exists. No functional CDSP fix is claimed.
+- audio-speakers / orchestrator (M11): triage patch 0003's generic new-file MAINTAINERS warning. Preserve S1: the gain/volume patches do not authorize speaker output. Independent gain/port-map and soc-boot/touch cross-checks remain required for component promotion; this build supplies static evidence only.
+
+- soc-boot (fulfilled by M11 patch 0001): MADT-disabled CPU7/CPU11, their CPU-map entries and PSCI domains are now removed by the component patch in the packaged LCD board. The historical parity variant remains available for old source snapshots.
+- soc-boot (fulfilled by M11 patch 0001): the packaged LCD DT now excludes the system SS3 reference and retains CL4/CL5. New-series variants use the staging shim described in the M11 section, so the parity deletions are applied once.
+- audio-speakers (via orchestrator): take ownership of `kernel/patches/0001-arm64-dts-qcom-denali-lcd-disable-unprotected-speakers.patch`. The operator explicitly authorized kernel to write this integration patch for M7. It copies the M5/M6 overrides into the packaged LCD DTB: `/sound` and `&swr0` disabled. Preserve both in packaged/default DTBs; M11 permits the microphone-only exception described below. Arrange the independent safety cross-check, and validate with `scripts/kernel-dtb-safety.py`.
 - gpu (via orchestrator): take ownership of `kernel/patches/0002-arm64-dts-qcom-denali-lcd-disable-gpu.patch`. It carries the existing D22 GPU-off policy into the packaged LCD DTB; M8 and its fallback inherit it. No GPU operating point, limit or firmware change is introduced.
-- image (via orchestrator): M9 supersedes M8 after the checks below. Use revision-6 RPMs with `x1p64100-microsoft-denali-m9.dtb` by default and `x1p64100-microsoft-denali-m9-notouch.dtb` as the touch-disabled fallback. Ship the rebuilt `ath12k`, `ps883x` and `pmic_glink_altmode`; replace matching early USB-C modules in the initramfs, and assert the 2–4 GiB CMA allocation range in every shipped device DTB. Retain M8 artifacts for rollback. Include `fixed` in the initramfs and its L0 display-chain assertion: M8 follows the touch development fragment's `CONFIG_REGULATOR_FIXED_VOLTAGE=m`, while M7 had it built in. Ensure the SPI-HID/OF, GENI, GPI, fixed-regulator and uinput runtime chain is available; stage native iptsd per the touch dossier. Preserve D19–D24 policy, including the qcom_battmgr blacklist. Run image L0/L1 before a device boot. Stage the collector and call exactly `shsnap touch-pen.txt 'bash /usr/libexec/sp11-touch-pen-collect'`. Kernel performed no device test.
+- image (historical M9 delivery; superseded by M11): M9 superseded M8 after the checks below. Use revision-6 RPMs with `x1p64100-microsoft-denali-m9.dtb` by default and `x1p64100-microsoft-denali-m9-notouch.dtb` as the touch-disabled fallback. Ship the rebuilt `ath12k`, `ps883x` and `pmic_glink_altmode`; replace matching early USB-C modules in the initramfs, and assert the 2–4 GiB CMA allocation range in every shipped device DTB. Retain M8 artifacts for rollback. Include `fixed` in the initramfs and its L0 display-chain assertion: M8 follows the touch development fragment's `CONFIG_REGULATOR_FIXED_VOLTAGE=m`, while M7 had it built in. Ensure the SPI-HID/OF, GENI, GPI, fixed-regulator and uinput runtime chain is available; stage native iptsd per the touch dossier. Preserve D19–D24 policy, including the qcom_battmgr blacklist. Run image L0/L1 before a device boot. Stage the collector and call exactly `shsnap touch-pen.txt 'bash /usr/libexec/sp11-touch-pen-collect'`. Kernel performed no device test.
 - orchestrator: the M9 checkout started clean at `1e52dce`, already equal to main, so no rebase was needed. Review and commit these worker changes under D24. Triage the unchanged spi-hid v7 strict findings (6 warnings, 11 checks, 0 errors) and commission the touch owner's pending independent Claude cross-check of QSPI constants/TREs and the v7 rebind port before clearing the component/device gates. Retain the Wi-Fi owner's independent DMA32-window/wiring cross-check and sources pin request SRC1, and the USB-C owner's wiring cross-check/Windows-comparison requests. M9 integration and static checks do not close hardware acceptance gates.
 
 ## M5 DTB variants (D21)
@@ -388,6 +394,85 @@ Disk guard: the first launch was refused (headroom 53 GiB < 60 GiB, WSL C: free 
 
 JSON record SHA-256: `x1p64100-microsoft-denali-m10.json` `3b22b47bfd05cde7923e992707b90a1caac627bf19e0d072d9910138d515079d`; `x1p64100-microsoft-denali-m10-notouch.json` `318516c0c7598068f92d37d4f4bdb7acb1f151f4f94d0f16263007f40fb44e5b`. No device boot was performed.
 
+## M11 series revision 8 (2026-10-30)
+
+The clean worker checkout already matched `main` at `d09469e`; no rebase or git write was needed. Revision 8 retains the 29 M10 patches and appends the following five patches, in this order. Series SHA-256: `f4360a491d178d56c26b1f3d45df388071c461037d4df870b914957b30136cc5`.
+
+| Position | Patch | Integration reason |
+|--:|:--|:--|
+| 30 | dsp-subsystems 0002 | R-K3: read-only FIFO head/tail logging on OPEN_ACK timeout distinguishes an unread TX FIFO from an unacknowledged request. Temporary diagnostic; remove after evidence together with R-K1 |
+| 31 | soc-boot 0001 | Carry the existing D20 ten-CPU/no-system-SS3 parity into the packaged LCD DTB, retaining cluster CL4/CL5 |
+| 32 | audio-speakers 0001 | Reset the PA gain field to mixer value 6 (0 dB), register `0x34b1 = 0x32`, with GAIN_EN clear; no amplifier enable |
+| 33 | audio-speakers 0002 | Apply the existing digital-volume ceiling 81 (-3 dB) to the four WSA MIX controls; a cap does not replace protection |
+| 34 | audio-speakers 0003 | Add include-only audio fragments. Neither is included by the packaged board; only the microphone fragment is selected by an M11 variant |
+
+All 34 patches apply sequentially to the pinned v7.3 export with `patch --batch --fuzz=0 -p1`; all five new patches apply without offsets. Retained patches have only their previously recorded line offsets. Log: `out/build/dtb-m11-checks/variant-series-apply.log`. No component patch was edited.
+
+The historical parity DTS remains unchanged for old series. The M11 builder replaces only its staging copy with the documented board-include shim before `kernel-dev.sh variant` copies sibling DTS files. Both M11 default and the new packaged DT therefore inherit the parity patch exactly once. The microphone variant is an exact copy of the audio owner's requested DTS and retains its M10 include through that same staging shim. No `m11-audio-spk` source is staged, built or published.
+
+`scripts/kernel-dtb-safety.py` permits an enabled x1e80100 card only when it contains no WSA link and `swr0` is effectively disabled; every watched amplifier must still be effectively disabled. The parser computes ancestor status after reading the complete tree, including status properties placed after children. Regression tests cover the disabled default, accepted microphone card, rejected WSA links (including disabled/renamed links), enabled speaker bus/amplifier, disabled ancestor, missing bus and empty tree. The wiring checker keeps explicit `/sound` and `swr0` disablement for packaged/default/fallback DTBs, and additionally requires microphone-only routing for `m11-audio`. Packaged-parity mode requires ten CPUs and the existing CPU/map/PSCI/SS3 exclusions while preserving the old revisions' twelve-CPU packaged expectation.
+
+DT preflight (`scripts/kernel-dtb-m11.sh --preflight`) passed before the RPM build: all three variants pass `CHECK_DTBS=y`, explicit `dt-validate` with zero diagnostics, S1, GPU isolation, 2–4 GiB CMA and touch/Wi-Fi/USB-C wiring. The reconstructed packaged board and M11 default equal M10 default byte for byte; the no-touch variant equals M10 no-touch byte for byte. Its only changed property is touchscreen status. Preflight publishes no DTBs or release records.
+
+Strict full-series checkpatch (`--strict --no-signoff`): **0 errors, 7 warnings, 11 checks**, with no tool errors. Six warnings and eleven checks are the unchanged spi-hid v7 baseline covered by the touch owner's lint triage; the new warning is the generic MAINTAINERS prompt for audio patch 0003's new include files. Logs: `out/build/dtb-m11-checks/checkpatch.{log,json}`. Fedora `python3-ply` and `python3-GitPython` were added to container dependencies for the SPDX helper. During lint only, a temporary read-only reference to the pinned source's git metadata supplied its LICENSES index to the disposable export; the reference was removed and no git command wrote anything. Lint disposition and independent component cross-checks remain owner/orchestrator gates.
+
+Disk: the release guard initially refused at 29 GiB. After inspecting each candidate, verifying all 15 M10 published RPM hashes and preserving M10 logs/stats/checks in `out/build/kernel/history/m10/`, removed only the finished M10 `rpmbuild/BUILD` scratch and archived RPM sets `7.3.0-65.sp11` and `7.3.0-65.sp11.5`. Their JSON records were retained under `history/retired-archive-records/`; sp11.6 stayed intact. Headroom was then 58 GiB, still below 60 GiB. Windows free space subsequently increased; the release guard passed at 74 GiB. No threshold override or unrelated cleanup was used.
+
+### M11 release artifacts
+
+`scripts/kernel-build.sh -j 6` and automatic `scripts/kernel-check`: **PASS**. RPM build UTC `2026-10-30T11:03:20+00:00` to `2026-10-30T11:58:09+00:00`, **3289 s**. Step 6 archived revision 7 into `out/rpms/archive/7.3.0-65.sp11.7/`, copied all 15 revision-8 RPMs into `out/rpms/` and checked them. The existing sp11.6 archive is preserved; all 15 of its RPM hashes were verified against its record. A second `scripts/kernel-build.sh --check-only`, under `flock out/.kernel-build.lock`, also **PASS** in **45.493 s** (monotonic). Published RPM hashes match the final release record.
+
+- BTF: `vmlinux` has `.BTF` (size `0x76c5c4`); **5934/5934** extracted modules have valid BTF, zero missing or bad magic. All **73** fragment symbols hold, including both BTF settings. `CHECK_DTBS=y` rc 0, zero warning lines; explicit packaged-DTB `dt-validate` has zero diagnostics.
+- Packaged LCD DTB SHA-256 `4130f2988a593847a0cd490bccd90ee65e16f74a5f3adf019cfd24dda5aec65a`. It equals the validated M11/M10 default parity DTB byte for byte: ten CPUs, no system SS3, CL4/CL5 retained, touch on, GPU off, `/sound` and `swr0` off. Wi-Fi/USB-C/QSPI/touch wiring and the reusable 128 MiB, 2–4 GiB CMA allocation window pass.
+- All eight touch modules are in the checked payload, with SPI/OF aliases, preloaded-QSPI guard and GPI TRE path; RFC 0014 is absent. The Surface ath12k rfkill table and match call, PS8830/PMIC-GLINK diagnostics and retained GLINK logs pass. `qcom_glink` additionally contains the exact new `sp11-glink: FIFO tx head=%u tail=%u rx head=%u tail=%u` format string.
+- Both release audio objects and RPM-extracted modules pass. `wsa884x_defaults` sets register `0x34b1` to `0x32` (PA mixer value 6, 0 dB, GAIN_EN off). The machine object has eight digital ceilings at 81, including all four MIX controls. Object/module/ELF hashes and owning RPMs are in `m11.new_modules` of the record. These checks do not establish speaker protection or authorize output.
+- Nonfatal diagnostics match preserved M10 evidence: Myricom uninitialized-buffer warning, three retained R-K1 GLINK format warnings (owner follow-up above), optional GDB index failures from BFD without zstd, Rust pseudo-path cpio notices and Fedora's absolute build symlink. GDB indexes are not claimed; the separate BTF audit passes.
+- Resource accounting: peak cgroup **8864464896 bytes**, sampled peak anonymous **3438952448 bytes**. Cache: 2239 direct + 24283 preprocessed hits, 97 misses; **99.64%** hit rate. Minimum release headroom **28 GiB**.
+- Config SHA-256: fragment `4a34894d4e50150bede28a45c937c2a63fd9fa96724f2291c022a2a8d857ee98`; shipped `82746c52c4d239c832078fa6739edbf03c1c414e41a81a32137b99e5c4c32b5f`.
+- Release record: [`out/rpms/kernel-7.3.0-65.sp11.8.fc44.aarch64.json`](../out/rpms/kernel-7.3.0-65.sp11.8.fc44.aarch64.json), SHA-256 `d3ff02d032fe904a0b6fd4d2870a1914f41f78f3c62f78219ed20ce2997914be`. Logs: `out/build/kernel/m11-driver.log`, `m11-check-only.log` and `rpmbuild.log`.
+
+| RPM (revision 8, aarch64) | SHA-256 |
+|:--|:--|
+| `kernel-7.3.0-65.sp11.8.fc44.aarch64.rpm` | `8077131b1d2f4343bbf87a5e0a4c8b273bb73248de2d44ffb2c3a959247d27f5` |
+| `kernel-core-7.3.0-65.sp11.8.fc44.aarch64.rpm` | `1254627af590b3124b82f335f20646bacbc05b6d14576688f9fca8b315e79b80` |
+| `kernel-debuginfo-7.3.0-65.sp11.8.fc44.aarch64.rpm` | `e0e6d6317039f89a0753fcbd06437ffcd00d7ae38bcbd6c4d44cabd936561d85` |
+| `kernel-debuginfo-common-aarch64-7.3.0-65.sp11.8.fc44.aarch64.rpm` | `1a2ec89be169c59deb2547491526cb293ec1388b3dfc4cac1693dce343f28722` |
+| `kernel-devel-7.3.0-65.sp11.8.fc44.aarch64.rpm` | `482bcdc0483277bce126e57741558b71a8029dd7074fc6a3a6bda5ea38e0290e` |
+| `kernel-devel-matched-7.3.0-65.sp11.8.fc44.aarch64.rpm` | `f53b468c27899956d21c4a0600c9d28525748aa33ec1ff81d9904638d9d5e4e4` |
+| `kernel-kmap-internal-7.3.0-65.sp11.8.fc44.aarch64.rpm` | `84c2b46aab738584ac91469ec870ae5bba794f3e495bc5cdff7d08c3be628230` |
+| `kernel-modules-7.3.0-65.sp11.8.fc44.aarch64.rpm` | `4109d622b1cb70dc13e32f4c3f6ef66286f6b7efbd5e2a2c98953a56868a7017` |
+| `kernel-modules-core-7.3.0-65.sp11.8.fc44.aarch64.rpm` | `f6861c2358586515c806266a2306e77a7ae7ce3164f9f33f6c06275020fe3a4a` |
+| `kernel-modules-extra-7.3.0-65.sp11.8.fc44.aarch64.rpm` | `7c22921ce86fd5260253bdf7f1e1a813f2c43b63b823020533cdbd64e48c3150` |
+| `kernel-modules-extra-matched-7.3.0-65.sp11.8.fc44.aarch64.rpm` | `05a04f6efc6b97af61278ebf76cf38119f1ac9c854310edede51d3d966815fd1` |
+| `kernel-modules-internal-7.3.0-65.sp11.8.fc44.aarch64.rpm` | `06b792f6fa4fabf91c78577cd4120b16fb3250ad8a5ae4552bad186a12673b53` |
+| `kernel-uki-dtbloader-7.3.0-65.sp11.8.fc44.aarch64.rpm` | `4d9be384e604c91195c57562d19bcc304819c4283c12fa94b8223e2be605cfc5` |
+| `kernel-uki-virt-7.3.0-65.sp11.8.fc44.aarch64.rpm` | `e9762de779d90d30aab5c3a5f3c86cd13a5194d4b8794d022a07d9be37489d70` |
+| `kernel-uki-virt-addons-7.3.0-65.sp11.8.fc44.aarch64.rpm` | `48154642ec19cd1ae7b96c24b3e2beb2b87275604255f4e82aa71afdfeadb647` |
+
+
+### M11 DTB variants
+
+`scripts/kernel-dtb-variants.sh` dispatches revision 8 to `scripts/kernel-dtb-m11.sh`; builds use `scripts/kernel-dev.sh --check` and the shared lock. Final run UTC `2026-10-30T12:02:13.921756+00:00` to `2026-10-30T12:05:17.154492+00:00`, **163.711 s** (monotonic) including source export, staging, configuration, compilation and checks. Output: `out/dtb-variants/7.3.0-65.sp11.8.fc44.aarch64/qcom/`; logs/source diffs: `out/build/dtb-m11-checks/`.
+
+All three DTBs pass `CHECK_DTBS=y`, explicit `dt-validate` with zero diagnostics, S1 with the narrow microphone exception, GPU-off, parity, CMA and touch/Wi-Fi/USB-C wiring. Source recompilation matches each DTB byte for byte; the reconstructed base and M11 default match the packaged DTB. M11 default/no-touch also match M10 byte for byte, and the fallback changes only touchscreen status. The microphone source diff changes only the card status, DMIC routing and removal of the WSA playback link; phandle renumbering explains the additional numeric DTB differences. No speaker variant was built.
+
+| DTB | Build time | SHA-256 |
+|:--|--:|:--|
+| `x1p64100-microsoft-denali-m11.dtb` | 46 s | `4130f2988a593847a0cd490bccd90ee65e16f74a5f3adf019cfd24dda5aec65a` |
+| `x1p64100-microsoft-denali-m11-notouch.dtb` | 12 s | `5704f68668538f6dd3e6fc37f67e8e9830f771124c57475c0ebca81d8c750519` |
+| `x1p64100-microsoft-denali-m11-audio.dtb` | 11 s | `4515442e5531544c60bb416b4c3206bdb152cbf4f1ecf0248a571a446879b6ca` |
+
+JSON record SHA-256:
+
+- `x1p64100-microsoft-denali-m11.json`: `44093906fd750c37c2a595908ac835967b3bae969d6f8bddcf8f155d82c22df0`.
+- `x1p64100-microsoft-denali-m11-notouch.json`: `c5f043902b7ecc864f0c0da3b8ad36304a3413fcceabc9ff09b35ec7e597ad28`.
+- `x1p64100-microsoft-denali-m11-audio.json`: `1b44ac199aca2198b1f116bc17204ca0dd1ddd68893db9edcb90fb11de25cbff`.
+
+Nine Python regression cases and nine compiled-DTB safety/parity cases pass. The compiled cases accept the disabled default and microphones and reject full-card/WSA-link, enabled-bus and enabled-amplifier fixtures; old packaged parity is rejected while old mode remains supported. Evidence: `out/build/dtb-m11-checks/negative/results.json`. No device boot was performed.
+
+Final hand-back checks: `scripts/index.py --check` reports **21 components, 0 errors**; Python/shell syntax, regression and whitespace checks pass. The published sp11.8 RPMs/DTBs/records and the sp11.6/sp11.7 RPM archives match their recorded hashes. Both the shared build lock and M11 source lock are free; no task build, container, sampler or watchdog remains. The temporary git-metadata reference is absent. Kernel is a service worker with no `component.toml`; hardware status files remain owner-managed. All worker changes remain uncommitted for orchestrator review under D24. Image L0/L1, component cross-checks, lint disposition and diagnostic retirement remain the Requests above.
+
+
 ## Log
 
 - 2026-10-29: built M8 revision 5 (25 patches; RFC 0014 retired; spi-hid/QSPI touch and packaged GPU isolation). Release 3313 s; kernel-check PASS with BTF in vmlinux and all 5934 modules, 73 config symbols, packaged schema/S1/GPU/wiring and eight RPM module payload checks. M8/M8-notouch DTBs and JSON pass (63/14 s; complete run 214.464 s). Final index/syntax/whitespace checks pass; build/source locks are free and no task process remains. Recorded hashes/times and explicit image/owner requests; no device test. Changes remain uncommitted for the orchestrator (D24).
@@ -395,3 +480,5 @@ JSON record SHA-256: `x1p64100-microsoft-denali-m10.json` `3b22b47bfd05cde7923e9
 - 2026-10-29: built and statically validated M7 revision 4 (nine patches, ATH12K_DEBUG, packaged S1): RPM build 3279 s; BTF in vmlinux and all 5930 modules; config, schema, S1, wiring and RFC message pass. M7/M7-touchdiag DTBs and JSON records pass (43/12 s; complete run 164.110 s). Recorded times/hashes and owner requests; no device test or task process left running. Work remains uncommitted under D24; orchestrator rebase/review/commit and image L0/L1 are next.
 - 2026-10-28: built and statically validated M6/M6GPU DT-only artifacts and JSON records; no RPM, series, revision or config change. Prepared the unbuilt revision 4 plan; component integration requests remain in Requests. Kernel is a service worker with no `component.toml`; hardware component status files are owned by their workers. Changes left uncommitted for the orchestrator (D24).
 - 2026-10-30: built M10 revision 7 (29 patches; GLINK OPEN_ACK diagnostic). Release 3085 s; kernel-check PASS; M10/M10-notouch DTBs pass and equal M9. Freed 23 GiB of finished M9 rpmbuild scratch for the disk guard. No device test, no commit.
+
+- 2026-10-30: built M11 revision 8 (34 patches; FIFO diagnostic, packaged parity, audio safety/fragments). Release 3289 s; automatic and repeated kernel-check PASS, BTF in vmlinux/all 5934 modules; all three DTB variants and JSON pass. Recorded times/hashes, regression evidence and owner requests. No device test or git write; changes remain uncommitted for the orchestrator (D24).

@@ -6,6 +6,7 @@ import lzma
 from pathlib import Path
 import re
 import subprocess
+import struct
 import sys
 
 
@@ -14,9 +15,30 @@ def require(condition, message):
         raise SystemExit(message)
 
 
+def elf_symbol(data, wanted):
+    """Read a local object's bytes from an ELF64 little-endian module/object."""
+    require(data[:6] == b'\x7fELF\x02\x01', 'Expected ELF64 little endian')
+    shoff = struct.unpack_from('<Q', data, 0x28)[0]
+    entsize, count = struct.unpack_from('<HH', data, 0x3a)
+    sections = [struct.unpack_from('<IIQQQQIIQQ', data, shoff + i * entsize)
+                for i in range(count)]
+    for section in sections:
+        if section[1] != 2:  # SHT_SYMTAB
+            continue
+        strings = sections[section[6]]
+        table = data[strings[4]:strings[4] + strings[5]]
+        for offset in range(section[4], section[4] + section[5], section[9]):
+            name, _, _, index, value, size = struct.unpack_from('<IBBHQQ', data, offset)
+            if table[name:table.find(b'\0', name)].decode() == wanted:
+                target = sections[index]
+                start = target[4] + value - target[3]
+                return data[start:start + size]
+    raise SystemExit(f'Missing ELF symbol {wanted}')
+
+
 checks, kver, rpmdir = Path(sys.argv[1]), sys.argv[2], Path(sys.argv[3])
 milestone = sys.argv[4] if len(sys.argv) > 4 else 'm8'
-require(milestone in ('m8', 'm9', 'm10'), 'Expected m8, m9 or m10')
+require(milestone in ('m8', 'm9', 'm10', 'm11'), 'Expected m8, m9, m10 or m11')
 root = checks / 'root/lib/modules' / kver
 payloads = {}
 for rpm in sorted(rpmdir.glob(f'kernel-*{kver}.rpm')):
@@ -28,10 +50,12 @@ for rpm in sorted(rpmdir.glob(f'kernel-*{kver}.rpm')):
 records = {}
 names = ['spi-hid', 'spi-hid-of', 'spi-hid-acpi', 'spi-geni-qcom', 'gpi',
          'fixed', 'hid-multitouch', 'uinput']
-if milestone in ('m9', 'm10'):
+if milestone in ('m9', 'm10', 'm11'):
     names += ['ath12k', 'ps883x', 'pmic_glink_altmode']
-if milestone == 'm10':
+if milestone in ('m10', 'm11'):
     names += ['qcom_glink']
+if milestone == 'm11':
+    names += ['snd-soc-wsa884x', 'snd-soc-x1e80100']
 diagnostics = {
     'pmic_glink_altmode': [
         b'request: cmd=%#x arg=%u acknowledged\n',
@@ -44,6 +68,8 @@ diagnostics = {
         b'set: mode=%lu svid=%04x orientation=%u in_reset=%u ret=%d\n'],
     'qcom_glink': [
         b'sp11-glink: tx VERSION ', b'sp11-glink: tx OPEN ', b'sp11-glink: tx OPEN_ACK ']}
+if milestone == 'm11':
+    diagnostics['qcom_glink'] += [b'sp11-glink: FIFO tx head=%u tail=%u rx head=%u tail=%u\n']
 for name in names:
     found = list(root.rglob(f'{name}.ko.xz'))
     require(len(found) == 1, f'Expected exactly one packaged {name} module')
@@ -79,6 +105,15 @@ for name in names:
                 'Packaged ath12k lacks the machine-compatible rfkill test call')
         (checks / 'ath12k.disassembly.txt').write_text(disassembly)
         (checks / 'ath12k.symbols.txt').write_text(symbols)
+    if name == 'snd-soc-wsa884x':
+        defaults = elf_symbol(data, 'wsa884x_defaults')
+        values = [value for reg, value in struct.iter_unpack('<II', defaults) if reg == 0x34b1]
+        require(values == [0x32], 'WSA PA reset is not mixer value 6 (0 dB), GAIN_EN off')
+    if name == 'snd-soc-x1e80100':
+        for prefix in ('WSA', 'WSA2'):
+            for channel in (0, 1):
+                require(f'{prefix} WSA_RX{channel}_MIX Digital Volume'.encode() + b'\0' in data,
+                        'Missing WSA MIX volume ceiling in machine module')
     if name in diagnostics:
         for message in diagnostics[name]:
             require(message in data, f'{name}: missing diagnostic {message!r}')
@@ -87,6 +122,35 @@ for name in names:
                          elf_sha256=hashlib.sha256(data).hexdigest())
     if name in diagnostics:
         records[name]['diagnostic_strings'] = [m.decode().rstrip() for m in diagnostics[name]]
+    if name in ('snd-soc-wsa884x', 'snd-soc-x1e80100'):
+        relative = ('sound/soc/codecs/wsa884x.o' if name == 'snd-soc-wsa884x'
+                    else 'sound/soc/qcom/x1e80100.o')
+        objects = list((checks.parent / 'rpmbuild/BUILD').glob('**/' + relative))
+        require(len(objects) == 1, f'Missing/ambiguous release audio object: {relative}')
+        obj = objects[0]
+        object_data = obj.read_bytes()
+        if name == 'snd-soc-wsa884x':
+            defaults = elf_symbol(object_data, 'wsa884x_defaults')
+            require([v for r, v in struct.iter_unpack('<II', defaults) if r == 0x34b1] == [0x32],
+                    'Release WSA object lacks safe PA reset')
+        else:
+            for prefix in ('WSA', 'WSA2'):
+                for channel in (0, 1):
+                    require(f'{prefix} WSA_RX{channel}_MIX Digital Volume'.encode() + b'\0'
+                            in object_data, 'Release machine object lacks MIX limit control')
+            disassembly = subprocess.run(['objdump', '-dr', '--disassemble=x1e80100_snd_init', str(obj)],
+                                         check=True, capture_output=True, text=True).stdout
+            require(len(re.findall(r'mov\s+w2,\s*#0x51\b', disassembly)) == 8,
+                    'Machine init must set eight digital ceilings to 81 (-3 dB)')
+            (checks / 'x1e80100-init.disassembly.txt').write_text(disassembly)
+        records[name]['object'] = str(obj.relative_to(checks.parent))
+        records[name]['object_sha256'] = hashlib.sha256(object_data).hexdigest()
+    if name == 'snd-soc-wsa884x':
+        records[name]['pa_reset_register'] = '0x34b1'
+        records[name]['pa_reset_value'] = '0x32'
+        records[name]['pa_mixer_value'] = 6
+    if name == 'snd-soc-x1e80100':
+        records[name]['mix_volume_controls'] = 4
     if name == 'ath12k':
         records[name]['surface_broken_rfkill_table'] = True
         records[name]['machine_compatible_match_call'] = True
@@ -100,7 +164,7 @@ record = dict(packaged_dtb_sha256=hashlib.sha256(dtb.read_bytes()).hexdigest(),
               touch_modules={name: records[name] for name in names[:8]},
               qspi_protocol_guard=True, gpi_qspi_tre_path=True,
               rfc0014_removed=True)
-if milestone in ('m9', 'm10'):
+if milestone in ('m9', 'm10', 'm11'):
     record['new_modules'] = {name: records[name] for name in names[8:]}
     record['cma_dma32'] = record['wiring']['cma_dma32']
 (checks / f'{milestone}.json').write_text(json.dumps(record, indent=2) + '\n')
