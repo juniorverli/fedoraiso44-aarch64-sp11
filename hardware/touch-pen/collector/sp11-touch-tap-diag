@@ -1,0 +1,324 @@
+#!/usr/bin/python3
+"""SP11 missed-tap diagnostic: counts and timing only, read-only.
+
+Run as root on the live system, then tap the screen about 30 times with one
+finger, with pauses of about one second, for the whole window:
+
+    sudo /usr/libexec/sp11-touch-tap-diag 30
+
+What it does, for N seconds (default 30, 5..300):
+  * reads /proc/interrupts of the touch IRQ before and after;
+  * opens the touch hidraw node read-only as one more client (reports are
+    broadcast to every client; iptsd keeps its own copy) and records only the
+    arrival time, report id and report length of each report;
+  * opens the iptsd uinput touchscreen and the kernel single-touch node
+    read-only and records only touch down/up events and their times;
+  * counts new kernel lines about spi-hid/GENI/GPI and iptsd warnings.
+
+It never records coordinates, report contents, serial numbers or addresses,
+never writes to a device, never grabs an input device, never changes iptsd.
+iptsd 3.1.0 has no log-level option (checked in the v3.1.0 source), so this
+tool cannot raise its logging; see the evidence file for the alternative.
+"""
+import argparse
+import glob
+import hashlib
+import os
+import re
+import select
+import statistics
+import struct
+import subprocess
+import sys
+import time
+
+EV_SYN, EV_KEY, EV_ABS = 0, 1, 3
+BTN_TOUCH = 0x14A
+ABS_MT_TRACKING_ID = 0x39
+EVENT_FMT = "llHHi"  # struct input_event on 64-bit Linux
+EVENT_SIZE = struct.calcsize(EVENT_FMT)
+TAP_MAX_MS = 300.0
+BURST_GAP_MS = 250.0
+
+
+def read_text(path):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            return handle.read()
+    except OSError:
+        return ""
+
+
+def run(cmd, timeout=20):
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
+        return res.stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+
+
+def find_hidraw(vid, pid):
+    want = f"{vid:08X}:{pid:08X}"
+    for node in sorted(glob.glob("/sys/class/hidraw/hidraw*")):
+        for line in read_text(node + "/device/uevent").splitlines():
+            if line.startswith("HID_ID=") and line.upper().endswith(want):
+                return "/dev/" + os.path.basename(node)
+    return None
+
+
+def find_event(name_part, vid, pid):
+    """First input node whose name contains name_part and carries vid:pid."""
+    tag = f"{vid:04X}:{pid:04X}".lower()
+    for node in sorted(glob.glob("/sys/class/input/event*"), key=lambda p: int(re.sub(r"\D", "", p) or 0)):
+        name = read_text(node + "/device/name").strip()
+        if name_part.lower() in name.lower() and tag in name.lower():
+            return "/dev/input/" + os.path.basename(node), name
+    return None, None
+
+
+def irq_total():
+    """Sum of the per-CPU counts for the spi-hid IRQ, or None."""
+    spi_names = set()
+    for dev in glob.glob("/sys/bus/spi/devices/*"):
+        if os.path.basename(os.path.realpath(dev + "/driver")) in ("spi_hid_of", "spi_hid_acpi"):
+            spi_names.add(os.path.basename(dev))
+    for line in read_text("/proc/interrupts").splitlines():
+        fields = line.split()
+        if not fields or not fields[0].rstrip(":").isdigit():
+            continue
+        if (fields[-1] in spi_names) or ("msmgpio" in line and re.search(r"\s51\s+(Edge|Level)", line)):
+            counts = []
+            for item in fields[1:]:
+                if item.isdigit():
+                    counts.append(int(item))
+                else:
+                    break
+            return sum(counts), " ".join(fields[1 + len(counts):])[:60]
+    return None, ""
+
+
+def pct(values, q):
+    values = sorted(values)
+    return values[min(len(values) - 1, int(q * len(values)))]
+
+
+def describe_gaps(times):
+    gaps = [(b - a) * 1000.0 for a, b in zip(times, times[1:])]
+    if not gaps:
+        return "no gaps (fewer than 2 samples)", gaps
+    return (f"min {min(gaps):.1f} ms, median {statistics.median(gaps):.1f} ms, "
+            f"p95 {pct(gaps, 0.95):.1f} ms, max {max(gaps):.1f} ms"), gaps
+
+
+def bursts(times, gap_ms=BURST_GAP_MS):
+    out = []
+    for t in times:
+        if out and (t - out[-1][1]) * 1000.0 <= gap_ms:
+            out[-1][1] = t
+            out[-1][2] += 1
+        else:
+            out.append([t, t, 1])
+    return out
+
+
+def touches_from(events, kind):
+    """events: list of (t, type, code, value). Returns [(down, up)]. Coordinates are never read."""
+    result, down = [], None
+    for t, etype, code, value in events:
+        if kind == "mt":
+            if etype == EV_ABS and code == ABS_MT_TRACKING_ID:
+                if value >= 0 and down is None:
+                    down = t
+                elif value < 0 and down is not None:
+                    result.append((down, t))
+                    down = None
+        elif etype == EV_KEY and code == BTN_TOUCH:
+            if value == 1 and down is None:
+                down = t
+            elif value == 0 and down is not None:
+                result.append((down, t))
+                down = None
+    return result, down is not None
+
+
+def summarize_touches(label, touches, open_end, report_times):
+    lines = [f"{label}: {len(touches)} touches" + (" (+1 still down at end)" if open_end else "")]
+    if not touches:
+        return lines
+    durs = [(u - d) * 1000.0 for d, u in touches]
+    taps = [x for x in durs if x < TAP_MAX_MS]
+    lines.append(f"  duration: min {min(durs):.0f} ms, median {statistics.median(durs):.0f} ms, max {max(durs):.0f} ms; "
+                 f"tap-like (<{TAP_MAX_MS:.0f} ms): {len(taps)}")
+    if len(touches) > 1:
+        up_down = [(touches[i + 1][0] - touches[i][1]) * 1000.0 for i in range(len(touches) - 1)]
+        lines.append(f"  gap up->next down: min {min(up_down):.0f} ms, median {statistics.median(up_down):.0f} ms, "
+                     f"short (<150 ms): {sum(1 for g in up_down if g < 150)}")
+    if report_times:
+        per = [sum(1 for r in report_times if d - 0.03 <= r <= u + 0.03) for d, u in touches]
+        lines.append(f"  hidraw reports during a touch (+-30 ms): min {min(per)}, median {statistics.median(per):.0f}, "
+                     f"touches with 0 or 1 report: {sum(1 for p in per if p <= 1)}")
+    return lines
+
+
+def analyse(report_times, report_sizes, mt_events, st_events, irq_before, irq_after, window):
+    out = []
+    out.append(f"window: {window:.1f} s")
+    if irq_before is not None and irq_after is not None:
+        out.append(f"IRQ count: before {irq_before}, after {irq_after}, delta {irq_after - irq_before}")
+    else:
+        out.append("IRQ count: not found")
+    out.append(f"hidraw reports: {len(report_times)} (id:length -> count: "
+               + ", ".join(f"{k[0]:02x}:{k[1]} -> {v}" for k, v in sorted(report_sizes.items())) + ")")
+    text, gaps = describe_gaps(report_times)
+    out.append("  report spacing: " + text)
+    if gaps:
+        out.append(f"  gaps over 100 ms: {sum(1 for g in gaps if g > 100)}; over 250 ms: {sum(1 for g in gaps if g > 250)}")
+    if irq_before is not None and irq_after is not None and report_times:
+        delta = irq_after - irq_before
+        out.append(f"  IRQ delta minus hidraw reports: {delta - len(report_times)} "
+                   "(a large positive value means interrupts without a delivered report)")
+    blist = bursts(report_times)
+    out.append(f"  report bursts (gap > {BURST_GAP_MS:.0f} ms splits): {len(blist)}")
+    mt, mt_open = touches_from(mt_events, "mt")
+    st, st_open = touches_from(st_events, "key")
+    out += summarize_touches("iptsd virtual touchscreen", mt, mt_open, report_times)
+    out += summarize_touches("kernel single-touch node", st, st_open, report_times)
+    if len(blist) > 1 and mt is not None:
+        missed = [b for b in blist if b[1] - b[0] >= 0.02 and b[2] >= 3
+                  and not any(b[0] - 0.1 <= d <= b[1] + 0.1 for d, _ in mt)]
+        out.append(f"report bursts of >=3 reports and >=20 ms with no iptsd touch-down nearby: {len(missed)} "
+                   "(candidate rejected contacts; meaningless when the device streams continuously)")
+    return out
+
+
+def sanitize(text):
+    text = re.sub(r"(?i)(?<![0-9a-f])(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}(?![0-9a-f])", "[masked-address]", text)
+    return re.sub(r"(?i)\b(serial|uniq)\w*\s*[:=]\s*\S+", r"\1=[masked]", text)
+
+
+def selftest():
+    t0 = 100.0
+    reports = [t0 + i * 0.008 for i in range(40)] + [t0 + 2 + i * 0.008 for i in range(30)]
+    ev = [(t0 + 0.05, EV_ABS, ABS_MT_TRACKING_ID, 0), (t0 + 0.2, EV_ABS, ABS_MT_TRACKING_ID, -1)]
+    st = [(t0 + 2.02, EV_KEY, BTN_TOUCH, 1), (t0 + 2.2, EV_KEY, BTN_TOUCH, 0)]
+    res = analyse(reports, {(0x0A, 4000): 70}, ev, st, 10, 80, 5.0)
+    text = "\n".join(res)
+    assert "delta 70" in text and "iptsd virtual touchscreen: 1 touches" in text, text
+    assert "kernel single-touch node: 1 touches" in text
+    assert "report bursts (gap > 250 ms splits): 2" in text, text
+    assert "no iptsd touch-down nearby: 1" in text, text
+    print(text)
+    print("selftest ok")
+
+
+def main():
+    ap = argparse.ArgumentParser(description="SP11 missed-tap diagnostic (counts and timing only)")
+    ap.add_argument("seconds", nargs="?", type=int, default=30)
+    ap.add_argument("--vid-pid", default="045E:0C80")
+    ap.add_argument("--out", help="also write the summary to this file")
+    ap.add_argument("--selftest", action="store_true")
+    args = ap.parse_args()
+    if args.selftest:
+        return selftest()
+    if os.geteuid() != 0:
+        sys.exit("run as root (hidraw and input nodes are root-only)")
+    seconds = max(5, min(300, args.seconds))
+    vid, pid = (int(x, 16) for x in args.vid_pid.split(":"))
+
+    lines = ["=== sp11-touch-tap-diag (counts and timing only; no coordinates, no report contents) ==="]
+    lines.append(f"kernel: {os.uname().release}; iptsd: {run(['rpm', '-q', 'iptsd']).strip() or 'unknown'}")
+    sel = read_text("/run/sp11/touch-conf").strip() or "no selector record (stock defaults unless a file was placed by hand)"
+    lines.append(f"touch config profile: {sel}")
+    for path in ["/etc/iptsd.conf"] + sorted(glob.glob("/etc/iptsd.d/*")):
+        try:
+            with open(path, "rb") as handle:
+                lines.append(f"  config file {path} sha256 {hashlib.sha256(handle.read()).hexdigest()[:16]}")
+        except OSError:
+            pass
+    for line in run(["journalctl", "-b", "--no-pager", "-o", "cat", "-u", "iptsd@*.service"]).splitlines():
+        if "Loading config" in line or "Connected to device" in line or "mode" in line.split("] ")[-1]:
+            lines.append("  iptsd: " + sanitize(line.strip()))
+
+    hidraw = find_hidraw(vid, pid)
+    mt_path, mt_name = find_event("IPTSD Virtual Touchscreen", vid, pid)
+    st_path, st_name = find_event("Touchscreen", vid, pid)
+    if st_path == mt_path:  # the iptsd node also matches "Touchscreen"; look for the kernel one
+        st_path = st_name = None
+        for node in sorted(glob.glob("/sys/class/input/event*")):
+            name = read_text(node + "/device/name").strip()
+            if name.lower() == f"spi {vid:04x}:{pid:04x} touchscreen":
+                st_path, st_name = "/dev/input/" + os.path.basename(node), name
+    lines.append(f"hidraw node: {hidraw or 'NOT FOUND'}; iptsd node: {mt_name or 'NOT FOUND (iptsd not running?)'}; "
+                 f"kernel node: {st_name or 'not found'}")
+    cur = None
+    for line in run(["libinput", "list-devices"]).splitlines():
+        if line.startswith("Device:"):
+            cur = line.partition(":")[2].strip()
+        elif line.startswith("Size:") and cur and f"{vid:04X}:{pid:04X}" in cur.upper():
+            lines.append(f"  libinput {cur}: size {line.partition(':')[2].strip()}")
+
+    fds = {}
+    try:
+        if hidraw:
+            fds[os.open(hidraw, os.O_RDONLY | os.O_NONBLOCK)] = "hid"
+        if mt_path:
+            fds[os.open(mt_path, os.O_RDONLY | os.O_NONBLOCK)] = "mt"
+        if st_path:
+            fds[os.open(st_path, os.O_RDONLY | os.O_NONBLOCK)] = "st"
+    except OSError as err:
+        sys.exit(f"cannot open a node read-only: {err}")
+    dmesg_before = run(["dmesg"]).splitlines()
+    irq_before, irq_name = irq_total()
+    t_wall = time.time()
+    print(f"Tap the screen about {max(5, seconds // 2)} times, one finger, ~1 s apart, now ({seconds} s).", file=sys.stderr)
+
+    report_times, report_sizes, mt_ev, st_ev = [], {}, [], []
+    end = time.monotonic() + seconds
+    while True:
+        left = end - time.monotonic()
+        if left <= 0:
+            break
+        ready, _, _ = select.select(list(fds), [], [], min(left, 0.5))
+        now = time.monotonic()
+        for fd in ready:
+            try:
+                data = os.read(fd, 65536 if fds[fd] == "hid" else EVENT_SIZE * 64)
+            except (BlockingIOError, OSError):
+                continue
+            if fds[fd] == "hid":
+                if data:
+                    report_times.append(now)
+                    key = (data[0], len(data))
+                    report_sizes[key] = report_sizes.get(key, 0) + 1
+                continue
+            target = mt_ev if fds[fd] == "mt" else st_ev
+            for off in range(0, len(data) - EVENT_SIZE + 1, EVENT_SIZE):
+                _, _, etype, code, value = struct.unpack_from(EVENT_FMT, data, off)
+                if etype == EV_ABS and code == ABS_MT_TRACKING_ID or etype == EV_KEY and code == BTN_TOUCH:
+                    target.append((now, etype, code, value))
+    for fd in fds:
+        os.close(fd)
+    irq_after, _ = irq_total()
+
+    lines += analyse(report_times, report_sizes, mt_ev, st_ev, irq_before, irq_after, seconds)
+    lines.append(f"IRQ line: {irq_name or 'n/a'}")
+
+    after = run(["dmesg"]).splitlines()
+    new = after[len(dmesg_before):] if len(after) >= len(dmesg_before) else after
+    pat = re.compile(r"spi.?hid|geni|gpi|hid-generic|hidraw", re.I)
+    hits = [sanitize(x) for x in new if pat.search(x)]
+    lines.append(f"new kernel lines about spi-hid/GENI/GPI/HID in window: {len(hits)}")
+    lines += ["  " + x[:200] for x in hits[:10]]
+    jr = run(["journalctl", "--no-pager", "-o", "cat", "-u", "iptsd@*.service", f"--since=@{int(t_wall)}"]).splitlines()
+    warn = [sanitize(x) for x in jr if re.search(r"\[(warning|error|critical)\]", x)]
+    lines.append(f"iptsd warnings/errors in window: {len(warn)}")
+    lines += ["  " + x[:200] for x in warn[:10]]
+    text = "\n".join(lines)
+    print(text)
+    if args.out:
+        with open(args.out, "w", encoding="utf-8") as handle:
+            handle.write(text + "\n")
+
+
+if __name__ == "__main__":
+    main()

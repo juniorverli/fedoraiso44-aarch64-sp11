@@ -100,6 +100,8 @@ part of this change.
 | Does metadata-driven iptsd configuration work on this unit? | Inference from unmodified reference package; collect service logs, dimensions and touch behavior |
 | Does pen expose pressure/tilt/buttons, and does recovery retain heatmap mode? | TBD; evtest and coordinated device acceptance |
 | What is the second wake resource? | TBD; no guessed GPIO1088 or wake claim |
+| Why do some taps need repeating? | Ranked causes in the [missed-taps evidence](evidence/2026-10-31-missed-taps.md); decided by the A/B run and collector |
+| What does Windows use for contact thresholds on 0C80 (host heatmap processing or on-chip contacts; where the limits live)? | TBD; REA question listed in the missed-taps evidence section 8, not run |
 
 ## 7. Acceptance
 
@@ -211,6 +213,20 @@ Preserve D19–D24's working boot policy: default GPU off, speakers off,
 keep it as an explicit reference-parity diagnostic if needed rather than
 silently changing the global default.
 
+### Image: missed-tap A/B test (2026-10-31)
+
+Operator reports taps that sometimes need repeating; analysis in
+[missed-taps evidence](evidence/2026-10-31-missed-taps.md). No kernel change. Stage
+[collector/sp11-touch-tap-diag](collector/sp11-touch-tap-diag) at
+`/usr/libexec/sp11-touch-tap-diag` (0755, on demand, root, `sp11-touch-tap-diag 30`), install
+[userspace/iptsd-sp11.conf](userspace/iptsd-sp11.conf) at `/usr/share/sp11/touch/iptsd-sp11.conf`,
+[userspace/sp11-touch-conf-select](userspace/sp11-touch-conf-select) at
+`/usr/libexec/sp11-touch-conf-select` (0755) and
+[userspace/10-sp11-touch-conf.conf](userspace/10-sp11-touch-conf.conf) at
+`/usr/lib/systemd/system/iptsd@.service.d/10-sp11-touch-conf.conf`. The marker is
+`sp11_touch_conf=A|B` in the existing boot-medium GRUB environment block (`sp11-esp-env`); the kernel command line
+stays static. Confirm the grubenv round trip keeps the unknown variable. Add `python3` use only; no new package.
+
 ### Sources / firmware / orchestrator
 
 - **Sources:** pin the v7 messages, six immutable reference commits, original
@@ -247,3 +263,6 @@ silently changing the global default.
   recorded the container dependency request. Status designed pending upstream
   exception disposition and independent QSPI/rebind cross-check; no full
   kernel build, device test, rebuild request or git write.
+- 2026-10-31: missed-tap analysis: iptsd 3.1.0 has no 0C80 preset and no debug logging; ranked causes, A/B profile
+  (upstream Surface Laptop Studio 2 values), selector, on-demand tap collector; IRQ trigger (edge falling) matches
+  ACPI and the reference, so no patch 0022; no kernel build, device test or git write.
