@@ -17,7 +17,7 @@ D23 selects SAM `BAT1`/`ADP1` and blacklists `qcom_battmgr` now. D24 applies: ch
 | Failed pen-stash HID | Verified identity: TC 15/TID 2/IID 2/function 0, pen taken/stashed notifications. Inference: unsupported by the attached cover. Pen digitizer is a separate `MSHW0484` device | Linux registry `:200`; Windows PnP; M5 -71 |
 | Battery/AC | Verified: SAM BAT1/ADP1 supply discharge state, percentage, energy and AC online=0 on M5. Inference: ADSP supply duplicates the same pack. Windows disables PMBM | M5 power capture; DSDT `:675`; D23 |
 | Lid | Verified: TLMM GPIO 2, ACPI reads 1=open; upstream DT has a lid switch | `dsdt.dsl:55516`; Denali DT gpio-keys |
-| Power/volume candidate | Inherited draft claims power TLMM 19 and PM8550 GPIO 6/8 for volume. ACPI resources support investigation; up/down order, polarity, 1.8 V selection and 15 ms debounce are not fully reproduced here | `patches/hold/0004-*`; held for source reproduction and cross-check |
+| Volume buttons | Verified from ACPI MSHW0040: PM01 pins 0xD5 and 0xD7, input only, PullUp, ActiveBoth edge, not wake capable, debounce 0; power is TLMM GPIO 19 (SharedAndWake). Inference: PM01 pin = 0xCF + PM8550 GPIO, so GPIO 6 (up, first resource) and GPIO 8 (down); active low; 1.8 V; 15 ms from other DTs. Orientation and polarity need the device test | `evidence/2026-10-31-volume-buttons.md`; patch 0005 (candidate, `sw-ready` after cross-check); `patches/hold/0004-*` stays held (power) |
 | Fan candidate | Verified Linux read request: TC 05/TID 1/IID 1/CID 01; ACPI FAN0 depends on SSH. Response on this unit TBD | `sources/linux/drivers/hwmon/surface_fan.c:16`; `ssdt.dsl:2807`; patch 0003 |
 | Tablet posture | Verified: KIP tablet switch enumerates. ACPI hotplug feature words are 080e (KIP) and 060c (SAM); their bit meanings are not established by the registry capture | M5; `ssdt.dsl:397`; held patch 0002 |
 
@@ -73,7 +73,7 @@ The predecessor's initramfs inventory predates M5, so the exact M5 omission is n
 | Plugged-in UPower behavior not captured | Test each USB-C port and available Surface Connect; verify status, percentage, energy, online and UPower state with SAM only |
 | KIP posture may be wrong, particularly after resume | Keep 0002 held; upstream reports the same concern. Compare fixed posture snapshots and read-only POS queries before release |
 | Fan RPM not registered | Active candidate 0003 adds existing read-only fan client; valid RPM and cross-check required |
-| Power/volume DT candidate not sufficiently sourced | Hold 0004 until GPIO mapping, orientation, polarity, power source and debounce are independently supported; existing lid and pmic_pwrkey remain testable |
+| Volume DT mapping | Active candidate 0005 (volume only, from ACPI plus Linux sources); run `tools/collect-volume-buttons.sh` for orientation/polarity. Power button stays with hold 0004 / existing pmic_pwrkey until the device capture |
 | Keyboard backlight, wake alarm | Deferred; outside this delivery |
 | Platform profile | Do not add: policy writes require evidence about thermal behavior (S6) |
 
@@ -82,7 +82,7 @@ The predecessor's initramfs inventory predates M5, so the exact M5 omission is n
 | ID | Question and grade | Evidence needed |
 |:--|:--|:--|
 | Q1 | Answered identity; unsupported endpoints are an Inference for this firmware/cover | M5 evidence section 2; retain cover compatibility limitation |
-| Q2 | Button pin parameters/orientation: inherited candidate, not fully reproduced | ACPI and catalogued driver table/REA, independent cross-check; then operator report |
+| Q2 | Volume pins reproduced from ACPI (Inference for GPIO 6/8 via the 0xCF offset, I1-I2); up/down and polarity Unknown until the device test | `collect-volume-buttons.sh` phases UP/DOWN; independent cross-check (protocol 5.1); power button path still open |
 | Q3 | Keyboard backlight command: TBD | Separate investigation, no firmware writes |
 | Q4 | Fan response: TBD | `ssam-ro.py fan-rpm` and hwmon RPM after 0003 |
 | Q5 | Fingerprint: not enumerated on captured cover | Revisit only with another cover |
@@ -112,6 +112,7 @@ The predecessor's initramfs inventory predates M5, so the exact M5 omission is n
 - **kernel R9 (helper):** document or add linked-module validation for `kernel-dev.sh module <directory>`: the current directory target produces objects only. A rejected extra-fragment configuration can also leave the prior `.config.sp11-sha` beside a changed `.config`, so retrying the old profile may skip regeneration; invalidate the stamp before changing config. This worker removed only its own generated stamp and used the standard incremental build for final verification.
 - **image R10 (2026-10-30, keyboard dead after reboot):** install `collector/ec-sam.sh` as `/etc/sp11-log-collector.d/ec-sam.sh`; add the units in `evidence/2026-10-30-keyboard-reboot.md` section 5 (shutdown unbind, opt-in `sp11.ssam_rebind` GRUB entry) and run the four-step test there. No kernel patch yet.
 - **kernel R11 (2026-10-30, Windows transition):** add `patches/0007-*` (`surface_aggregator.shutdown_mode`) to `kernel/series` for the next image; no behaviour change by default. **image R12:** GRUB entries `SP11 debug, SAM shutdown quiet|silent|clean` and the test in `evidence/2026-10-30-windows-transition.md` sections 5-6.
+- **kernel R13 (2026-10-31, volume buttons):** add `patches/0005-arm64-dts-qcom-x1p64100-microsoft-denali-Add-the-vol.patch` to `kernel/series` for the next DT build (DT only, LCD board file; applies on the 69-patch series, `CHECK_DTBS` clean); ensure `CONFIG_KEYBOARD_GPIO=m` (R2). **image R14:** stage `tools/collect-volume-buttons.sh` under `/usr/libexec/sp11/ec-sam/` and run the two 10 s phases in `evidence/2026-10-31-volume-buttons.md` (operator presses up, then down). Orchestrator: protocol 5.1 cross-check of the pin mapping (I1) before `sw-ready`.
 
 ## 9. Log
 
@@ -120,3 +121,4 @@ The predecessor's initramfs inventory predates M5, so the exact M5 omission is n
 - 2026-10-28: Codex continuation (D24): corrected endpoint evidence grades and cover scope, applied D23 without a charger gate, documented complete early keyboard path, added private-data-minimized capability/power collectors and UPower charging checks, held insufficiently sourced button DT candidate, and recorded actual validation results. Status remains `designed`; all changes uncommitted.
 - 2026-10-30: M10 keyboard-after-reboot report investigated; logs show normal enumeration, cause Unknown; collector and image mitigation proposed (evidence `2026-10-30-keyboard-reboot.md`).
 - 2026-10-30: operator reports keyboard freeze at the start of Windows after a Linux session; shutdown source analysis, patch 0007 (`shutdown_mode`) and test plan in `evidence/2026-10-30-windows-transition.md`. Not built.
+- 2026-10-31: volume buttons: MSHW0040 resources decoded from DSDT/SSDT (evidence `2026-10-31-volume-buttons.md`), PM01 to PM8550 GPIO offset derived, patch 0005 (volume only) validated with `CHECK_DTBS`; device test added. Not built into an image.
