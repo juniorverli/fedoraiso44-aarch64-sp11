@@ -16,25 +16,43 @@ graph that holds the owner module of a link. Send the calibration records
 of each module with the media format, send R0/T0
 (PARAM_ID_SP_TH_VI_R0T0_CFG)
 after a range check against the nominal resistance, and register the
-speaker protection diagnostics event. Report the closed-loop graph, the
-sense streams and the calibration to the speaker protection guard, and
-latch a fault on any diagnostics event, because the payload is not
-decoded.
+speaker protection diagnostics event. Report the loaded data, the
+closed-loop graph, the sense streams and the calibration to the speaker
+protection guard, and latch a fault on any diagnostics event, because the
+payload is not decoded. The guard counts a graph once per run: report
+only the first start and the last stop of a graph.
+
+The loaded data is reference counted, so the calibration file is read and
+the DSP commands are sent without holding the lock that protects the
+pointer, and the data is freed when the driver goes away.
 
 Without the first file nothing changes. Without the second file the
-guard keeps the speakers muted.
+guard keeps the speakers muted. The speaker protection guard is selected
+by the AudioReach core, so it cannot be a module for a built-in core.
 
 Assisted-by: Claude Sonnet 5.5
 ---
+ sound/soc/qcom/Kconfig                 |   1 +
  sound/soc/qcom/qdsp6/Makefile          |   2 +-
- sound/soc/qcom/qdsp6/audioreach-sp11.c | 467 +++++++++++++++++++++++++
- sound/soc/qcom/qdsp6/audioreach.c      |  39 ++-
+ sound/soc/qcom/qdsp6/audioreach-sp11.c | 501 +++++++++++++++++++++++++
+ sound/soc/qcom/qdsp6/audioreach.c      |  39 +-
  sound/soc/qcom/qdsp6/audioreach.h      |  42 +++
- sound/soc/qcom/qdsp6/q6apm.c           |   7 +
+ sound/soc/qcom/qdsp6/q6apm.c           |   9 +
  sound/soc/qcom/qdsp6/topology.c        |   4 +
- 6 files changed, 555 insertions(+), 6 deletions(-)
- create mode 100644 sound/soc/qcom/qdsp6/audioreach-sp11.c
+ 7 files changed, 592 insertions(+), 6 deletions(-)
 
+diff --git a/sound/soc/qcom/Kconfig b/sound/soc/qcom/Kconfig
+index 903eed88e..6da5f913c 100644
+--- a/sound/soc/qcom/Kconfig
++++ b/sound/soc/qcom/Kconfig
+@@ -110,6 +110,7 @@ config SND_SOC_QDSP6_APM
+ 	tristate
+ 	select SND_SOC_QDSP6_APM_DAI
+ 	select SND_SOC_QDSP6_APM_LPASS_DAI
++	select SND_SOC_SP11_GUARD
+ 
+ config SND_SOC_QDSP6_PRM_LPASS_CLOCKS
+ 	tristate
 diff --git a/sound/soc/qcom/qdsp6/Makefile b/sound/soc/qcom/qdsp6/Makefile
 index 67267304e..d4513052d 100644
 --- a/sound/soc/qcom/qdsp6/Makefile
@@ -49,10 +67,10 @@ index 67267304e..d4513052d 100644
  obj-$(CONFIG_SND_SOC_QDSP6_CORE) += q6core.o
 diff --git a/sound/soc/qcom/qdsp6/audioreach-sp11.c b/sound/soc/qcom/qdsp6/audioreach-sp11.c
 new file mode 100644
-index 000000000..decbdb4e1
+index 000000000..0433d5a7d
 --- /dev/null
 +++ b/sound/soc/qcom/qdsp6/audioreach-sp11.c
-@@ -0,0 +1,467 @@
+@@ -0,0 +1,501 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Closed-loop speaker protection support for AudioReach.
@@ -72,6 +90,7 @@ index 000000000..decbdb4e1
 +#include <linux/crc32.h>
 +#include <linux/device.h>
 +#include <linux/firmware.h>
++#include <linux/kref.h>
 +#include <linux/mutex.h>
 +#include <linux/overflow.h>
 +#include <linux/slab.h>
@@ -137,6 +156,7 @@ index 000000000..decbdb4e1
 +} __packed;
 +
 +struct sp11cl {
++	struct kref ref;
 +	struct device *dev;
 +	char cal_name[96];
 +	u32 n_links;
@@ -149,19 +169,55 @@ index 000000000..decbdb4e1
 +	u8 *blob;
 +};
 +
++/*
++ * The loaded data is immutable and reference counted. sp11cl_lock only
++ * protects the pointer, so a caller takes a reference and then reads the
++ * calibration file and talks to the DSP without holding the lock.
++ */
 +static struct sp11cl *sp11cl;
 +static DEFINE_MUTEX(sp11cl_lock);
++
++static void sp11cl_free(struct kref *ref)
++{
++	struct sp11cl *cl = container_of(ref, struct sp11cl, ref);
++
++	kfree(cl->blob);
++	kfree(cl);
++}
++
++static struct sp11cl *sp11cl_get(void)
++{
++	struct sp11cl *cl;
++
++	mutex_lock(&sp11cl_lock);
++	cl = sp11cl;
++	if (cl)
++		kref_get(&cl->ref);
++	mutex_unlock(&sp11cl_lock);
++
++	return cl;
++}
++
++static void sp11cl_put(struct sp11cl *cl)
++{
++	kref_put(&cl->ref, sp11cl_free);
++}
 +
 +static void sp11cl_release(void *data)
 +{
 +	struct sp11cl *cl = data;
++	bool current_cl;
 +
 +	mutex_lock(&sp11cl_lock);
-+	if (sp11cl == cl)
++	current_cl = sp11cl == cl;
++	if (current_cl)
 +		sp11cl = NULL;
 +	mutex_unlock(&sp11cl_lock);
-+	sp11_guard_graph(false, false);
-+	kfree(cl->blob);
++	if (current_cl) {
++		sp11_guard_loaded(false);
++		sp11_guard_graph(false, false);
++	}
++	sp11cl_put(cl);
 +}
 +
 +static bool sp11cl_validate(struct device *dev, const u8 *data, size_t len,
@@ -231,6 +287,7 @@ index 000000000..decbdb4e1
 +		return -ENOMEM;
 +	}
 +
++	kref_init(&cl->ref);
 +	cl->dev = dev;
 +	cl->blob = kmemdup(fw->data, fw->size, GFP_KERNEL);
 +	if (!cl->blob) {
@@ -253,10 +310,12 @@ index 000000000..decbdb4e1
 +	sp11cl = cl;
 +	mutex_unlock(&sp11cl_lock);
 +
++	/* On failure the action runs at once and drops the reference */
 +	ret = devm_add_action_or_reset(dev, sp11cl_release, cl);
 +	if (ret)
 +		goto out_nofree;
 +
++	sp11_guard_loaded(true);
 +	release_firmware(fw);
 +	dev_info(dev, "closed-loop speaker protection data loaded: %u links, %u records\n",
 +		 cl->n_links, cl->n_cal);
@@ -290,14 +349,14 @@ index 000000000..decbdb4e1
 +unsigned int audioreach_sp11_fill_links(const struct audioreach_graph_info *info,
 +					struct apm_control_link_obj *obj)
 +{
++	struct sp11cl *cl = sp11cl_get();
 +	unsigned int i, n = 0;
 +
-+	mutex_lock(&sp11cl_lock);
-+	if (!sp11cl)
-+		goto out;
++	if (!cl)
++		return 0;
 +
-+	for (i = 0; i < sp11cl->n_links; i++) {
-+		const struct sp11cl_link *l = &sp11cl->links[i];
++	for (i = 0; i < cl->n_links; i++) {
++		const struct sp11cl_link *l = &cl->links[i];
 +
 +		if (!sp11_graph_has_instance(info, le32_to_cpu(l->peer2_inst)))
 +			continue;
@@ -315,8 +374,7 @@ index 000000000..decbdb4e1
 +		}
 +		n++;
 +	}
-+out:
-+	mutex_unlock(&sp11cl_lock);
++	sp11cl_put(cl);
 +
 +	return n;
 +}
@@ -424,16 +482,12 @@ index 000000000..decbdb4e1
 +int audioreach_sp11_graph_params(struct q6apm_graph *graph,
 +				 const struct audioreach_module *module)
 +{
-+	struct sp11cl *cl;
++	struct sp11cl *cl = sp11cl_get();
 +	u32 off = 0, i;
 +	int ret = 0;
 +
-+	mutex_lock(&sp11cl_lock);
-+	cl = sp11cl;
-+	if (!cl) {
-+		mutex_unlock(&sp11cl_lock);
++	if (!cl)
 +		return 0;
-+	}
 +
 +	for (i = 0; i < cl->n_cal; i++) {
 +		const struct sp11cl_cal_rec *rec = (const void *)(cl->cal + off);
@@ -454,7 +508,7 @@ index 000000000..decbdb4e1
 +
 +	if (!ret && module->module_id == MODULE_ID_SPEAKER_PROTECTION_VI)
 +		ret = sp11_apply_r0t0(graph, module, cl);
-+	mutex_unlock(&sp11cl_lock);
++	sp11cl_put(cl);
 +
 +	return ret;
 +}
@@ -503,15 +557,13 @@ index 000000000..decbdb4e1
 +/* Track the closed-loop graph state for the guard when a graph starts or stops */
 +void audioreach_sp11_graph_state(struct q6apm_graph *graph, bool started)
 +{
-+	struct sp11cl *cl;
++	struct sp11cl *cl = sp11cl_get();
 +	bool cps;
 +
-+	mutex_lock(&sp11cl_lock);
-+	cl = sp11cl;
-+	cps = cl && (cl->flags & SP11CL_FLAG_CPS);
-+	mutex_unlock(&sp11cl_lock);
 +	if (!cl)
 +		return;
++	cps = cl->flags & SP11CL_FLAG_CPS;
++	sp11cl_put(cl);
 +
 +	if (q6apm_find_module_by_mid(graph, MODULE_ID_SPEAKER_PROTECTION))
 +		sp11_guard_graph(started, cps);
@@ -662,7 +714,7 @@ index 35541b2d8..bff81f035 100644
 +void audioreach_sp11_graph_state(struct q6apm_graph *graph, bool started);
  #endif /* __AUDIOREACH_H__ */
 diff --git a/sound/soc/qcom/qdsp6/q6apm.c b/sound/soc/qcom/qdsp6/q6apm.c
-index 09f1bf5c2..d757cf86a 100644
+index 09f1bf5c2..ea30a10e9 100644
 --- a/sound/soc/qcom/qdsp6/q6apm.c
 +++ b/sound/soc/qcom/qdsp6/q6apm.c
 @@ -576,6 +576,10 @@ static int graph_callback(const struct gpr_resp_pkt *data, void *priv, int op)
@@ -676,15 +728,17 @@ index 09f1bf5c2..d757cf86a 100644
  		}
  
  		break;
-@@ -811,6 +815,7 @@ int q6apm_graph_start(struct q6apm_graph *graph)
+@@ -808,6 +812,9 @@ int q6apm_graph_start(struct q6apm_graph *graph)
+ 		ret = audioreach_graph_mgmt_cmd(ar_graph, APM_CMD_GRAPH_START);
+ 		if (ret)
+ 			return ret;
++
++		/* Once per run, like the stop below: the guard counts streams */
++		audioreach_sp11_graph_state(graph, true);
  	}
  
  	ar_graph->start_count++;
-+	audioreach_sp11_graph_state(graph, true);
- 
- 	return 0;
- }
-@@ -826,6 +831,8 @@ int q6apm_graph_stop(struct q6apm_graph *graph)
+@@ -826,6 +833,8 @@ int q6apm_graph_stop(struct q6apm_graph *graph)
  	if (--ar_graph->start_count > 0)
  		return 0;
  

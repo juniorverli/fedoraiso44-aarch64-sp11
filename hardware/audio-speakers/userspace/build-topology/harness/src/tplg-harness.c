@@ -180,10 +180,20 @@ static void run_case(const char *name)
 static char *harness_case;
 core_param(harness_case, harness_case, charp, 0444);
 
+void wsa_gate_pre(void);
+void wsa_gate_run(void);
+
 static int __init harness_init(void)
 {
 	/* one case per boot: all cases share the DT root node as platform */
-	run_case(harness_case ? harness_case : "hbase");
+	if (harness_case && !strcmp(harness_case, "hgate")) {
+		/* the speaker gate: real guard, real wsa884x.c, closed-loop data of case hcl */
+		wsa_gate_pre();
+		run_case("hcl");
+		wsa_gate_run();
+	} else {
+		run_case(harness_case ? harness_case : "hbase");
+	}
 	pr_info("HARNESS DONE\n");
 	msleep(500);
 	kernel_power_off();
