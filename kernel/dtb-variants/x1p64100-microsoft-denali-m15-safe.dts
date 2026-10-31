@@ -8,3 +8,16 @@
  */
 #include "x1p64100-microsoft-denali-m12.dts"
 #include "x1-microsoft-denali-audio-mics.dtsi"
+
+/*
+ * usb-typec patch 0003 (experiment) deletes `orientation-switch` from both QMP combo PHYs in the PACKAGED board DT.
+ * Only the main m15 variant carries it: USB-C DisplayPort is the recovery display, so this fallback keeps the
+ * old behaviour (both PHYs registered as orientation switches).
+ */
+&usb_1_ss0_qmpphy {
+	orientation-switch;
+};
+
+&usb_1_ss1_qmpphy {
+	orientation-switch;
+};

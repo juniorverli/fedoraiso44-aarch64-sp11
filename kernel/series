@@ -39,6 +39,8 @@ hardware/touch-pen/patches/0021-spi-hid-of-disable-supply-on-reset-assert-failur
 hardware/wifi/patches/0002-wifi-ath12k-skip-broken-surface-rfkill.patch
 hardware/wifi/patches/0003-arm64-dts-qcom-denali-keep-cma-in-dma32.patch
 hardware/usb-typec/patches/0002-usb-typec-log-pmic-glink-and-ps8830-state.patch
+# M15: USB-C experiment: drop the QMP combo PHY orientation-switch in the packaged board DT (double-flip verdict); variants other than m15 re-add it.
+hardware/usb-typec/patches/0003-arm64-dts-qcom-x1p64100-microsoft-denali-drop-the-QMP-.patch
 # M10: read-only GLINK OPEN_ACK diagnostic (request R-K1 in hardware/dsp-subsystems/README.md); remove after evidence.
 hardware/dsp-subsystems/patches/0001-rpmsg-glink-log-open-ack-timeout.patch
 # M11: temporary FIFO diagnostic (dsp-subsystems R-K3); remove after evidence.

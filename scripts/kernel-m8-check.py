@@ -52,7 +52,7 @@ def main():
     parser.add_argument('--variant', choices=['packaged', 'm8', 'm8-notouch', 'm9', 'm9-notouch', 'm10', 'm10-notouch', 'm11', 'm11-notouch', 'm11-audio', 'm12', 'm12-notouch', 'm12-audio',
                                  'm13', 'm13-nosnd', 'm13-notouch', 'm13-spk', 'm13-gpu', 'm13-cam',
                                  'm14', 'm14-safe', 'm14-nosnd', 'm14-notouch', 'm14-spk',
-                                 'm15', 'm15-safe', 'm15-nosnd', 'm15-notouch', 'm15-spk'],
+                                 'm15', 'm15-safe', 'm15-nosnd', 'm15-notouch', 'm15-spk', 'm15-spectra'],
                         required=True)
     parser.add_argument('--baseline', type=Path)
     parser.add_argument('--previous', type=Path, help='M8 DTB: require only the CMA range addition')
@@ -63,6 +63,8 @@ def main():
     parser.add_argument('--cma-dma32', action='store_true', help='Require the M9 DMA32 CMA window')
     parser.add_argument('--volume-keys', action='store_true',
                         help='Require the ec-sam 0005 volume-key nodes (implied for m15 variants)')
+    parser.add_argument('--usb-orientation-dropped', action='store_true',
+                        help='Packaged DTB of series_rev 12: usb-typec 0003 removed the QMP PHY orientation-switch')
     parser.add_argument('--parity-in-base', action='store_true',
                         help='Require integrated LCD parity in the packaged board')
     args = parser.parse_args()
@@ -70,6 +72,18 @@ def main():
     require(not fallback or args.baseline is not None, 'Fallback check requires its baseline DTB')
     source, nodes = read_tree(args.dtb)
     symbols = {k: strings(v)[0] for k, v in nodes['/__symbols__'].items()}
+
+    # usb-typec 0003 (M15 experiment) deletes `orientation-switch` from both QMP combo PHYs in the PACKAGED DT.
+    # Only the main m15 variant keeps the deletion; every other M15 variant re-adds the property (old behaviour,
+    # USB-C DisplayPort recovery display), so that the fallbacks do not carry the experiment.
+    usb_orientation = None
+    if args.variant.startswith('m15') or args.usb_orientation_dropped:
+        phys = ['usb_1_ss0_qmpphy', 'usb_1_ss1_qmpphy']
+        usb_orientation = {l: 'orientation-switch' in nodes[symbols[l]] for l in phys}
+        keep_experiment = args.variant == 'm15' or (args.variant == 'packaged' and args.usb_orientation_dropped)
+        require(all(v == (not keep_experiment) for v in usb_orientation.values()),
+                f'{args.variant}: orientation-switch state {usb_orientation}, expected '
+                + ('absent (USB-C experiment)' if keep_experiment else 'present (old behaviour)'))
 
     cma_record = None
     if args.cma_dma32 or args.variant.startswith(('m9', 'm10', 'm11', 'm12', 'm13', 'm14', 'm15')):
@@ -124,7 +138,7 @@ def main():
         require(safety_json['speaker_marker'] is None, 'Speaker policy marker in a non-speaker DTB')
         require(node('swr0').get('status') == '\"disabled\"', 'swr0 is not disabled')
     mic_variants = ('m11-audio', 'm12-audio', 'm13', 'm13-notouch', 'm13-cam', 'm14', 'm14-safe', 'm14-notouch',
-                    'm15', 'm15-safe', 'm15-notouch')
+                    'm15', 'm15-safe', 'm15-notouch', 'm15-spectra')
     if spk:
         require(enabled('/sound'), 'm13-spk: sound card disabled')
     elif args.variant in mic_variants:
@@ -225,6 +239,24 @@ def main():
             require(enabled(symbols[label]), f'{args.variant}: {label} disabled')
         require(enabled('/camera-leds'), f'{args.variant}: indicator LED bank disabled')
         require(not enabled(symbols['cci1_i2c0']), f'{args.variant}: cci1_i2c0 must stay disabled')
+    elif args.variant == 'm15-spectra':
+        # Qualcomm Spectra path: the upstream camera stack is off, the downstream qcom,cam-* nodes carry the camera.
+        for label in camera_labels:
+            if label in symbols:
+                require(not enabled(symbols[label]), f'm15-spectra: upstream {label} must be disabled')
+        for path in rear + [p for p in nodes if 'sony,imx681' in nodes[p].get('compatible', '')
+                            or 'st,vd55g0' in nodes[p].get('compatible', '')]:
+            require(not enabled(path), f'm15-spectra: upstream sensor {path} effectively enabled')
+        require(enabled('/camera-leds') and any(enabled(p) for p in nodes if p.endswith('/regulators-8')),
+                'm15-spectra: rear rails or indicator LED bank disabled')
+        require(not enabled(symbols['cam_cci1']), 'm15-spectra: Qualcomm AON CCI (GPIO105 privacy LED) must stay disabled')
+        sensors = [p for p in nodes if nodes[p].get('compatible') == '"qcom,cam-sensor"' and enabled(p)]
+        require(len(sensors) == 1, f'm15-spectra: expected exactly one enabled qcom,cam-sensor, got {sensors}')
+        require(any('qcom,cam-cpas' in props.get('compatible', '') and enabled(p) for p, props in nodes.items()),
+                'm15-spectra: cam-cpas missing')
+        flash = [p for p, props in nodes.items() if any(t in props.get('compatible', '')
+                 for t in ('qcom,cam-flash', 'qcom,led-flash', 'qcom,actuator', 'qcom,ois', 'qcom,eeprom'))]
+        require(not flash, f'm15-spectra: flash/actuator/OIS/EEPROM nodes (S2): {flash}')
     elif args.variant.startswith(('m13', 'm14', 'm15')) or args.variant == 'packaged' and args.previous_m12:
         require(camera_present, 'Camera nodes missing in an M13/M14 DTB')
         require(not camera_on, f'Camera nodes enabled outside the camera diagnostic variants: {camera_on}')
@@ -295,6 +327,13 @@ def main():
             for key in sorted(set(a) | set(b)):
                 if a.get(key) != b.get(key):
                     changes.append({'path': path, 'property': key, 'before': a.get(key), 'after': b.get(key)})
+        if args.variant == 'm15-nosnd':
+            # Equals the packaged DTB except that the variant re-adds the two QMP PHY orientation switches
+            # (the packaged DT drops them, usb-typec 0003).
+            expected = [{'path': symbols[l], 'property': 'orientation-switch', 'before': None, 'after': ''}
+                        for l in ('usb_1_ss0_qmpphy', 'usb_1_ss1_qmpphy')]
+            require(sorted(changes, key=lambda c: c['path']) == sorted(expected, key=lambda c: c['path']),
+                    f'm15-nosnd differs from the packaged DTB beyond the orientation switches: {changes}')
         if fallback:
             expected = [{'path': touch_path, 'property': 'status', 'before': None, 'after': '"disabled"'}]
             require(changes == expected, f'Unexpected fallback changes: {changes}')
@@ -345,6 +384,12 @@ def main():
         # A changed property is allowed only as an added __symbols__ entry for such a node.
         # (apps_rsc, soc, tlmm and pinctrl gain disabled children only.)
         extra = [c for c in changed if not (c['path'] == '/__symbols__' and c['before'] is None)]
+        if args.usb_orientation_dropped:
+            usb_paths = {symbols['usb_1_ss0_qmpphy'], symbols['usb_1_ss1_qmpphy']}
+            usb = [c for c in extra if c['path'] in usb_paths and c['property'] == 'orientation-switch'
+                   and c['before'] == '' and c['after'] is None]
+            require(len(usb) == 2, f'Expected exactly the two orientation-switch removals relative to M12: {extra}')
+            extra = [c for c in extra if c not in usb]
         allowed = ('/volume-keys', '/sound/dp0-dai-link', '/sound/dp1-dai-link', '/camera-leds', '/soc@0/cci@', '/soc@0/isp@', '/soc@0/rsc@17500000/regulators-8',
                    '/soc@0/rsc@17500000/regulators-0/ldo7', '/soc@0/rsc@17500000/regulators-0/ldo16')
         require(not extra, f'Existing nodes changed relative to M12: {extra}')
@@ -357,7 +402,7 @@ def main():
                           camera_nodes_enabled=camera_on, diff_vs_m12=m12_changes, watched_count=len(watched),
                           wifi=dict(perst_gpio=146, wake_gpio=148, active_low=True, pinctrl='pcie4_default'),
                           usb_typec=dict(reset_gpio=176, pinctrl='rtmr1_default', drive_strength=2),
-                          dp_audio_links=dp_links, volume_keys=volume_keys,
+                          dp_audio_links=dp_links, usb_orientation_switch=usb_orientation, volume_keys=volume_keys,
                           cpu_count=len(cpus), no_system_ss3=parity,
                           gpu_enabled=enabled(symbols['gpu']),
                           microphone_only=args.variant in mic_variants,

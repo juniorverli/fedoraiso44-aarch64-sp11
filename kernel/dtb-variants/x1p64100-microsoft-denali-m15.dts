@@ -9,6 +9,19 @@
  */
 #include "x1p64100-microsoft-denali-m15-safe.dts"
 
+/*
+ * USB-C experiment (usb-typec patch 0003, hardware/usb-typec/evidence/2026-10-31-double-flip-verdict.md): only this
+ * variant runs without the QMP PHY orientation switches, as the packaged board DT does. m15-safe (and every other
+ * M15 variant) re-adds them, so the fallbacks keep the old behaviour.
+ */
+&usb_1_ss0_qmpphy {
+	/delete-property/ orientation-switch;
+};
+
+&usb_1_ss1_qmpphy {
+	/delete-property/ orientation-switch;
+};
+
 &gpu {
 	status = "okay";
 };

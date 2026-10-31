@@ -45,7 +45,7 @@ while IFS= read -r p; do
 done < "$KERNEL_REPO/kernel/series"
 
 mkdir -p "$stage"
-cp "$KERNEL_REPO/kernel/dtb-variants/"x1p64100-microsoft-denali-{parity,m12,m15,m15-safe,m15-nosnd,m15-notouch,m15-spk}.dts "$stage/"
+cp "$KERNEL_REPO/kernel/dtb-variants/"x1p64100-microsoft-denali-{parity,m12,m15,m15-safe,m15-nosnd,m15-notouch,m15-spk,m15-spectra}.dts "$stage/"
 m12dir="$SP11_OUT/dtb-variants/7.3.0-65.sp11.9.fc44.aarch64/qcom"
 for f in m12 m12-audio; do [[ -f $m12dir/x1p64100-microsoft-denali-$f.dtb ]] || die "missing M12 comparison DTB $f"; done
 # Preserve the historical parity source in git. New series already applies it;
@@ -79,9 +79,22 @@ canonical_source x1p64100-microsoft-denali
 
 # order matters: later variants use earlier source DTBs as baselines.
 #   variant       baseline (diff recorded; notouch must change only touch)   M12 DTB it must equal apart from disabled camera nodes
-declare -A baseline_of=( [m15-nosnd]="" [m15-safe]="" [m15]=m15-safe [m15-notouch]=m15-safe [m15-spk]="" )
-declare -A m12_of=( [m15-nosnd]=m12 [m15-safe]=m12-audio [m15]="" [m15-notouch]="" [m15-spk]="" )
-for name in m15-nosnd m15-safe m15 m15-notouch m15-spk; do
+declare -A baseline_of=( [m15-nosnd]="" [m15-safe]="" [m15]=m15-safe [m15-notouch]=m15-safe [m15-spk]="" [m15-spectra]=m15-safe )
+declare -A m12_of=( [m15-nosnd]=m12 [m15-safe]=m12-audio [m15]="" [m15-notouch]="" [m15-spk]="" [m15-spectra]="" )
+# m15-spectra needs Qualcomm's hamoa-camera.dtsi (BSD-3-Clause) and msm-camera.h (GPL-2.0-only) in the kernel tree
+# include path. Both licences are GPL-2.0 compatible, so the unmodified files are kept in git under
+# hardware/cameras/spectra/dt/ (cameras worker; pinned by SOURCE.txt and SHA256SUMS) and copied into the scratch tree
+# here, after every other variant, never into the packaged kernel or the RPMs.
+spectra_dt="$KERNEL_REPO/hardware/cameras/spectra/dt"
+install_spectra_inputs() {
+  ( cd "$spectra_dt" && grep -E '  (qcl/hamoa-camera\.dtsi|include/dt-bindings/camera/msm-camera\.h)$' SHA256SUMS | sha256sum -c - ) \
+    || die "Spectra DT inputs do not match their pins in $spectra_dt/SHA256SUMS"
+  mkdir -p "$src/include/dt-bindings/camera"
+  cp "$spectra_dt/qcl/hamoa-camera.dtsi" "$src/arch/arm64/boot/dts/qcom/"
+  cp "$spectra_dt/include/dt-bindings/camera/msm-camera.h" "$src/include/dt-bindings/camera/"
+}
+for name in m15-nosnd m15-safe m15 m15-notouch m15-spk m15-spectra; do
+  [[ $name != m15-spectra ]] || install_spectra_inputs
   full=x1p64100-microsoft-denali-$name
   rm -f "$SP11_OUT/build/dev-m15/arch/arm64/boot/dts/qcom/$full.dtb"
   "$KERNEL_REPO/scripts/kernel-dev.sh" --check m15 variant "$stage/$full.dts" \
@@ -89,7 +102,8 @@ for name in m15-nosnd m15-safe m15 m15-notouch m15-spk; do
   canonical_source "$full"
   built="$SP11_OUT/build/dev-m15/arch/arm64/boot/dts/qcom/$full.dtb"
   cmp "$checks/$full.source.dtb" "$built"
-  [[ $name != m15-nosnd || -z $packaged ]] || cmp "$built" "$packaged"
+  # m15-nosnd is the packaged DTB plus the two re-added QMP PHY orientation switches (usb-typec 0003): kernel-m8-check.py
+  # asserts exactly that difference against the packaged baseline, so there is no byte comparison any more.
   baseline="${packaged:-$checks/x1p64100-microsoft-denali.source.dtb}"
   [[ -z ${baseline_of[$name]} ]] || baseline="$checks/x1p64100-microsoft-denali-${baseline_of[$name]}.source.dtb"
   extra_args=()
@@ -101,7 +115,11 @@ for name in m15-nosnd m15-safe m15 m15-notouch m15-spk; do
   "$KERNEL_REPO/scripts/kernel-container.sh" run bash -e -c '
     schema=$1; dtb=$2; checks=$3; name=$4; repo=$5; baseline=$6; profile=$7; shift 7
     dt-validate -s "$schema" "$dtb" > "$checks/$name.dt-validate.log" 2>&1
-    if [ "$name" = m15-spk ]; then
+    if [ "$name" = m15-spectra ]; then
+      # Qualcomm unbound qcom,cam-* nodes only: every line must belong to a node added by hamoa-camera.dtsi.
+      python3 -I "$repo/scripts/kernel-dtb-spectra-lines.py" "$dtb" "$checks/x1p64100-microsoft-denali-m15-safe.source.dtb" \
+        "$checks/$name.dt-validate.log" "$checks/$name.build.log" > "$checks/$name.spectra-lines.json"
+    elif [ "$name" = m15-spk ]; then
       # The d26 marker has no binding: accept exactly its schema complaints, nothing else.
       ! grep -v "from schema" "$checks/$name.dt-validate.log" | grep -v "sp11,speaker-policy" | grep -q .
       grep -q "sp11,speaker-policy" "$checks/$name.dt-validate.log"
@@ -154,22 +172,33 @@ chain = {'m15-nosnd': (D + 'm12.dts', D + 'm15-nosnd.dts'),
          'm15-safe': (D + 'm12.dts', D + 'm15-safe.dts'),
          'm15': (D + 'm12.dts', D + 'm15-safe.dts', D + 'm15.dts'),
          'm15-notouch': (D + 'm12.dts', D + 'm15-safe.dts', D + 'm15-notouch.dts'),
-         'm15-spk': (D + 'm12.dts', D + 'm15-spk.dts')}
+         'm15-spk': (D + 'm12.dts', D + 'm15-spk.dts'),
+         'm15-spectra': (D + 'm12.dts', D + 'm15-safe.dts', D + 'm15-spectra.dts')}
 extra_sources = {}
-for name, previous in [('m15-nosnd', ''), ('m15-safe', ''), ('m15', '-m15-safe'), ('m15-notouch', '-m15-safe'), ('m15-spk', '')]:
+for name, previous in [('m15-nosnd', ''), ('m15-safe', ''), ('m15', '-m15-safe'), ('m15-notouch', '-m15-safe'), ('m15-spk', ''), ('m15-spectra', '-m15-safe')]:
     full = f'x1p64100-microsoft-denali-{name}'
     before, after = canonical(previous), canonical('-' + name)
     diff = list(difflib.unified_diff(before, after, fromfile='packaged' if not previous else previous[1:],
                                      tofile=name, lineterm=''))
     (checks / f'{name}.diff').write_text('\n'.join(diff) + '\n')
     includes = ['kernel/dtb-variants/x1p64100-microsoft-denali-parity.dts'] + list(chain[name])
+    if name == 'm15-spectra':
+        includes += ['hardware/cameras/spectra/dt/qcl/hamoa-camera.dtsi',
+                     'hardware/cameras/spectra/dt/include/dt-bindings/camera/msm-camera.h']
     profile = 'd26' if name == 'm15-spk' else 'default'
     log = (checks / f'{name}.build.log').read_text()
     timing = re.search(r'kernel-dev: m15 variant .* took (\d+) s', log)
     warnings = len([l for l in log.splitlines() if l.startswith(('arch/arm64/boot/dts/qcom/' + full + '.dtb:', full + '.dtb:'))
                     and 'sp11,speaker-policy' not in l])
     marker_lines = len([l for l in log.splitlines() if 'sp11,speaker-policy' in l])
-    assert warnings == 0, f'{name}: CHECK_DTBS diagnostics'
+    spectra = None
+    if name == 'm15-spectra':
+        # Qualcomm's unbound qcom,cam-* nodes: the classifier (scripts/kernel-dtb-spectra-lines.py) already accepted
+        # every CHECK_DTBS and dt-validate line or failed the variant; only this variant may carry diagnostics.
+        spectra = json.loads((checks / 'm15-spectra.spectra-lines.json').read_text())
+        assert spectra['unaccepted_lines'] == 0 and spectra['accepted_lines'] > 0
+    else:
+        assert warnings == 0, f'{name}: CHECK_DTBS diagnostics'
     assert timing and 'CONFIG_DEBUG_INFO_BTF=y' in (repo / 'out/build/dev-m15/.config').read_text()
     assert 'CONFIG_DEBUG_INFO_BTF_MODULES=y' in (repo / 'out/build/dev-m15/.config').read_text()
     dtb = checks / f'{full}.source.dtb'
@@ -179,9 +208,11 @@ for name, previous in [('m15-nosnd', ''), ('m15-safe', ''), ('m15', '-m15-safe')
         series_hash_sha256=release['series_hash_sha256'], patches_applied=patches,
         patch_subjects=subjects, patch_sha256={p: sha(repo / p) for p in patches},
         release_record=release_path, release_record_sha256=sha(Path(release_path)),
-        build_seconds=int(timing[1]), dt_validate_warning_lines='0',
-        checks=dict(dt_validate=dict(exit_code=0, diagnostic_lines=0 if name != 'm15-spk' else 'marker-only (sp11,speaker-policy has no binding)'),
+        build_seconds=int(timing[1]), dt_validate_warning_lines='0' if name != 'm15-spectra' else 'accepted Qualcomm lines only',
+        checks=dict(dt_validate=dict(exit_code=0, diagnostic_lines=0 if name not in ('m15-spk', 'm15-spectra') else
+                                     'marker-only (sp11,speaker-policy has no binding)' if name == 'm15-spk' else 'Qualcomm qcom,cam-* nodes only'),
                     check_dtbs=dict(exit_code=0, diagnostic_lines=warnings, marker_only_diagnostic_lines=marker_lines),
+                    spectra_accepted_diagnostics=spectra,
                     source_recompiled_dtb_identical=True, packaged_source_recompiled_dtb_identical=True,
                     s1_effective_status=json.loads((checks / f'{name}.safety.json').read_text()),
                     wiring=json.loads((checks / f'{name}.wiring.json').read_text()),

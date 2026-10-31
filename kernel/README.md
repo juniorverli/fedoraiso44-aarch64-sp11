@@ -664,9 +664,9 @@ JSON record SHA-256: `m14-nosnd.json` `de890de53281529fa68adb1a401ddf6588955c3b9
 
 `m14-spk` carries the same three known marker-only schema complaints about `/chosen/sp11,speaker-policy` as `m13-spk`. `m14` differs from `m14-safe` by the GPU status and the camera-chain statuses only (`m14.diff`). No device boot, no commit.
 
-## M15 series revision 12 (prepared 2026-10-31, NOT built)
+## M15 series revision 12 (built 2026-10-31)
 
-Revision 12 keeps the 69 M14 patches and appends 3 (72 in total): audio-speakers 0017 and 0018, ec-sam 0005. `dsp-subsystems/0003` is amended in place (same name, same position) and the cameras amendments keep their names, so `kernel/series` lists them unchanged. Prepared and checked on pinned v7.3 plus the whole series (`git apply --check` then apply, 72/72, run with `GIT_CEILING_DIRECTORIES` set: inside a larger repository `git apply` silently skips paths outside the current directory); `checkpatch --strict` clean (only the intentionally absent Signed-off-by and the "new file" MAINTAINERS notice for 0017); `Assisted-by: Claude Sonnet 5.5` on each new patch. `audioreach.o`, `audioreach-sp11.o` and `qcom_q6v5_pas.o` compile with `W=1` and no warning in a scratch composed tree (`out/linux/kernel-m15`, `out/build/dev-kernel-m15`; safe to delete).
+Revision 12 keeps the 69 M14 patches and adds 4 (73 in total): audio-speakers 0017 and 0018, ec-sam 0005, and usb-typec 0003 (listed right after usb-typec 0002 to keep the numeric order; it applies with an offset of -61 lines and zero fuzz, and no later patch changes). Series SHA-256: `f7844bf1eb71440b1e349e15d31ed339ce22da8823df5d9efebe0c54817cd5d0` (`series_sha256` in `kernel/base.toml`, PROVISIONAL comment removed). All 73 apply sequentially to a v7.3 export with `patch --batch --fuzz=0 -p1` (`GIT_CEILING_DIRECTORIES` set); only previously recorded offsets (plus the usb-typec 0003 offset) occur. `dsp-subsystems/0003` is amended in place (same name, same position) and the cameras amendments keep their names, so `kernel/series` lists them unchanged. Prepared and checked on pinned v7.3 plus the whole series (`git apply --check` then apply, 72/72, run with `GIT_CEILING_DIRECTORIES` set: inside a larger repository `git apply` silently skips paths outside the current directory); `checkpatch --strict` clean (only the intentionally absent Signed-off-by and the "new file" MAINTAINERS notice for 0017); `Assisted-by: Claude Sonnet 5.5` on each new patch. `audioreach.o`, `audioreach-sp11.o` and `qcom_q6v5_pas.o` compile with `W=1` and no warning in a scratch composed tree (`out/linux/kernel-m15`, `out/build/dev-kernel-m15`; safe to delete).
 
 | Position | Patch | Content |
 |--:|:--|:--|
@@ -686,22 +686,72 @@ Scripts: `scripts/kernel-dtb-m15.sh` (dispatched for series_rev 12), `milestone=
 |:--|:--|:--|
 | `m15` | microphones + DP links + rear/front/IR camera chains + GPU/GMU/zap ON, speakers off | default |
 | `m15-safe` | microphones + DP links only (GPU off, no camera node) | default |
-| `m15-nosnd` | M12 behaviour (sound and `swr0` off); equals the packaged DTB byte for byte | default |
+| `m15-nosnd` | M12 behaviour (sound and `swr0` off); equals the packaged DTB except the re-added QMP PHY orientation switches (see the built variants below) | default |
 | `m15-notouch` | `m15-safe` with only the touch child off | default |
 | `m15-spk` | M12 board + D26 marker + DP + closed-loop V/I fragment (WSA link restored). It cannot include `m15-safe`: the microphone fragment deletes `wsa-dai-link`, which the closed-loop fragment extends | d26 only; must fail `default` |
 
 DTB-only dry run (`scripts/kernel-dtb-m15.sh --preflight`, 4 min, no publication, the series as it stands before the camera amendments): all five pass `CHECK_DTBS=y` (0 diagnostics; `m15-spk` only the three marker lines), `dt-validate` (`m15-spk`: marker-only), S1 with the stated profile, wiring, volume keys, CMA and source recompile byte comparison. Provisional SHA-256 (they change once the camera amendments are merged): `m15-nosnd` `dd7ca301a9e8af86e1d29b983acf5b33b53292cb7b4611821c2c1fd4b4944a5c`, `m15-safe` `83b7da8dbdd87e563815be8b6543922cf1ad7af72bf5d1cdd7e9320bfb16f75f`, `m15` `0f950d15ac7b28f0ed660a185aae578dd75c217432b0832d5e9496d7ab414092`, `m15-notouch` `be176382df92b2e99e06f8e97f9bc8276b325c7244058324ed139d561adc567f`, `m15-spk` `7d0bc6b574053a0848f28ae8c195c16812568d24e7a4b344bcf775f3eec21f1b`. The JSON records come only from the non-preflight run (they cite the checked release record).
 
-### M15 build checklist (build agent)
+### M15 release artifacts
 
-1. Merge/rebase so that `kernel/series` names resolve: audio-speakers 0017/0018, dsp-subsystems 0003 (amended), cameras amendments, ec-sam 0005 are on the branch you build from. `git status` clean for `hardware/*/patches`.
-2. Recompute the series hash and put it in `kernel/base.toml` (`series_sha256`, remove the PROVISIONAL comment): `bash -c '. scripts/kernel-common.sh; kernel_series_hash'`.
-3. Compose check: for each line of `kernel/series`, `GIT_CEILING_DIRECTORIES=<parent> git apply --check -p1` then apply on a fresh v7.3 export (or let `scripts/kernel-dtb-m15.sh --preflight` do it with `patch --fuzz=0`).
-4. `scripts/kernel-dtb-m15.sh --preflight` (about 4 min, DT gates before the 55 min build).
-5. `scripts/kernel-build.sh -j 6` (runs `kernel-check`; expect kver `7.3.0-65.sp11.12.fc44.aarch64`), then `scripts/kernel-build.sh --check-only` if the in-script check stopped on an assertion.
-6. `scripts/kernel-dtb-variants.sh` (dispatches to `kernel-dtb-m15.sh`) for the five DTBs and JSON records.
-7. Verify: BTF in vmlinux and every module; `m15.json` has `new_modules` and `touch_modules`; `boot_diag_config` passes; `qcom_q6v5_pas` perm 0644; no `scmi_cpufreq.ko` expected (built in).
-8. Headroom guard (60 GiB) must pass; record sizes, hashes and times here.
+usb-typec 0003 (`hardware/usb-typec/patches/0003-...drop-the-QMP-.patch`) deletes `orientation-switch` from both QMP combo PHYs in the PACKAGED board DT (experiment, `hardware/usb-typec/evidence/2026-10-31-double-flip-verdict.md`). `kernel-check` asserts the property is absent in the packaged DTB (`--usb-orientation-dropped`, `scripts/kernel-m8-check.py`) and that the only difference to the M12 DTB beyond cameras/volume keys is those two removals.
+
+`scripts/kernel-build.sh -j 6`: rpmbuild rc 0, UTC `2026-10-31T19:31:10+00:00` to `2026-10-31T20:17:23+00:00`, **2773 s (46 min 13 s)**. The in-script `kernel-check` passed on the first run (**PASS**); no assertion needed a fix and no disk cleanup was needed (guard passed, minimum headroom 147 GiB). It archived sp11.11 into `out/rpms/archive/7.3.0-65.sp11.11/`; `kernel-devel-7.3.0-65.sp11.12.fc44.aarch64.rpm` (and `-matched`, `-debuginfo`) stay in `out/rpms/` for the Spectra module RPM.
+
+- BTF: `vmlinux` `.BTF` size `0x76c892`; **5935/5935** modules have BTF, none missing, no bad magic. 96 fragment symbols hold. Shipped config: `ARM_SCMI_CPUFREQ=y`, `KEYBOARD_GPIO=m`, `PM_DEBUG=y`, `PM_SLEEP_DEBUG=y`, `DEBUG_INFO_BTF=y`, `DEBUG_INFO_BTF_MODULES=y`, `SND_SOC_SP11_GUARD=m`, `SND_SOC_WSA884X=m`, `SND_SOC_X1E80100=m`, `VIDEO_IMX681=m`, `VIDEO_OV13858=m`, `VIDEO_QCOM_CAMSS=m`. `CHECK_DTBS=y` rc 0, 0 warning lines; packaged `dt-validate` clean; S1, GPU off, wiring, CMA, volume keys pass.
+- Modules present (`m15.new_modules` and payload): `sp11`, `snd-soc-wsa884x` (calls `sp11_guard_unmute_check`), `snd-soc-x1e80100` (calls `sp11_guard_check`), `imx681`, `ov13858`, `qcom-camss`, `i2c-qcom-cci`, `camcc-x1e80100`, `gpio_keys` (`drivers/input/keyboard/gpio_keys.ko.xz`), `leds-gpio`, `snd-q6apm`, `apr`, `snd-soc-lpass-wsa-macro`, `qcom_q6v5_pas` (`parm=keep_proxy_pds:`, perm `0644`), `surface_aggregator`, `ath12k`, `ps883x`, `pmic_glink_altmode`, `qcom_glink`.
+- Packaged LCD DTB SHA-256 `4d2d2fc4304beebd0d4cac001e4bb81eba833315ed35594bae3f62d5cedd5ccd`.
+- Peak cgroup 10116837376 bytes; ccache 99.58% (2239 direct + 24271 preprocessed hits, 113 misses).
+- Config SHA-256: fragment `97f07f853f97249d730e60a15f5f8e8143c2d14e549cacc277f8c317a9381834`; shipped `1a4b4a30baa6eb5a3eb26119498034f4e619bd5346b5cf95b0f68479373a2976`.
+- Release record `out/rpms/kernel-7.3.0-65.sp11.12.fc44.aarch64.json`, SHA-256 `661d0168cfd13d0366090390e84aa5eca23d18e7d35157e3ccd9e9c6e452594e`. Logs: `out/build/kernel/` (check tree `check/`).
+
+| RPM (revision 12, aarch64) | SHA-256 |
+|:--|:--|
+| `kernel-7.3.0-65.sp11.12.fc44.aarch64.rpm` | `0ce3e061d5ac324f20317ddfdfd8203be345e41e48ee74d34f2719efee7b86a3` |
+| `kernel-core-...` | `157613030216864358889962d955ad9aa4b718295b548feba6601c324cadc4c0` |
+| `kernel-debuginfo-...` | `7869c7fb7c3db7ab2fd2ab8edcfe4878b70a8360af1f59b7cd85f1e1c36dd5e0` |
+| `kernel-debuginfo-common-aarch64-...` | `e28d6997c151c4b84d289c594e5071890d7736b987e9121f7a1963999882f044` |
+| `kernel-devel-...` | `c8b3ca66699b171be59a6ef836c946cbdd89a90147ca6ce8dedf638d33e96841` |
+| `kernel-devel-matched-...` | `74bd286811483ee4d6b85dad858989e954ab1441f52c345381f7dfca4fafe516` |
+| `kernel-kmap-internal-...` | `638720cbb21ae86ee6c585a68e2eb37da719e53e73a1aff2f3d9d9604d872399` |
+| `kernel-modules-...` | `aa1a03e3521a8a6c487155e4c24108f210865c5544e2afacb5f666945f897649` |
+| `kernel-modules-core-...` | `2fcce64f22d5971e00760012ffc88f1b7aebdc53755edc2baebb9b6316ee3122` |
+| `kernel-modules-extra-...` | `666851398c072451d075de9badb8b1ba1d2122b9538f4769ef916485adc9458f` |
+| `kernel-modules-extra-matched-...` | `3871c095dc8d00736e8f48e169de57a605cd5bc9145b7313daa898014f7347fc` |
+| `kernel-modules-internal-...` | `4364a921206bd6eb01b9a9f9e4d68e5d623ce636eb205e09bc4bc9323117aad0` |
+| `kernel-uki-dtbloader-...` | `89adaee0fec32f97a37090eee3f067e3236a37d1099f558495ae493e4ec8ecf9` |
+| `kernel-uki-virt-...` | `26a07813a0cca3f282423d9209d4da8904a5788d95a9923396abe446078339d7` |
+| `kernel-uki-virt-addons-...` | `69286d21f728978b8832a5298000eef6162f22f497562cb9d29827fd1028e307` |
+
+### M15 DTB variants (six, built 2026-10-31)
+
+`scripts/kernel-dtb-variants.sh` (dispatching to `scripts/kernel-dtb-m15.sh`); output `out/dtb-variants/7.3.0-65.sp11.12.fc44.aarch64/qcom/`, checks in `out/build/dtb-m15-checks/`; complete run **269 s**. Preflight (4 min 27 s) passed before the release build.
+
+| Variant | Content | Profile |
+|:--|:--|:--|
+| `m15` | microphones + DP links + rear/front/IR camera chains + GPU/GMU/zap ON, speakers off; **the only variant with the USB-C experiment** (QMP PHY `orientation-switch` deleted, as in the packaged DT) | default |
+| `m15-safe` | microphones + DP links only (GPU off, no camera node); re-adds `orientation-switch` on both QMP PHYs (old behaviour) | default |
+| `m15-nosnd` | M12 behaviour (sound and `swr0` off) plus the re-added `orientation-switch` pair; it no longer equals the packaged DTB byte for byte: `kernel-m8-check.py` asserts that the only difference to the packaged baseline is those two properties | default |
+| `m15-notouch` | `m15-safe` with only the touch child off | default |
+| `m15-spk` | M12 board + D26 marker + DP + closed-loop V/I fragment, re-adds `orientation-switch` | d26 only; must fail `default`; exactly the three known marker lines |
+| `m15-spectra` | `m15-safe` content with the upstream camera stack off and Qualcomm's downstream Spectra DT (`hamoa-camera.dtsi`, 282 added nodes); DTB variant only, the module RPM is built later against the M15 kernel-devel | default; accepted Qualcomm diagnostic lines |
+
+The USB-C property check is a gate: `kernel-m8-check.py` (`usb_orientation_switch` in each `wiring.json`/JSON record) requires the property absent in `m15` and in the packaged DTB and present in `m15-safe`, `m15-nosnd`, `m15-notouch`, `m15-spk` and `m15-spectra`. All six DTBs pass `dt-validate`, S1 (stated profile), wiring, volume keys, CMA and the source-recompile byte comparison.
+
+**Spectra inputs and licences.** Qualcomm's `hamoa-camera.dtsi` (BSD-3-Clause) and `msm-camera.h` (GPL-2.0-only) are both GPL-2.0 compatible, so the unmodified files stay in git under `hardware/cameras/spectra/dt/` (cameras worker; pin `qualcomm-linux/kernel` `qcom-next` `17bbb4b37bbc4fc5827b4667445a0c43967c0f48`, `SOURCE.txt`, `SHA256SUMS`). `kernel-dtb-m15.sh` verifies the sha256 pins (dtsi `d44c9f6f...e1c9`, header `dc83de4e...fc8d`), copies them into the scratch tree `out/linux/m15` only before the `m15-spectra` build (after every other variant), and never into the kernel RPMs. Nothing is fetched at build time.
+
+**Accepted diagnostics, `m15-spectra` only** (`scripts/kernel-dtb-spectra-lines.py`; every other variant must keep 0 lines and the script fails on any other). `CHECK_DTBS=y` prints **637** lines for this variant; the classifier also accepts the `dt-validate` log (1115 lines in both logs together, 282 Qualcomm nodes added). A line passes only if its node was added by `hamoa-camera.dtsi` (or it is `soc@0`/the TLMM node naming such a child) and it is in one of six classes: `no-schema` (43, `failed to match any schema` for `qcom,cam-*`/`qcom,cci`/`qcom,csid*`), `untyped-property` (1010, vendor property such as `icp-version`, `reg-cam-base`, `clock-cntl-level`, `iova-region-*`, `hw-thigh` read as raw bytes), `required-property` (52, `'ranges'`/`#address-cells`/`#size-cells` on Qualcomm nodes under `simple-bus`), `nodename` (6), `compatible` (2, `qcom,camera_x1e80100`), `unevaluated` (2, the TLMM node listing Qualcomm's pin-state children). Nothing concerns the Surface nodes (regulators, leds, cci, camss, sound, GPU).
+
+| DTB | Profile | Build time | SHA-256 |
+|:--|:--|--:|:--|
+| `x1p64100-microsoft-denali-m15-nosnd.dtb` | default | 43 s | `dd7ca301a9e8af86e1d29b983acf5b33b53292cb7b4611821c2c1fd4b4944a5c` |
+| `x1p64100-microsoft-denali-m15-safe.dtb` | default | 11 s | `83b7da8dbdd87e563815be8b6543922cf1ad7af72bf5d1cdd7e9320bfb16f75f` |
+| `x1p64100-microsoft-denali-m15.dtb` | default | 11 s | `45a8abf25ce6e4a4e9ea6c7846a66526d50b3503e9a00765aa067c902558094a` |
+| `x1p64100-microsoft-denali-m15-notouch.dtb` | default | 11 s | `be176382df92b2e99e06f8e97f9bc8276b325c7244058324ed139d561adc567f` |
+| `x1p64100-microsoft-denali-m15-spk.dtb` | d26 only | 11 s | `7d0bc6b574053a0848f28ae8c195c16812568d24e7a4b344bcf775f3eec21f1b` |
+| `x1p64100-microsoft-denali-m15-spectra.dtb` | default | 13 s | `46bf0a6e58e0e40cfbd075df294b00189d60014a85a33a7fe9b2a647a5023eb8` |
+
+JSON record SHA-256: `m15-nosnd.json` `7db3065cbcc22c44f9a5a3c83492af522d473dc74eaa5a960d053a593d501ecc`; `m15-safe.json` `dccdec23c00f13cac7aba0cc3fe7bd7c29805b4e0bca9893bd00a40bfabd9bc8`; `m15.json` `e61ea4a16afc1a59e31e53aa9e3c9be9e12690cbf45e111ceea8951e13dd8870`; `m15-notouch.json` `81825e4a27447e0e14c5063e1e627ee359d926b92438518b3c27010499086e1b`; `m15-spk.json` `21b44b87eb0eedde01b9fb8e78a71c6e5456adb90e195f3bd6018e06286ff2d7`; `m15-spectra.json` `a2f835a21b2e211658769e8c24a1582712ed84fab2dd84f012a50122a0c1a9f7`. The re-added property makes the four non-experimental DTBs byte-identical to the values of the earlier dry run. No device boot.
 
 Risks: (a) the blob payload length assumes the topology tool writes the vendor array `size` including its 16-byte header; if it excludes it, the last record of a blob is cut and the module fails with `-EINVAL` (loud, not silent). (b) A public topology that already carries priv data on a module without a handler now sends it and may fail the stream open; the public Surface topology carries none. (c) Record stride assumes records are packed with 4-byte alignment (as `sp11cl`). (d) `CONFIG_ARM_SCMI_CPUFREQ=y` changes boot behaviour for every entry (cpufreq starts at boot): the image caps by default (S6). (e) `m15-spk` source differs from `m15-safe` by construction.
 
@@ -717,4 +767,5 @@ Risks: (a) the blob payload length assumes the topology tool writes the vendor a
 - 2026-10-30: built M12 revision 9 (37 patches; touch F-09, audio 0004/0005, amended GLINK 0001). Release 2993 s; kernel-check PASS, BTF in vmlinux/all 5934 modules; m12, m12-notouch, m12-audio DTBs equal M11. Freed 23 GiB of finished M11 scratch. No device test, no commit.
 - 2026-10-30: built M13 revision 10 (49 patches: GPR fix, D26 gate, DSP 0003, ec-sam 0007, cameras 0001-0005; tracing and camera config pinned). Release 3234 s; kernel-check PASS, BTF in vmlinux/all 5934 modules; six DTB variants (m13, nosnd, notouch, spk d26-only, gpu, cam) pass. No device test, no commit.
 - 2026-10-31: built M14 revision 11 (69 patches: closed-loop audio 0010-0016, camera C-PHY 0006-0010 and follow-ups 0011-0019). Release 3256 s; kernel-check PASS, BTF in vmlinux/all 5936 modules; five DTB variants (m14 combined default, m14-safe fallback, nosnd, notouch, spk d26-only) pass. No device test, no commit.
-- 2026-10-31: prepared M15 revision 12 (not built): audio 0017/0018, ec-sam 0005, amended DSP 0003, SCMI cpufreq built in, `kernel-dtb-m15.sh` and five variants (preflight PASS), M15 checks in kernel-check/m8-check/rpm-check. No release build, no commit.
+- 2026-10-31: built M15 revision 12 (73 patches incl. usb-typec 0003; six DTB variants incl. m15-spectra). Release 2773 s; kernel-check PASS, BTF in vmlinux/all 5935 modules; only m15 carries the USB-C experiment. No device test, no commit.
+- 2026-10-31: prepared M15 revision 12 (superseded by the build above): audio 0017/0018, ec-sam 0005, amended DSP 0003, SCMI cpufreq built in, `kernel-dtb-m15.sh` and five variants (preflight PASS), M15 checks in kernel-check/m8-check/rpm-check. No release build, no commit.
