@@ -101,3 +101,10 @@ hardware/cameras/patches/0016-media-i2c-add-a-driver-for-the-Sony-IMX681.patch
 hardware/cameras/patches/0017-dt-bindings-media-i2c-st-vd55g1-describe-the-VD55G0.patch
 hardware/cameras/patches/0018-arm64-dts-qcom-x1-microsoft-denali-describe-the-fron.patch
 hardware/cameras/patches/0019-arm64-dts-qcom-x1-microsoft-denali-describe-the-IR-c.patch
+# M15 (rev 12): audio-speakers 0017 (DisplayPort audio links for every variant with the sound card; needs 0003),
+# 0018 (AudioReach: private data of generic modules; never for the guard instances 0x4024-0x402b; needs 0014),
+# then ec-sam 0005 (volume keys, LCD board file only; needs CONFIG_KEYBOARD_GPIO).
+# dsp-subsystems 0003 and the cameras patches keep their names and positions: their amended content is picked up as is.
+hardware/audio-speakers/patches/0017-arm64-dts-qcom-x1-microsoft-denali-add-DisplayPort-a.patch
+hardware/audio-speakers/patches/0018-ASoC-qcom-audioreach-send-the-private-data-of-generi.patch
+hardware/ec-sam/patches/0005-arm64-dts-qcom-x1p64100-microsoft-denali-Add-the-vol.patch

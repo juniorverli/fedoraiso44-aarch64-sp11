@@ -1,0 +1,16 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * M15 speaker variant (decision D26, operator-authorised), staged behind a gate: the m15-safe card (M12 board
+ * DT, DisplayPort audio links, no camera node, GPU off) with the WSA link and the WSA bus restored, both WSA8845
+ * amplifiers, the closed-loop V/I and CPS feedback links, and /chosen/sp11,speaker-policy = "d26-open-loop-v1"
+ * (audio-speakers patches 0008 and 0016). It does not include the microphone fragment: that fragment deletes the
+ * WSA link, which the closed-loop fragment extends. The DisplayPort fragment of patch 0017 is included directly.
+ * The speaker guard of patch 0012 refuses playback and the amplifier unmute until the closed-loop protection is
+ * validated (patches 0009 to 0015).
+ * Any kernel that boots this DTB MUST contain audio-speakers patches 0001, 0002, 0004, 0005, 0006 to 0018.
+ * The packaged default DTB and every other M15 variant never include the marker.
+ */
+#include "x1p64100-microsoft-denali-m12.dts"
+#include "x1-microsoft-denali-audio-d26.dtsi"
+#include "x1-microsoft-denali-audio-dp.dtsi"
+#include "x1-microsoft-denali-audio-closedloop.dtsi"

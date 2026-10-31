@@ -664,6 +664,47 @@ JSON record SHA-256: `m14-nosnd.json` `de890de53281529fa68adb1a401ddf6588955c3b9
 
 `m14-spk` carries the same three known marker-only schema complaints about `/chosen/sp11,speaker-policy` as `m13-spk`. `m14` differs from `m14-safe` by the GPU status and the camera-chain statuses only (`m14.diff`). No device boot, no commit.
 
+## M15 series revision 12 (prepared 2026-10-31, NOT built)
+
+Revision 12 keeps the 69 M14 patches and appends 3 (72 in total): audio-speakers 0017 and 0018, ec-sam 0005. `dsp-subsystems/0003` is amended in place (same name, same position) and the cameras amendments keep their names, so `kernel/series` lists them unchanged. Prepared and checked on pinned v7.3 plus the whole series (`git apply --check` then apply, 72/72, run with `GIT_CEILING_DIRECTORIES` set: inside a larger repository `git apply` silently skips paths outside the current directory); `checkpatch --strict` clean (only the intentionally absent Signed-off-by and the "new file" MAINTAINERS notice for 0017); `Assisted-by: Claude Sonnet 5.5` on each new patch. `audioreach.o`, `audioreach-sp11.o` and `qcom_q6v5_pas.o` compile with `W=1` and no warning in a scratch composed tree (`out/linux/kernel-m15`, `out/build/dev-kernel-m15`; safe to delete).
+
+| Position | Patch | Content |
+|--:|:--|:--|
+| 70 | audio-speakers 0017 | `x1-microsoft-denali-audio-dp.dtsi` (`dp0-dai-link`, `dp1-dai-link`: `mdss_dp0`/`mdss_dp1` codec, `DISPLAY_PORT_RX_0`/`_1` cpu, as `hamoa-iot-evk.dts`) included by `x1-microsoft-denali-audio-mics.dtsi`. Only variants that enable `/sound` get them; the packaged DTB keeps `/sound` and `swr0` disabled (S1). `kernel-dtb-safety.py` needs no change: its WSA-link test matches `wsa` in the node or link name, and the DP links have neither |
+| 71 | audio-speakers 0018 | `audioreach_set_media_format()` default case sends `module->data` (complete `apm_module_param_data` records, payload length = blob size minus the 16-byte header, one SET_CFG per record). Whole blob validated first: record fits, non-zero, multiple of 4, at most 4 KiB, instance equals the module's own, else `-EINVAL`; a module with instance 0x4024-0x402b is skipped and a record naming one is refused with `-EPERM`. Named cases (SMECNS, SPv5, VI, CPS, SAL...) unchanged |
+| 72 | ec-sam 0005 | volume keys (PM8550 GPIO 6 and 8) in the packaged board DT; needs `CONFIG_KEYBOARD_GPIO=m` |
+
+dsp-subsystems 0003: `keep_proxy_pds` is now `0644`. It is read once per handover (`READ_ONCE`, one value for the log line and the decision); votes kept at the handover are released in `qcom_pas_stop()` whatever the parameter is by then; setting it after the handover affects the next start only; clearing it while held releases at the next stop. The parameter declaration moved below the includes.
+
+Config (`kernel/config/sp11.config`, 98 symbols, verified by the dev merge): `CONFIG_ARM_SCMI_CPUFREQ=y` (was `m`; soc-boot R-K2), plus pins `KEYBOARD_GPIO=m`, `PM_DEBUG=y`, `PM_SLEEP_DEBUG=y`. `scripts/kernel-check` (step 2b, series_rev >= 12) asserts those, `ARM_SCMI_CPUFREQ=y` and the ec-sam R2 set as `m` or `y`.
+
+Scripts: `scripts/kernel-dtb-m15.sh` (dispatched for series_rev 12), `milestone=m15` in `scripts/kernel-check` (release key `m15`), `--variant m15 m15-safe m15-nosnd m15-notouch m15-spk` and `--volume-keys` in `scripts/kernel-m8-check.py` (DP links checked for exact codec, cpu id 104/129 and platform; volume keys checked; GPU on in `m15` only), M15 asserts in `scripts/kernel-m8-rpm-check.py` (`wsa884x.o` calls `sp11_guard_unmute_check`, `x1e80100.o` calls `sp11_guard_check`, `qcom_q6v5_pas` `__param_keep_proxy_pds` perm `0644`, `snd-q6apm` carries the 0018 refusal strings).
+
+### M15 DTB variants (sources in `kernel/dtb-variants/`)
+
+| Variant | Content | Profile |
+|:--|:--|:--|
+| `m15` | microphones + DP links + rear/front/IR camera chains + GPU/GMU/zap ON, speakers off | default |
+| `m15-safe` | microphones + DP links only (GPU off, no camera node) | default |
+| `m15-nosnd` | M12 behaviour (sound and `swr0` off); equals the packaged DTB byte for byte | default |
+| `m15-notouch` | `m15-safe` with only the touch child off | default |
+| `m15-spk` | M12 board + D26 marker + DP + closed-loop V/I fragment (WSA link restored). It cannot include `m15-safe`: the microphone fragment deletes `wsa-dai-link`, which the closed-loop fragment extends | d26 only; must fail `default` |
+
+DTB-only dry run (`scripts/kernel-dtb-m15.sh --preflight`, 4 min, no publication, the series as it stands before the camera amendments): all five pass `CHECK_DTBS=y` (0 diagnostics; `m15-spk` only the three marker lines), `dt-validate` (`m15-spk`: marker-only), S1 with the stated profile, wiring, volume keys, CMA and source recompile byte comparison. Provisional SHA-256 (they change once the camera amendments are merged): `m15-nosnd` `dd7ca301a9e8af86e1d29b983acf5b33b53292cb7b4611821c2c1fd4b4944a5c`, `m15-safe` `83b7da8dbdd87e563815be8b6543922cf1ad7af72bf5d1cdd7e9320bfb16f75f`, `m15` `0f950d15ac7b28f0ed660a185aae578dd75c217432b0832d5e9496d7ab414092`, `m15-notouch` `be176382df92b2e99e06f8e97f9bc8276b325c7244058324ed139d561adc567f`, `m15-spk` `7d0bc6b574053a0848f28ae8c195c16812568d24e7a4b344bcf775f3eec21f1b`. The JSON records come only from the non-preflight run (they cite the checked release record).
+
+### M15 build checklist (build agent)
+
+1. Merge/rebase so that `kernel/series` names resolve: audio-speakers 0017/0018, dsp-subsystems 0003 (amended), cameras amendments, ec-sam 0005 are on the branch you build from. `git status` clean for `hardware/*/patches`.
+2. Recompute the series hash and put it in `kernel/base.toml` (`series_sha256`, remove the PROVISIONAL comment): `bash -c '. scripts/kernel-common.sh; kernel_series_hash'`.
+3. Compose check: for each line of `kernel/series`, `GIT_CEILING_DIRECTORIES=<parent> git apply --check -p1` then apply on a fresh v7.3 export (or let `scripts/kernel-dtb-m15.sh --preflight` do it with `patch --fuzz=0`).
+4. `scripts/kernel-dtb-m15.sh --preflight` (about 4 min, DT gates before the 55 min build).
+5. `scripts/kernel-build.sh -j 6` (runs `kernel-check`; expect kver `7.3.0-65.sp11.12.fc44.aarch64`), then `scripts/kernel-build.sh --check-only` if the in-script check stopped on an assertion.
+6. `scripts/kernel-dtb-variants.sh` (dispatches to `kernel-dtb-m15.sh`) for the five DTBs and JSON records.
+7. Verify: BTF in vmlinux and every module; `m15.json` has `new_modules` and `touch_modules`; `boot_diag_config` passes; `qcom_q6v5_pas` perm 0644; no `scmi_cpufreq.ko` expected (built in).
+8. Headroom guard (60 GiB) must pass; record sizes, hashes and times here.
+
+Risks: (a) the blob payload length assumes the topology tool writes the vendor array `size` including its 16-byte header; if it excludes it, the last record of a blob is cut and the module fails with `-EINVAL` (loud, not silent). (b) A public topology that already carries priv data on a module without a handler now sends it and may fail the stream open; the public Surface topology carries none. (c) Record stride assumes records are packed with 4-byte alignment (as `sp11cl`). (d) `CONFIG_ARM_SCMI_CPUFREQ=y` changes boot behaviour for every entry (cpufreq starts at boot): the image caps by default (S6). (e) `m15-spk` source differs from `m15-safe` by construction.
+
 ## Log
 
 - 2026-10-29: built M8 revision 5 (25 patches; RFC 0014 retired; spi-hid/QSPI touch and packaged GPU isolation). Release 3313 s; kernel-check PASS with BTF in vmlinux and all 5934 modules, 73 config symbols, packaged schema/S1/GPU/wiring and eight RPM module payload checks. M8/M8-notouch DTBs and JSON pass (63/14 s; complete run 214.464 s). Final index/syntax/whitespace checks pass; build/source locks are free and no task process remains. Recorded hashes/times and explicit image/owner requests; no device test. Changes remain uncommitted for the orchestrator (D24).
@@ -676,3 +717,4 @@ JSON record SHA-256: `m14-nosnd.json` `de890de53281529fa68adb1a401ddf6588955c3b9
 - 2026-10-30: built M12 revision 9 (37 patches; touch F-09, audio 0004/0005, amended GLINK 0001). Release 2993 s; kernel-check PASS, BTF in vmlinux/all 5934 modules; m12, m12-notouch, m12-audio DTBs equal M11. Freed 23 GiB of finished M11 scratch. No device test, no commit.
 - 2026-10-30: built M13 revision 10 (49 patches: GPR fix, D26 gate, DSP 0003, ec-sam 0007, cameras 0001-0005; tracing and camera config pinned). Release 3234 s; kernel-check PASS, BTF in vmlinux/all 5934 modules; six DTB variants (m13, nosnd, notouch, spk d26-only, gpu, cam) pass. No device test, no commit.
 - 2026-10-31: built M14 revision 11 (69 patches: closed-loop audio 0010-0016, camera C-PHY 0006-0010 and follow-ups 0011-0019). Release 3256 s; kernel-check PASS, BTF in vmlinux/all 5936 modules; five DTB variants (m14 combined default, m14-safe fallback, nosnd, notouch, spk d26-only) pass. No device test, no commit.
+- 2026-10-31: prepared M15 revision 12 (not built): audio 0017/0018, ec-sam 0005, amended DSP 0003, SCMI cpufreq built in, `kernel-dtb-m15.sh` and five variants (preflight PASS), M15 checks in kernel-check/m8-check/rpm-check. No release build, no commit.

@@ -1,0 +1,3 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/* M15 no-sound fallback: exactly the M12 behaviour (/sound and swr0 off, touch on, GPU off). */
+#include "x1p64100-microsoft-denali-m12.dts"
