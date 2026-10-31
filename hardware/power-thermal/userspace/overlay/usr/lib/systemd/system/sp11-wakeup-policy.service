@@ -1,0 +1,12 @@
+[Unit]
+Description=SP11 opt-in: only the power button and the lid wake the system
+ConditionKernelCommandLine=sp11.wakeup_policy
+After=systemd-udev-settle.service multi-user.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/sp11/power-thermal/sp11-suspend-policy.sh wakeup
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,60 @@
+#!/usr/bin/bash
+# sp11-cpuidle-guard: forbid the PSCI "cpu-sleep-0" cpuidle state while the machine suspends to idle, then
+# restore exactly what was there before. Safety net for the failure reported by the Ubuntu SP11 project
+# (hard reset at "PM: suspend entry (s2idle)", cured by disabling cpu-sleep-0). We do not yet know whether
+# our ten-CPU parity DT needs it (hardware/power-thermal/evidence/2026-10-31-suspend-thermal.md), so the
+# system-sleep hook applies it by default and sp11.suspend_cpuidle_guard=0 turns it off for the experiment.
+# The state is found by NAME, never by index. It only toggles the standard cpuidle sysfs "disable" files.
+#   sp11-cpuidle-guard disable|enable|status
+set -u
+export LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin
+NAME=cpu-sleep-0
+STATE_DIR=/run/sp11-suspend-diag
+PREV=$STATE_DIR/cpuidle-prev
+mkdir -p "$STATE_DIR"
+
+each_state() { # prints the disable file of every CPU state called $NAME
+	local f
+	for f in /sys/devices/system/cpu/cpu[0-9]*/cpuidle/state*/name; do
+		[ -r "$f" ] || continue
+		[ "$(cat "$f" 2>/dev/null)" = "$NAME" ] && echo "${f%/name}/disable"
+	done
+}
+
+case ${1:-status} in
+disable)
+	n=0
+	: >"$PREV.new"
+	for s in $(each_state); do
+		[ -w "$s" ] || continue
+		echo "$s $(cat "$s")" >>"$PREV.new"
+		echo 1 >"$s" && n=$((n + 1))
+	done
+	# a second "disable" must not overwrite the true previous values with our own 1s
+	[ -s "$PREV" ] || mv -f "$PREV.new" "$PREV"
+	rm -f "$PREV.new"
+	logger -t sp11-cpuidle-guard "disabled $NAME on $n CPUs"
+	;;
+enable)
+	n=0
+	if [ -s "$PREV" ]; then
+		while read -r s v; do
+			[ -w "$s" ] && echo "${v:-0}" >"$s" && n=$((n + 1))
+		done <"$PREV"
+		rm -f "$PREV"
+	fi
+	logger -t sp11-cpuidle-guard "restored $NAME on $n CPUs"
+	;;
+status)
+	t=0 d=0
+	for s in $(each_state); do
+		t=$((t + 1))
+		[ "$(cat "$s")" = 1 ] && d=$((d + 1))
+	done
+	echo "$NAME: $d/$t CPUs disabled"
+	;;
+*)
+	echo "usage: $0 disable|enable|status" >&2
+	exit 2
+	;;
+esac

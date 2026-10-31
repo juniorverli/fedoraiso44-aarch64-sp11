@@ -1,0 +1,16 @@
+[Unit]
+Description=SP11 suspend diagnostic ladder (OPT-IN: sp11.suspend_diag=N; may hang or reset the device)
+# NEVER automatic. Runs only when the kernel line carries sp11.suspend_diag=1|2|3|4. A hang needs a hard
+# reset (hold the power button about 20 s). Details: hardware/power-thermal/test-plan.md section 1.
+ConditionKernelCommandLine=sp11.suspend_diag
+After=multi-user.target graphical.target sp11-log-collector.service
+Wants=sp11-log-collector.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/sp11/power-thermal/sp11-suspend-diag
+TimeoutStartSec=infinity
+StandardOutput=journal+console
+
+[Install]
+WantedBy=multi-user.target

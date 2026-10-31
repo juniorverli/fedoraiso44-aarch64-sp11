@@ -1,0 +1,30 @@
+#!/usr/bin/bash
+# systemd system-sleep hook (/usr/lib/systemd/system-sleep/, the only directory systemd 259 reads).
+# $1 = pre|post, $2 = suspend|hibernate|... Records the state around a normal suspend (so one boot shows
+# what happened) and applies the cpu-sleep-0 guard. It never changes a thermal or charging limit (S6) and
+# never touches a DSP or the SAM link: observation only, except the guard.
+export LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin
+D=/run/sp11-suspend-diag
+LOG=$D/hook.log
+mkdir -p "$D"
+note() { echo "$(date -u +%FT%TZ) up=$(cut -d' ' -f1 /proc/uptime) $*" >>"$LOG"; }
+stats() {
+	echo "success=$(cat /sys/power/suspend_stats/success 2>/dev/null) fail=$(cat /sys/power/suspend_stats/fail 2>/dev/null)" \
+		"last_failed_dev=$(cat /sys/power/suspend_stats/last_failed_dev 2>/dev/null) last_failed_step=$(cat /sys/power/suspend_stats/last_failed_step 2>/dev/null)" \
+		"last_failed_errno=$(cat /sys/power/suspend_stats/last_failed_errno 2>/dev/null)"
+}
+inputs() { grep -ciE 'Surface|Keyboard|Touchpad|Mouse' /sys/class/input/input*/name 2>/dev/null | awk -F: '{s+=$NF} END{print s+0}'; }
+guard_wanted() { ! grep -qw 'sp11.suspend_cpuidle_guard=0' /proc/cmdline; }
+
+case "$1/$2" in
+pre/suspend)
+	note "PRE suspend: $(stats) cover_inputs=$(inputs) bl=$(cat /sys/class/backlight/backlight/brightness 2>/dev/null) mem_sleep='$(cat /sys/power/mem_sleep 2>/dev/null)'"
+	if guard_wanted; then /usr/libexec/sp11/power-thermal/sp11-cpuidle-guard disable; note "guard: $(/usr/libexec/sp11/power-thermal/sp11-cpuidle-guard status)"; else note "guard: off (sp11.suspend_cpuidle_guard=0)"; fi
+	;;
+post/suspend)
+	guard_wanted && /usr/libexec/sp11/power-thermal/sp11-cpuidle-guard enable
+	note "POST suspend: $(stats) wake_irq='$(cat /sys/power/pm_wakeup_irq 2>/dev/null)' cover_inputs=$(inputs) bl=$(cat /sys/class/backlight/backlight/brightness 2>/dev/null)"
+	dmesg 2>/dev/null | grep -E 'PM: |ssam|surface_aggregator|D0-|display-o' | tail -n 25 >>"$LOG"
+	;;
+esac
+exit 0

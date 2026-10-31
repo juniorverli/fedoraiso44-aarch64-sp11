@@ -1,0 +1,81 @@
+#!/usr/bin/bash
+# sp11-thermal-sample: read-only sampler. One CSV row per interval in /run/sp11-thermal/thermal.csv:
+# every thermal zone (mC), cpufreq current frequency per policy (kHz), battery energy/power/status, and with
+# sp11.thermal_log=sam the SAM hwmon temperatures and the fan RPM (UART requests, hence opt-in).
+# It writes nothing except its own CSV. No limit is read-write: it cannot raise any trip (S6).
+# The only action: when a stress-ng or stress process is running and a zone reaches ABORT_MC (default
+# 85000 mC, below the 90000 mC "hot" trips Linux ships and below every Windows passive value found), the
+# stress processes get SIGTERM and the event is logged. That is a LOWER ceiling than any shipped limit.
+#   sp11-thermal-sample [INTERVAL_S]   (default 10)
+set -u
+export LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin
+INTERVAL=${1:-10}
+ABORT_MC=${SP11_THERMAL_ABORT_MC:-85000}
+OUT=${SP11_OUT:-/run/sp11-thermal}
+CSV=$OUT/thermal.csv
+mkdir -p "$OUT"
+sam=0
+grep -qE 'sp11\.thermal_log=sam' /proc/cmdline && sam=1
+
+hdr=()
+zones=()
+for z in /sys/class/thermal/thermal_zone*; do
+	[ -r "$z/temp" ] || continue
+	zones+=("$z")
+	hdr+=("z:$(basename "$z" | sed 's/thermal_zone//'):$(cat "$z/type" 2>/dev/null)")
+done
+pols=(/sys/devices/system/cpu/cpufreq/policy*)
+for p in "${pols[@]}"; do [ -d "$p" ] && hdr+=("khz:$(basename "$p")"); done
+hdr+=(bat_status bat_capacity bat_energy_uwh bat_power_uw max_zone_mc)
+((sam)) && hdr+=(sam_fan_rpm sam_temps_mc)
+
+write_header() { (
+	IFS=,
+	echo "epoch,uptime,${hdr[*]}"
+) >"$CSV"; }
+[ -s "$CSV" ] || write_header
+ps_bat=$(ls -d /sys/class/power_supply/BAT* 2>/dev/null | head -1)
+rd() { timeout 3 cat "$1" 2>/dev/null | tr -d '\n,'; }
+
+n=0
+while :; do
+	row=("$(date +%s)" "$(cut -d' ' -f1 /proc/uptime)")
+	max=0
+	for z in "${zones[@]}"; do
+		t=$(rd "$z/temp")
+		row+=("${t:-}")
+		[ -n "$t" ] && [ "$t" -gt "$max" ] 2>/dev/null && max=$t
+	done
+	for p in "${pols[@]}"; do [ -d "$p" ] && row+=("$(rd "$p/scaling_cur_freq")"); done
+	if [ -n "$ps_bat" ]; then
+		row+=("$(rd "$ps_bat/status")" "$(rd "$ps_bat/capacity")" "$(rd "$ps_bat/energy_now")" "$(rd "$ps_bat/power_now")")
+	else
+		row+=("" "" "" "")
+	fi
+	row+=("$max")
+	if ((sam)); then
+		fan="" temps=""
+		for h in /sys/class/hwmon/hwmon*; do
+			case "$(rd "$h/name")" in
+			surface_fan) fan=$(rd "$h/fan1_input") ;;
+			surface_temp) for t in "$h"/temp*_input; do [ -e "$t" ] && temps="$temps$(rd "$t")/"; done ;;
+			esac
+		done
+		row+=("$fan" "${temps%/}")
+	fi
+	(
+		IFS=,
+		echo "${row[*]}" >>"$CSV"
+	)
+	if [ "$max" -ge "$ABORT_MC" ] && pgrep -x 'stress-ng|stress' >/dev/null 2>&1; then
+		logger -t sp11-thermal-sample "ABORT: zone at ${max} mC >= ${ABORT_MC}; stopping stress processes"
+		echo "# ABORT $(date -u +%FT%TZ) max=${max}" >>"$CSV"
+		pkill -TERM -x stress-ng
+		pkill -TERM -x stress
+	fi
+	n=$((n + 1))
+	if [ $((n % 300)) -eq 0 ] && [ "$(stat -c %s "$CSV")" -gt 4194304 ]; then
+		tail -n 4000 "$CSV" >"$CSV.new" && mv -f "$CSV.new" "$CSV"
+	fi
+	sleep "$INTERVAL"
+done

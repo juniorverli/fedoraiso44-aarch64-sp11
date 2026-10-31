@@ -1,0 +1,14 @@
+[Unit]
+Description=SP11 opt-in: lid close suspends
+# Opt-in (sp11.suspend_lid on the kernel line). Written before logind starts so no reload is needed.
+ConditionKernelCommandLine=sp11.suspend_lid
+DefaultDependencies=no
+Before=systemd-logind.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/sp11/power-thermal/sp11-suspend-policy.sh lid
+
+[Install]
+WantedBy=sysinit.target

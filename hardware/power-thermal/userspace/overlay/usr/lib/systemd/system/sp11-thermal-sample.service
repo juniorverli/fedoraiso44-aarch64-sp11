@@ -1,0 +1,17 @@
+[Unit]
+Description=SP11 read-only thermal and power sampler (CSV in /run/sp11-thermal)
+# Opt-in: sp11.thermal_log=1 (tsens zones, cpufreq, battery) or sp11.thermal_log=sam (adds the SAM hwmon
+# temperatures and fan RPM, which are UART requests). Reads only; the only action is to stop a running
+# stress-ng/stress when a zone reaches the abort temperature, a LOWER limit than any trip.
+ConditionKernelCommandLine=sp11.thermal_log
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/sp11/power-thermal/sp11-thermal-sample
+Nice=10
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

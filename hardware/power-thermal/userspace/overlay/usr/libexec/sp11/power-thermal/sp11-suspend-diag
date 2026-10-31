@@ -1,0 +1,188 @@
+#!/usr/bin/bash
+# sp11-suspend-diag: pm_test-based suspend diagnostic ladder. OPT-IN ONLY.
+#
+# *** WARNING *** The real-suspend steps can hang the machine or reset it. The pm_test steps resume by
+# themselves after pm_test_delay seconds and do not power the SoC down, but a driver that hangs in its
+# suspend callback still hangs the device. Hard-reset path: hold the power button until the device is off
+# (Microsoft's procedure for forcing a Surface shutdown is about 20 s; if it stays dead, hold Volume Up and
+# Power for 15 s, release, wait 10 s, then power on; not verified on this unit). The BOOT USB STICK SURVIVES
+# a hard reset: every step is written to the boot medium BEFORE the risky action, so the next boot's log set
+# shows the last step that began and never ended.
+#
+# Started only by sp11-suspend-diag.service, which needs "sp11.suspend_diag=N" on the kernel command line:
+#   1  pm_test freezer, devices, platform           (no SoC power-down, auto resume after 5 s)
+#   2  = 1 + real s2idle with the cpu-sleep-0 guard  (needs a manual wake: power button or lid open)
+#   3  = 2 + real s2idle WITHOUT the guard           (tests whether the guard is needed; may reset the device)
+#   4  = 3 + pm_test processors, core on "deep"      (only if /sys/power/mem_sleep lists deep; s2idle rejects
+#                                                     processors/core: kernel/power/suspend.c:583)
+# Companion arguments: sp11.suspend_diag_skip=step,step   sp11.suspend_diag_from=step
+# Steps in order: freezer devices platform processors core real-guard real-noguard
+#
+# It reads and records; the only writes are /sys/power/{pm_test,pm_debug_messages,pm_print_times,state},
+# the cpuidle guard, and /run/sp11-suspend-diag. No DSP, SAM, charging or thermal setting is touched.
+set -u
+export LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin
+D=/run/sp11-suspend-diag
+LOG=$D/ladder.log
+GUARD=/usr/libexec/sp11/power-thermal/sp11-cpuidle-guard
+FLUSH=${SP11_DIAG_FLUSH:-/usr/libexec/sp11-log-collector once}
+DELAY=${SP11_DIAG_DELAY:-150}
+STEPS="freezer devices platform processors core real-guard real-noguard"
+mkdir -p "$D"
+
+arg() { sed -En "s/^(.* )?$1=([^ ]*).*/\2/p" /proc/cmdline | head -1; }
+LEVEL=$(arg sp11.suspend_diag)
+SKIP=,$(arg sp11.suspend_diag_skip),
+FROM=$(arg sp11.suspend_diag_from)
+case ${LEVEL:-} in 1 | 2 | 3 | 4) ;; *) echo "sp11-suspend-diag: sp11.suspend_diag=1|2|3|4 required, got '${LEVEL:-}'" >&2; exit 0 ;; esac
+[ -e "$D/done" ] && { echo "sp11-suspend-diag: already ran in this boot"; exit 0; }
+: >"$D/done"
+
+say() { echo "$(date -u +%FT%TZ) up=$(cut -d' ' -f1 /proc/uptime) $*" | tee -a "$LOG" >/dev/null; echo "sp11-suspend-diag: $*" >&2; echo "sp11-suspend-diag: $*" >/dev/console 2>/dev/null; }
+rd() { timeout 3 cat "$1" 2>/dev/null | tr '\n' ' '; }
+# Durable copy to the boot medium (risk S4: the collector writes only to the boot disk).
+flush() { sync; timeout 240 $FLUSH >/dev/null 2>&1 || say "WARNING: flush failed ($FLUSH); evidence only in RAM"; sync; }
+
+stats() {
+	echo "success=$(rd /sys/power/suspend_stats/success)fail=$(rd /sys/power/suspend_stats/fail)" \
+		"failed_freeze=$(rd /sys/power/suspend_stats/failed_freeze)failed_prepare=$(rd /sys/power/suspend_stats/failed_prepare)" \
+		"failed_suspend=$(rd /sys/power/suspend_stats/failed_suspend)failed_suspend_late=$(rd /sys/power/suspend_stats/failed_suspend_late)" \
+		"failed_suspend_noirq=$(rd /sys/power/suspend_stats/failed_suspend_noirq)failed_resume=$(rd /sys/power/suspend_stats/failed_resume)" \
+		"last_failed_dev=$(rd /sys/power/suspend_stats/last_failed_dev)last_failed_step=$(rd /sys/power/suspend_stats/last_failed_step)last_failed_errno=$(rd /sys/power/suspend_stats/last_failed_errno)"
+}
+cover_inputs() { local n; for i in /sys/class/input/input*/name; do n=$(cat "$i" 2>/dev/null); case "$n" in *Surface* | *Keyboard* | *Touchpad* | *Mouse*) printf '%s;' "$n" ;; esac; done; }
+sam_state() {
+	echo "sam_devices=$(ls /sys/bus/surface_aggregator/devices 2>/dev/null | wc -l) hub=$(ls /sys/bus/platform/devices 2>/dev/null | grep -c surface_aggregator_platform_hub)" \
+		"sam_errors=$(dmesg 2>/dev/null | grep -ciE 'ssam.*(error|fail|timeout)|surface_aggregator.*(error|fail|timeout)|-71|-110')"
+}
+display_state() {
+	echo "bl=$(rd /sys/class/backlight/backlight/brightness)bl_power=$(rd /sys/class/backlight/backlight/bl_power)"
+	for c in /sys/class/drm/card*-eDP-*; do [ -e "$c/status" ] && echo "$(basename "$c"):status=$(rd "$c/status")enabled=$(rd "$c/enabled")dpms=$(rd "$c/dpms")"; done
+}
+rproc_state() { for r in /sys/class/remoteproc/remoteproc*; do [ -d "$r" ] && printf '%s=%s;' "$(cat "$r/name")" "$(cat "$r/state")"; done; }
+snap() { # snap LABEL
+	say "  [$1] $(stats)"
+	say "  [$1] cover_inputs='$(cover_inputs)' $(sam_state)"
+	say "  [$1] display: $(display_state | tr '\n' ' ')"
+	say "  [$1] rproc: $(rproc_state) cpuidle_guard: $($GUARD status 2>&1) thermal_max_mC=$(cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null | sort -n | tail -1)"
+}
+pm_dmesg() { dmesg 2>/dev/null | tail -n +"$(($1 + 1))" | grep -E 'PM:|suspend|resume|ssam|surface_aggregator|serial1|D0-|display-|msm|panel|pcie|nvme|usb|ath12k|psci|cpuidle|genpd|remoteproc|glink|thermal|WARNING|BUG|Oops|Call trace' | cut -c1-220 | head -"${2:-120}"; }
+
+battery_ok() {
+	local c
+	c=$(cat /sys/class/power_supply/BAT1/capacity 2>/dev/null)
+	[ -z "$c" ] && return 0
+	[ "$c" -ge 30 ]
+}
+
+step_enabled() { # step_enabled NAME MINLEVEL
+	case $SKIP in *,"$1",*) say "step $1 skipped (sp11.suspend_diag_skip)"; return 1 ;; esac
+	[ "$LEVEL" -ge "$2" ] || return 1
+	if [ -n "$FROM" ]; then
+		case " $STEPS " in *" $FROM "*) ;; *) say "unknown sp11.suspend_diag_from=$FROM; running everything"; FROM= ;; esac
+	fi
+	if [ -n "$FROM" ]; then
+		local s
+		for s in $STEPS; do
+			[ "$s" = "$FROM" ] && break
+			[ "$s" = "$1" ] && { say "step $1 skipped (before sp11.suspend_diag_from=$FROM)"; return 1; }
+		done
+	fi
+	return 0
+}
+
+banner_real() {
+	local msg
+	msg="SUSPEND TEST ($1) in 20 s. Wake: press the POWER BUTTON, or open the lid. If nothing wakes it after 2 minutes: HARD RESET (hold the power button about 20 s until off; else Volume Up + Power 15 s). Logs are on the boot stick."
+	say "$msg"
+	wall "$msg" 2>/dev/null
+	for _ in 1 2 3 4; do sleep 5; sync; done
+}
+
+wake_source_ok() {
+	local w ok=1
+	for w in $(find /sys/devices -path '*pwrkey*/power/wakeup' -o -path '*/gpio-keys/power/wakeup' 2>/dev/null); do
+		[ "$(cat "$w" 2>/dev/null)" = enabled ] && { say "  wake source enabled: ${w#/sys/devices/}"; ok=0; }
+	done
+	return $ok
+}
+
+run_pm_test() { # run_pm_test LEVEL [STATE]
+	local lvl=$1 state=${2:-freeze} n0 t0 t1 rc
+	[ -w /sys/power/pm_test ] || { say "pm_test unavailable (CONFIG_PM_SLEEP_DEBUG?)"; return 2; }
+	snap "before-$lvl"
+	say "BEGIN pm_test=$lvl state=$state"
+	flush
+	echo 1 >/sys/power/pm_debug_messages 2>/dev/null
+	echo 1 >/sys/power/pm_print_times 2>/dev/null
+	echo "$lvl" >/sys/power/pm_test || { say "cannot select pm_test=$lvl"; return 2; }
+	n0=$(dmesg 2>/dev/null | wc -l)
+	t0=$(date +%s)
+	timeout 90 sh -c "echo $state >/sys/power/state"
+	rc=$?
+	t1=$(date +%s)
+	echo none >/sys/power/pm_test
+	pm_dmesg "$n0" 160 >"$D/step-$lvl.dmesg"
+	say "END pm_test=$lvl rc=$rc took=$((t1 - t0))s (expect about 5 s plus suspend time; rc 124 = timeout, 1 = write error)"
+	head -40 "$D/step-$lvl.dmesg" | while IFS= read -r l; do say "    $l"; done
+	say "  wake_irq='$(rd /sys/power/pm_wakeup_irq)'"
+	snap "after-$lvl"
+	flush
+	return $rc
+}
+
+run_real() { # run_real guard|noguard
+	local mode=$1 n0 t0 t1 rc
+	battery_ok || { say "real-$mode refused: battery below 30 percent"; return 2; }
+	wake_source_ok || { say "real-$mode refused: no power-button or lid wake source is enabled; the device could not wake"; return 2; }
+	[ "$(rd /sys/power/mem_sleep | grep -c '\[s2idle\]')" -ge 1 ] || say "  note: mem_sleep='$(rd /sys/power/mem_sleep)' (s2idle not the selected mode; writing freeze anyway)"
+	snap "before-real-$mode"
+	say "BEGIN real-$mode (cpu-sleep-0 $([ "$mode" = guard ] && echo DISABLED || echo ENABLED) during the suspend)"
+	flush
+	banner_real "real-$mode"
+	echo 1 >/sys/power/pm_debug_messages 2>/dev/null
+	echo 1 >/sys/power/pm_print_times 2>/dev/null
+	echo none >/sys/power/pm_test 2>/dev/null
+	[ "$mode" = guard ] && "$GUARD" disable
+	n0=$(dmesg 2>/dev/null | wc -l)
+	t0=$(date +%s)
+	say "ENTERING s2idle now (marker written)"
+	sync
+	echo freeze >/sys/power/state
+	rc=$?
+	t1=$(date +%s)
+	[ "$mode" = guard ] && "$GUARD" enable
+	pm_dmesg "$n0" 200 >"$D/step-real-$mode.dmesg"
+	say "END real-$mode rc=$rc slept_wallclock=$((t1 - t0))s wake_irq='$(rd /sys/power/pm_wakeup_irq)'"
+	head -60 "$D/step-real-$mode.dmesg" | while IFS= read -r l; do say "    $l"; done
+	snap "after-real-$mode"
+	flush
+	return $rc
+}
+
+say "=== sp11-suspend-diag level=$LEVEL skip='${SKIP}' from='${FROM}' (opt-in; a hang needs a hard reset) ==="
+say "kernel $(uname -r) mem_sleep='$(rd /sys/power/mem_sleep)' state='$(rd /sys/power/state)' pm_test='$(rd /sys/power/pm_test)'"
+say "waiting ${DELAY}s so the collector's first snapshots exist; stop with: systemctl stop sp11-suspend-diag"
+sleep "$DELAY"
+flush
+battery_ok || { say "battery below 30 percent: ladder not started"; exit 0; }
+
+for s in $STEPS; do
+	case $s in
+	freezer | devices | platform) step_enabled "$s" 1 && { run_pm_test "$s" || { say "step $s FAILED or unavailable; stopping the ladder here"; break; }; } ;;
+	processors | core)
+		if step_enabled "$s" 4; then
+			if grep -qw deep /sys/power/mem_sleep 2>/dev/null; then
+				echo deep >/sys/power/mem_sleep && run_pm_test "$s" mem
+				echo s2idle >/sys/power/mem_sleep 2>/dev/null
+			else
+				say "step $s not run: mem_sleep has no deep ('$(rd /sys/power/mem_sleep)'); s2idle rejects this level"
+			fi
+		fi
+		;;
+	real-guard) step_enabled "$s" 2 && run_real guard ;;
+	real-noguard) step_enabled "$s" 3 && run_real noguard ;;
+	esac
+done
+say "=== ladder finished ==="
+flush
