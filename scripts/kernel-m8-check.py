@@ -50,7 +50,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('dtb', type=Path)
     parser.add_argument('--variant', choices=['packaged', 'm8', 'm8-notouch', 'm9', 'm9-notouch', 'm10', 'm10-notouch', 'm11', 'm11-notouch', 'm11-audio', 'm12', 'm12-notouch', 'm12-audio',
-                                 'm13', 'm13-nosnd', 'm13-notouch', 'm13-spk', 'm13-gpu', 'm13-cam'],
+                                 'm13', 'm13-nosnd', 'm13-notouch', 'm13-spk', 'm13-gpu', 'm13-cam',
+                                 'm14', 'm14-safe', 'm14-nosnd', 'm14-notouch', 'm14-spk'],
                         required=True)
     parser.add_argument('--baseline', type=Path)
     parser.add_argument('--previous', type=Path, help='M8 DTB: require only the CMA range addition')
@@ -68,7 +69,7 @@ def main():
     symbols = {k: strings(v)[0] for k, v in nodes['/__symbols__'].items()}
 
     cma_record = None
-    if args.cma_dma32 or args.variant.startswith(('m9', 'm10', 'm11', 'm12', 'm13')):
+    if args.cma_dma32 or args.variant.startswith(('m9', 'm10', 'm11', 'm12', 'm13', 'm14')):
         pools = [(p, props) for p, props in nodes.items() if 'linux,cma-default' in props]
         require(len(pools) == 1, 'Missing/ambiguous default CMA pool')
         path, pool = pools[0]
@@ -99,7 +100,7 @@ def main():
         return cells(node(label)['phandle'])[0]
 
     # The only enabled-card exceptions are the microphone DTs and, under the d26 profile, m13-spk.
-    spk = args.variant == 'm13-spk'
+    spk = args.variant in ('m13-spk', 'm14-spk')
     profile = 'd26' if spk else 'default'
     safety_tool = str(Path(__file__).with_name('kernel-dtb-safety.py'))
     safety = subprocess.run(['python3', '-I', safety_tool, '/dev/stdin', '--profile', profile],
@@ -119,7 +120,7 @@ def main():
         require(len(watched) == 3, 'Unexpected S1 watched-node count')
         require(safety_json['speaker_marker'] is None, 'Speaker policy marker in a non-speaker DTB')
         require(node('swr0').get('status') == '\"disabled\"', 'swr0 is not disabled')
-    mic_variants = ('m11-audio', 'm12-audio', 'm13', 'm13-notouch', 'm13-cam')
+    mic_variants = ('m11-audio', 'm12-audio', 'm13', 'm13-notouch', 'm13-cam', 'm14', 'm14-safe', 'm14-notouch')
     if spk:
         require(enabled('/sound'), 'm13-spk: sound card disabled')
     elif args.variant in mic_variants:
@@ -158,8 +159,8 @@ def main():
         require('domain-idle-states' not in node('system_pd'), 'System SS3 still referenced')
         # Keep both cluster idle states in the DT.
         require('cluster_cl4' in symbols and 'cluster_cl5' in symbols, 'Cluster idle state removed')
-    if args.variant == 'm13-gpu':
-        require(enabled(symbols['gpu']), 'm13-gpu: GPU not enabled')
+    if args.variant in ('m13-gpu', 'm14'):
+        require(enabled(symbols['gpu']), f'{args.variant}: GPU not enabled')
     else:
         require(not enabled(symbols['gpu']), 'GPU enabled in LCD DTB')
 
@@ -167,6 +168,9 @@ def main():
     camera_labels = ('camss', 'cci0', 'cci0_i2c0', 'cci0_i2c1', 'cci1', 'cci1_i2c0', 'cci1_i2c1')
     camera_paths = [symbols[l] for l in camera_labels if l in symbols]
     camera_paths += [p for p in nodes if p == '/camera-leds' or p.endswith('/regulators-8')]
+    # M14 (cameras 0014/0018/0019): pm8550 L7B (front analog) and L16B (actuator) are added disabled.
+    camera_paths += [p for p in nodes if p.endswith(('/regulators-0/ldo7', '/regulators-0/ldo16'))
+                     and nodes[p].get('regulator-name', '').strip('"') in ('vreg_l7b_2p8', 'vreg_l16b_2p9')]
     camera_present = bool(camera_paths)
     camera_on = [p for p in camera_paths if enabled(p)]
     rear = [p for p in nodes if p.endswith('/camera@10') and 'ovti,ov13858' in nodes[p].get('compatible', '')]
@@ -177,9 +181,20 @@ def main():
         require(enabled('/camera-leds'), 'm13-cam: indicator LED bank disabled')
         for label in ('cci1', 'cci0_i2c0', 'cci1_i2c0', 'cci1_i2c1'):
             require(not enabled(symbols[label]), f'm13-cam: {label} must stay disabled')
-    elif args.variant.startswith('m13') or args.variant == 'packaged' and args.previous_m12:
-        require(camera_present, 'Camera nodes missing in an M13 DTB')
-        require(not camera_on, f'Camera nodes enabled outside m13-cam: {camera_on}')
+    elif args.variant == 'm14':
+        # Combined diagnostic default: rear, front and IR chains all effectively enabled.
+        front = [p for p in nodes if 'sony,imx681' in nodes[p].get('compatible', '')]
+        ir = [p for p in nodes if 'st,vd55g0' in nodes[p].get('compatible', '')]
+        require(len(rear) == 1 and len(front) == 1 and len(ir) == 1, 'm14: camera sensor nodes missing')
+        for path in rear + front + ir:
+            require(enabled(path), f'm14: {path} not effectively enabled')
+        for label in ('camss', 'cci0', 'cci0_i2c0', 'cci0_i2c1', 'cci1', 'cci1_i2c1'):
+            require(enabled(symbols[label]), f'm14: {label} disabled')
+        require(enabled('/camera-leds'), 'm14: indicator LED bank disabled')
+        require(not enabled(symbols['cci1_i2c0']), 'm14: cci1_i2c0 must stay disabled')
+    elif args.variant.startswith(('m13', 'm14')) or args.variant == 'packaged' and args.previous_m12:
+        require(camera_present, 'Camera nodes missing in an M13/M14 DTB')
+        require(not camera_on, f'Camera nodes enabled outside the camera diagnostic variants: {camera_on}')
         require(not any(enabled(p) for p in rear), 'Rear camera enabled outside m13-cam')
 
     spi_path = symbols['spi10']
@@ -297,7 +312,8 @@ def main():
         # A changed property is allowed only as an added __symbols__ entry for such a node.
         # (apps_rsc, soc, tlmm and pinctrl gain disabled children only.)
         extra = [c for c in changed if not (c['path'] == '/__symbols__' and c['before'] is None)]
-        allowed = ('/camera-leds', '/soc@0/cci@', '/soc@0/isp@', '/soc@0/rsc@17500000/regulators-8')
+        allowed = ('/camera-leds', '/soc@0/cci@', '/soc@0/isp@', '/soc@0/rsc@17500000/regulators-8',
+                   '/soc@0/rsc@17500000/regulators-0/ldo7', '/soc@0/rsc@17500000/regulators-0/ldo16')
         require(not extra, f'Existing nodes changed relative to M12: {extra}')
         require(all(n.startswith(allowed) or ('/pinctrl@f100000/' in n and n.rsplit('/', 1)[-1].startswith(('cam-', 'cci')))
                     for n in added), f'Nodes added relative to M12 outside the camera chain: {added}')

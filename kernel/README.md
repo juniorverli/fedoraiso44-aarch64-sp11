@@ -597,6 +597,73 @@ JSON record SHA-256: `m13-nosnd.json` `5811fd97d7917c63ddf50a6c5a18c6c64900cee2b
 `m13-spk` carries `/chosen/sp11,speaker-policy = "d26-open-loop-v1"` (d26 paths: `/sound` and both `speaker@0,0/1`), is asserted to **fail** the default profile, and the kernel contains audio 0001, 0002, 0004, 0005 and 0009. Known diagnostic: the marker has no binding, so `CHECK_DTBS=y` and `dt-validate` print exactly three schema complaints about `/chosen/sp11,speaker-policy` for this DTB only; the script accepts those and nothing else, and records them as `marker_only_diagnostic_lines`. Owner follow-up: a `chosen` binding exception would remove them. No device boot, no commit.
 
 
+## M14 series revision 11 (2026-10-31)
+
+Revision 11 keeps the 49 M13 patches and appends 20 (69 in total). Series SHA-256: `1f7316fd07ed99bf7ff8f06171f6d3a5adc77f62e02184b625d89e809039b2eb`. All 69 apply sequentially to the pinned v7.3 export with `patch --batch --fuzz=0 -p1`; the 20 new patches apply with zero offset and zero fuzz (only the previously recorded M7-M12 offsets remain).
+
+| Position | Patch | Ordering reason |
+|--:|:--|:--|
+| 50 | audio-speakers 0010 | Binding for the stack-load and sense properties; precedes the driver (0011) that reads them |
+| 51 | audio-speakers 0011 | wsa884x stack-load boost and sense settings |
+| 52 | audio-speakers 0012 | `sp11` guard module (`CONFIG_SND_SOC_SP11_GUARD`, `sp11.nospk`, `sp11.allow_nominal`); must precede 0015, which calls it |
+| 53 | audio-speakers 0013 | wsa884x V/I sense and CPS capture, faults |
+| 54 | audio-speakers 0014 | AudioReach closed-loop graph support |
+| 55 | audio-speakers 0015 | x1e80100 machine driver gates speakers on the guard. Replaces the unconditional refusal of 0009 (applies on top of 0009's hunk; 0009 stays first so every kernel up to 0015 refuses unconditionally). The guard still refuses by default |
+| 56 | audio-speakers 0016 | `x1-microsoft-denali-audio-closedloop.dtsi`, included only by `m14-spk` |
+| 57-61 | cameras 0006-0010 | C-PHY: binding limit, PHY-type tracking, CSID 680 input type, CSIPHY C-PHY lanes, endpoint parser last (C-PHY cannot be selected before the programming exists) |
+| 62-70 | cameras 0011-0019 | Regblob parser (0011), ov13858 binding (0012), blob modes (0013, needs 0011+0012), rear DT (0014), IMX681 binding (0015), driver (0016, needs 0011+0015), VD55G0 binding (0017), front DT (0018, needs 0016+0014), IR DT (0019, needs 0017) |
+
+0009 is still correct before 0015: it refuses WSA playback on `microsoft,denali` unconditionally and 0015 removes exactly that hunk. Any kernel that boots `m14-spk` needs 0001, 0002, 0004, 0005 and 0006-0016 (all present).
+
+Config (`kernel/config/sp11.config`, now 93 symbols): adds `CONFIG_SND_SOC_SP11_GUARD=m`, `VIDEO_IMX681=m`, `CRC32=y`, `DMABUF_HEAPS_SYSTEM=y`. `scripts/kernel-check` step 2b now also asserts these, `SND_SOC_WSA884X=m`, `SND_SOC_X1E80100=m`, both BTF options and the M13 set (`boot_diag_config`, no failures). The RPM check (`scripts/kernel-m8-rpm-check.py m14`) adds the modules `imx681` and `sp11` (`parm=nospk:`, `parm=allow_nominal:`), asserts `snd-soc-x1e80100` depends on `sp11` and that the machine object calls `sp11_guard_check` (0015). `scripts/kernel-m8-check.py` accepts the five m14 variants and the two disabled pm8550 regulators (L7B, L16B) added by the camera DT patches.
+
+### M14 release artifacts
+
+`scripts/kernel-build.sh -j 6`: rpmbuild rc 0, UTC `2026-10-31T12:08:26+00:00` to `2026-10-31T13:02:42+00:00`, **3256 s (54 min 16 s)**. The first in-script `kernel-check` stopped on a bug in the new M14 assertion (shell variable inside a quoted heredoc); the RPMs were complete and `kernel-build.sh --check-only` after the fix (and after allowing the two disabled L7B/L16B regulators in the M12 comparison) ended **PASS**. No disk cleanup was needed (minimum headroom 159 GiB). Step 6 archived sp11.10 into `out/rpms/archive/7.3.0-65.sp11.10/`.
+
+- BTF: `vmlinux` `.BTF` size `0x76c5e8`; **5936/5936** modules have BTF, none missing, no bad magic. All 93 fragment symbols hold. Shipped config: `VIDEO_IMX681=m`, `CRC32=y`, `DMABUF_HEAPS_SYSTEM=y`, `SND_SOC_SP11_GUARD=m`, `SND_SOC_WSA884X=m`, `DEBUG_INFO_BTF=y`, `DEBUG_INFO_BTF_MODULES=y`. `CHECK_DTBS=y` rc 0, 0 warning lines; packaged `dt-validate` clean; S1, GPU off, wiring, CMA pass.
+- Modules present (`m14.new_modules`): `imx681`, `ov13858`, `qcom-camss`, `i2c-qcom-cci`, `camcc-x1e80100`, `leds-gpio`, `snd-soc-wsa884x`, `snd-soc-x1e80100`, `snd-soc-lpass-wsa-macro`, `sp11`, `apr`, `snd-q6apm`, `qcom_q6v5_pas`, `surface_aggregator`, plus the M13 set.
+- Packaged LCD DTB SHA-256 `65222d196e1facf48d624ccb5baa868fbd02ff495625bfed1ab5c7bddc370bee`.
+- Peak cgroup 9469325312 bytes; ccache 99.49% (2239 direct + 24249 preprocessed hits, 136 misses).
+- Config SHA-256: fragment `306c64de747e1d8c343f22f9c42b944c5bc3c73a4d9f63ffb75e604f08f1a566`; shipped `dab85a9882f8c8c5cc671598dfb6b190e5e0047b02c0c4451d7b48fee0522f8a`.
+- Release record `out/rpms/kernel-7.3.0-65.sp11.11.fc44.aarch64.json`, SHA-256 `758d7565c0c8514ee1b535999a14d16f15cc588188475cdde82e72fbfc857a1f`. Logs: `out/build/kernel/m14-driver.log`, `m14-check.log`.
+
+| RPM (revision 11, aarch64) | SHA-256 |
+|:--|:--|
+| `kernel-7.3.0-65.sp11.11.fc44.aarch64.rpm` | `c74acb8c3dad65bfbd97ce6dd848a358bedd682f3699deb42bc5acf885924e8d` |
+| `kernel-core-7.3.0-65.sp11.11.fc44.aarch64.rpm` | `b134e2e55a95dc9ebd79fdca9eef9ac4c73d857e6aa73cd6a18cc137211dbfbf` |
+| `kernel-debuginfo-7.3.0-65.sp11.11.fc44.aarch64.rpm` | `14db5138aa4f8aec55a570dfe1084e36e083df148872bd53114de47d7ddbcbc1` |
+| `kernel-debuginfo-common-aarch64-7.3.0-65.sp11.11.fc44.aarch64.rpm` | `0b310ffa8ce798371b4698ebca26f15e95317e6c7a7afd1556fa7fb21e69c430` |
+| `kernel-devel-7.3.0-65.sp11.11.fc44.aarch64.rpm` | `1450c9a5144af0ce450f1a977257a942baf1817afde8c5bc9f4c29f836301049` |
+| `kernel-devel-matched-7.3.0-65.sp11.11.fc44.aarch64.rpm` | `a055b37e251cd87a0c900e48ba54e20b29e0cf65bbd46c089ee13161ec0ba9ef` |
+| `kernel-kmap-internal-7.3.0-65.sp11.11.fc44.aarch64.rpm` | `dfee1853425acdcb52951c5489cede2adc29700146879548f7df05276a661d10` |
+| `kernel-modules-7.3.0-65.sp11.11.fc44.aarch64.rpm` | `d019fbf7cfd58d735b3bd71bc16912828405cd981a72faf91cfa3cf460c5f482` |
+| `kernel-modules-core-7.3.0-65.sp11.11.fc44.aarch64.rpm` | `16e40d0dd434a12366ab76303825b4a6f72d770ac42300be2d74f7827cf5ff0c` |
+| `kernel-modules-extra-7.3.0-65.sp11.11.fc44.aarch64.rpm` | `ba6899aa03b1dc91dc0b03b62ba61c0f16e322481c2ce988d0cf48fed6220a0d` |
+| `kernel-modules-extra-matched-7.3.0-65.sp11.11.fc44.aarch64.rpm` | `d657e68da983ccc31acee74e05778c089ca8ad46165d5f25258c184e4e9427e1` |
+| `kernel-modules-internal-7.3.0-65.sp11.11.fc44.aarch64.rpm` | `5f3562ff6f8ad87d227eb9d2cc31f159a4be78286e287760db273b9acda23b89` |
+| `kernel-uki-dtbloader-7.3.0-65.sp11.11.fc44.aarch64.rpm` | `22b72e7eda622a534e9dc962fc4ebd344f57cb49bc742033209e368445f3aded` |
+| `kernel-uki-virt-7.3.0-65.sp11.11.fc44.aarch64.rpm` | `d3e544090997165c02daf9fb1873cc6caf5b8440684f4f1e66353ef04aba64fb` |
+| `kernel-uki-virt-addons-7.3.0-65.sp11.11.fc44.aarch64.rpm` | `4a66199e98267c1b6c25a27045e91257c426347bd3c8007d826fe77b57ddf7a4` |
+
+### M14 DTB variants
+
+`scripts/kernel-dtb-variants.sh` (dispatching to `scripts/kernel-dtb-m14.sh`); output `out/dtb-variants/7.3.0-65.sp11.11.fc44.aarch64/qcom/`, checks in `out/build/dtb-m14-checks/`, log `out/build/kernel/m14-variants.log`; complete run **256 s**. All five pass `CHECK_DTBS=y` (0 diagnostics except the d26 marker), `dt-validate`, S1 with the stated profile, wiring, CMA and source-recompile byte comparison.
+
+**`m14` is the combined diagnostic default entry** (first menu line): microphones, GPU/GMU/zap enabled (as `m13-gpu`), and the rear, front and IR camera chains enabled (as `cam-all`, including the pm8550 L7B front analog rail). **`m14-safe` is the fallback**: exactly the M13 `m13` content (microphones only, GPU off, no camera node enabled). `m14-nosnd` is M12 behaviour (equals the packaged DTB byte for byte); `m14-notouch` is `m14-safe` with touch off; `m14-spk` (d26 profile only, asserted to fail `default`) is the gated speaker variant with the closed-loop V/I fragment 0016 (the owner's `m13-spk` source, renamed). Speakers stay off in `m14` and `m14-safe`. `m14-gpu` and `m14-cam-all` are folded into `m14` and not built; the DTS sources of `m13-gpu`/`m13-cam` and `hardware/cameras/dtb-variants/` stay.
+
+| DTB | Profile | Build time | SHA-256 |
+|:--|:--|--:|:--|
+| `x1p64100-microsoft-denali-m14-nosnd.dtb` | default | 48 s | `65222d196e1facf48d624ccb5baa868fbd02ff495625bfed1ab5c7bddc370bee` |
+| `x1p64100-microsoft-denali-m14-safe.dtb` | default | 16 s | `1b7028b1211b98eabd32168327168e44677d6bf15eb265fe81af9a8c1ec861ad` |
+| `x1p64100-microsoft-denali-m14.dtb` | default | 14 s | `d5b3a66f150488b294a5760515e0141365fae891b56caf44954003d38480be15` |
+| `x1p64100-microsoft-denali-m14-notouch.dtb` | default | 11 s | `fa9f1dba45b924f7fd9be80ab4e80509571da9c03d6968274d77b9e9954488d3` |
+| `x1p64100-microsoft-denali-m14-spk.dtb` | d26 only | 11 s | `5b2427c3dcaca80fc3937286e6c5facb0d54285c746b0703dc9e0bdae570634b` |
+
+JSON record SHA-256: `m14-nosnd.json` `de890de53281529fa68adb1a401ddf6588955c3b9b8260bf211431652c1b18ce`; `m14-safe.json` `8918bda56dd806feaf325771cdc5657a173f78b7bc0d5a96e591c58b2c3fd63d`; `m14.json` `9bd95d3012e8ccb61ba19f77d00fa3e68d0fbb05191d3bf0acc110260455a652`; `m14-notouch.json` `18887c80860e1738c1f2d7550608cc88000789294b5f34e199ea7c4c2893f280`; `m14-spk.json` `e12dbde70b9bbf8e7cd9cf4de044990ac1f8790e0d209dd36533934d513e26a8`.
+
+`m14-spk` carries the same three known marker-only schema complaints about `/chosen/sp11,speaker-policy` as `m13-spk`. `m14` differs from `m14-safe` by the GPU status and the camera-chain statuses only (`m14.diff`). No device boot, no commit.
+
 ## Log
 
 - 2026-10-29: built M8 revision 5 (25 patches; RFC 0014 retired; spi-hid/QSPI touch and packaged GPU isolation). Release 3313 s; kernel-check PASS with BTF in vmlinux and all 5934 modules, 73 config symbols, packaged schema/S1/GPU/wiring and eight RPM module payload checks. M8/M8-notouch DTBs and JSON pass (63/14 s; complete run 214.464 s). Final index/syntax/whitespace checks pass; build/source locks are free and no task process remains. Recorded hashes/times and explicit image/owner requests; no device test. Changes remain uncommitted for the orchestrator (D24).
@@ -608,3 +675,4 @@ JSON record SHA-256: `m13-nosnd.json` `5811fd97d7917c63ddf50a6c5a18c6c64900cee2b
 - 2026-10-30: built M11 revision 8 (34 patches; FIFO diagnostic, packaged parity, audio safety/fragments). Release 3289 s; automatic and repeated kernel-check PASS, BTF in vmlinux/all 5934 modules; all three DTB variants and JSON pass. Recorded times/hashes, regression evidence and owner requests. No device test or git write; changes remain uncommitted for the orchestrator (D24).
 - 2026-10-30: built M12 revision 9 (37 patches; touch F-09, audio 0004/0005, amended GLINK 0001). Release 2993 s; kernel-check PASS, BTF in vmlinux/all 5934 modules; m12, m12-notouch, m12-audio DTBs equal M11. Freed 23 GiB of finished M11 scratch. No device test, no commit.
 - 2026-10-30: built M13 revision 10 (49 patches: GPR fix, D26 gate, DSP 0003, ec-sam 0007, cameras 0001-0005; tracing and camera config pinned). Release 3234 s; kernel-check PASS, BTF in vmlinux/all 5934 modules; six DTB variants (m13, nosnd, notouch, spk d26-only, gpu, cam) pass. No device test, no commit.
+- 2026-10-31: built M14 revision 11 (69 patches: closed-loop audio 0010-0016, camera C-PHY 0006-0010 and follow-ups 0011-0019). Release 3256 s; kernel-check PASS, BTF in vmlinux/all 5936 modules; five DTB variants (m14 combined default, m14-safe fallback, nosnd, notouch, spk d26-only) pass. No device test, no commit.

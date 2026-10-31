@@ -72,3 +72,32 @@ hardware/cameras/patches/0002-media-i2c-ov13858-add-devicetree-power-management.
 hardware/cameras/patches/0003-arm64-dts-qcom-hamoa-describe-disabled-camera-blocks.patch
 hardware/cameras/patches/0004-arm64-dts-qcom-x1-microsoft-denali-describe-the-came.patch
 hardware/cameras/patches/0005-arm64-dts-qcom-x1-microsoft-denali-describe-the-rear.patch
+# M14 (rev 11): audio-speakers closed-loop stage 2 (hardware/audio-speakers README Requests, closed-loop session).
+# Order 0010..0016: binding (0010) before the amplifier driver using it (0011); 0012 adds the sp11 guard module;
+# 0013 amplifier V/I capture and faults; 0014 AudioReach closed loop; 0015 machine driver gates speakers on the guard
+# and REPLACES the unconditional 0009 refusal (0009 stays first: it is the safe state of every kernel until 0015
+# lands, and 0015 patches its hunk); 0016 DT fragment with the V/I links, included only by m14-spk.
+hardware/audio-speakers/patches/0010-ASoC-dt-bindings-qcom-wsa8840-describe-stack-load-an.patch
+hardware/audio-speakers/patches/0011-ASoC-codecs-wsa884x-apply-stack-load-boost-and-sense.patch
+hardware/audio-speakers/patches/0012-ASoC-qcom-add-a-speaker-protection-guard-for-the-Sur.patch
+hardware/audio-speakers/patches/0013-ASoC-codecs-wsa884x-add-V-I-sense-and-CPS-capture-an.patch
+hardware/audio-speakers/patches/0014-ASoC-qcom-audioreach-add-closed-loop-speaker-protect.patch
+hardware/audio-speakers/patches/0015-ASoC-qcom-x1e80100-gate-speakers-on-the-speaker-prot.patch
+hardware/audio-speakers/patches/0016-arm64-dts-qcom-x1-microsoft-denali-add-the-closed-lo.patch
+# M14: cameras C-PHY (R7): binding limit, PHY type tracking, CSID 680 input type, CSIPHY C-PHY lanes, endpoint parser last.
+hardware/cameras/patches/0006-dt-bindings-media-qcom-x1e80100-camss-limit-C-PHY-en.patch
+hardware/cameras/patches/0007-media-qcom-camss-carry-the-PHY-type-and-convert-C-PH.patch
+hardware/cameras/patches/0008-media-qcom-camss-csid-680-select-the-C-PHY-input-typ.patch
+hardware/cameras/patches/0009-media-qcom-camss-add-C-PHY-lane-programming-for-the-.patch
+hardware/cameras/patches/0010-media-qcom-camss-accept-C-PHY-endpoints-on-the-X1E80.patch
+# M14: cameras follow-ups (K1): 0011 SRB parser, 0012 binding, 0013 ov13858 blob modes (needs 0011, 0012), 0014 rear DT refinement,
+# 0015 IMX681 binding, 0016 IMX681 driver (needs 0011, 0015), 0017 VD55G0 binding, 0018 front DT (needs 0016, 0014), 0019 IR DT (needs 0017).
+hardware/cameras/patches/0011-media-i2c-add-a-sensor-register-blob-parser.patch
+hardware/cameras/patches/0012-dt-bindings-media-i2c-ovti-ov13858-allow-register-bl.patch
+hardware/cameras/patches/0013-media-i2c-ov13858-load-additional-modes-from-a-regis.patch
+hardware/cameras/patches/0014-arm64-dts-qcom-x1-microsoft-denali-refine-the-rear-c.patch
+hardware/cameras/patches/0015-dt-bindings-media-i2c-add-Sony-IMX681.patch
+hardware/cameras/patches/0016-media-i2c-add-a-driver-for-the-Sony-IMX681.patch
+hardware/cameras/patches/0017-dt-bindings-media-i2c-st-vd55g1-describe-the-VD55G0.patch
+hardware/cameras/patches/0018-arm64-dts-qcom-x1-microsoft-denali-describe-the-fron.patch
+hardware/cameras/patches/0019-arm64-dts-qcom-x1-microsoft-denali-describe-the-IR-c.patch
