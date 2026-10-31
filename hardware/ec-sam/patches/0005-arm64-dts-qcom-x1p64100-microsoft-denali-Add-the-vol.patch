@@ -1,0 +1,93 @@
+From 84699b8e585dafaf8e961103bf049dd441f38b31 Mon Sep 17 00:00:00 2001
+From: juniorverli <25966843+juniorverli@users.noreply.github.com>
+Date: Sat, 31 Oct 2026 18:22:33 +0000
+Subject: [PATCH] arm64: dts: qcom: x1p64100-microsoft-denali: Add the volume
+ buttons
+
+The Surface Button device (ACPI MSHW0040) of the Surface Pro 11 lists
+two input-only PMIC GPIO pins, each as an interrupt and an I/O resource,
+both pulled up, shared and not wake capable: pins 0xD5 and 0xD7 of the
+Windows PMIC GPIO controller \_SB.PM01.
+
+The Windows pin number of the PM8550 is 0xCF plus the Linux GPIO number:
+the retimer reset and 3.3 V enable pins of the USB-C device (0xD9, 0xDA)
+are PM8550 GPIO 10 and 11 in this devicetree. That makes the buttons
+GPIO 6 and GPIO 8, and GPIO 6 is the volume up key of the X1E80100 CRD,
+with the same pull-up and 1.8 V supply.
+
+Describe them as a separate gpio-keys node: the first ACPI pin as
+volume up and the second as volume down, active low because of the
+pull-up. The 15 ms debounce interval is the one of other Qualcomm boards
+using these pins; the ACPI debounce field is zero. The orientation is
+not named in the tables and needs confirmation on the device.
+
+Assisted-by: Claude Sonnet 5.5
+---
+ .../dts/qcom/x1p64100-microsoft-denali.dts    | 44 +++++++++++++++++++
+ 1 file changed, 44 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/x1p64100-microsoft-denali.dts b/arch/arm64/boot/dts/qcom/x1p64100-microsoft-denali.dts
+index bc704f68f..a96f3595b 100644
+--- a/arch/arm64/boot/dts/qcom/x1p64100-microsoft-denali.dts
++++ b/arch/arm64/boot/dts/qcom/x1p64100-microsoft-denali.dts
+@@ -42,6 +42,32 @@ backlight: backlight {
+ 		pinctrl-names = "default";
+ 	};
+ 
++	/*
++	 * Volume buttons (ACPI MSHW0040, Windows \_SB.PM01 pins 0xD5 and 0xD7,
++	 * PullUp, input only, shared, not wake capable). Whether the first pin
++	 * is up and the second down is an inference; confirm on the device.
++	 */
++	volume-keys {
++		compatible = "gpio-keys";
++
++		pinctrl-0 = <&vol_up_n>, <&vol_down_n>;
++		pinctrl-names = "default";
++
++		key-volume-up {
++			label = "Volume Up";
++			gpios = <&pm8550_gpios 6 GPIO_ACTIVE_LOW>;
++			linux,code = <KEY_VOLUMEUP>;
++			debounce-interval = <15>;
++		};
++
++		key-volume-down {
++			label = "Volume Down";
++			gpios = <&pm8550_gpios 8 GPIO_ACTIVE_LOW>;
++			linux,code = <KEY_VOLUMEDOWN>;
++			debounce-interval = <15>;
++		};
++	};
++
+ 	vreg_ts: regulator-ts {
+ 		compatible = "regulator-fixed";
+ 		regulator-name = "VREG_TS";
+@@ -77,6 +103,24 @@ edp_bl_reg_en: edp-bl-reg-en-state {
+ 	};
+ };
+ 
++&pm8550_gpios {
++	vol_up_n: vol-up-n-state {
++		pins = "gpio6";
++		function = "normal";
++		power-source = <1>; /* 1.8 V */
++		bias-pull-up;
++		input-enable;
++	};
++
++	vol_down_n: vol-down-n-state {
++		pins = "gpio8";
++		function = "normal";
++		power-source = <1>; /* 1.8 V */
++		bias-pull-up;
++		input-enable;
++	};
++};
++
+ &pmk8550_gpios {
+ 	edp_bl_pwm: edp-bl-pwm-state {
+ 		pins = "gpio5";
+-- 
+2.43.0
+

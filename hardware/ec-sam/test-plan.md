@@ -158,7 +158,14 @@ charge thresholds or thermal limits. Missing UPower fields, stale online
 state, duplicates or disagreement after settling are acceptance failures.
 M5 did not include these plugged-in or UPower checks.
 
-## 4. Buttons (held 0004)
+## 4. Buttons (volume: patch 0005; power: held 0004)
+
+Volume (patch 0005): run `tools/collect-volume-buttons.sh` as root and follow
+its two 10 s phases (press only up, then only down); pass criteria are in
+`evidence/2026-10-31-volume-buttons.md`. The script reads only the
+volume-keys device.
+
+Power (held 0004):
 
 Do not ship the candidate until its electrical parameters and key orientation
 are independently reproduced and cross-checked. On the current image,
