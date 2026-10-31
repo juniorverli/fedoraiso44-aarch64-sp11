@@ -1,0 +1,18 @@
+[Unit]
+Description=SP11 SAM shutdown mode rotor (one mode per boot, recorded and shown to the operator)
+# Early, before the log collector's first snapshot, after the module parameter exists (surface_aggregator is in the initramfs) and the
+# file systems are mounted. Writes only the module parameter and the boot medium's environment block.
+DefaultDependencies=no
+After=local-fs.target systemd-udevd.service
+Before=sp11-log-collector.service
+Conflicts=shutdown.target
+Before=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/sp11/sam-mode-rotor
+TimeoutStartSec=60
+
+[Install]
+WantedBy=sysinit.target

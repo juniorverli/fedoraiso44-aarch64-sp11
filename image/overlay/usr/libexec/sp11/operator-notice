@@ -1,0 +1,31 @@
+#!/usr/bin/bash
+# Operator notices of the boot (M14): one small text part per service, assembled into one file that is shown three ways:
+#   - the journal (logger tag sp11-notice), so it is in the collector's journal capture
+#   - /usr/share/sp11/operator-notice.txt, linked as /etc/motd.d/50-sp11-notice (text consoles; the live root is writable)
+#   - a desktop notification per part in the live session (operator-notice-show, XDG autostart)
+#   operator-notice add NAME TEXT...   write part NAME (replaces an earlier one of the same name), then assemble
+#   operator-notice show               desktop notifications (called in the user session)
+set -u
+export LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin
+D=${SP11_NOTICE_DIR:-/run/sp11/notice.d}
+OUT=${SP11_NOTICE_FILE:-/usr/share/sp11/operator-notice.txt}
+case ${1:-} in
+add)
+	name=${2:?name}; shift 2
+	mkdir -p "$D"
+	printf '%s\n' "$*" >"$D/$name.txt"
+	logger -t sp11-notice -- "$*" 2>/dev/null
+	mkdir -p "$(dirname "$OUT")" 2>/dev/null
+	{ echo "=== SP11 operator notices for this boot ==="; cat "$D"/*.txt; } >"$OUT.new" 2>/dev/null && mv -f "$OUT.new" "$OUT" 2>/dev/null
+	[ -z "${SP11_NOTICE_FILE:-}" ] && { mkdir -p /etc/motd.d 2>/dev/null; ln -sf "$OUT" /etc/motd.d/50-sp11-notice 2>/dev/null; }
+	exit 0 ;;
+show)
+	# wait for the services of this boot (they run before the display manager), then one critical notification per part
+	for _ in $(seq 1 60); do ls "$D"/*.txt >/dev/null 2>&1 && break; sleep 2; done
+	for f in "$D"/*.txt; do
+		[ -r "$f" ] || continue
+		notify-send -u critical -t 0 -a "SP11 test image" "SP11 test image" "$(cat "$f")"
+	done
+	exit 0 ;;
+*) echo "usage: operator-notice add NAME TEXT... | show" >&2; exit 2 ;;
+esac

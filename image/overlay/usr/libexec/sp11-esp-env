@@ -1,0 +1,68 @@
+#!/usr/bin/bash
+# SP11 GRUB environment block of the BOOT MEDIUM (M14). One file, EFI/BOOT/grubenv on the ESP (FAT label BOOT) of the disk the live
+# system booted from. GRUB reads and writes it (image/kiwi/overlay/grub-arm.cfg.iso-template, function sp11_main_prepare); this tool is
+# the Linux side: the GPU self-healing state, the CDSP rotor value and the SAM mode counter.
+#
+#   sp11-esp-env get NAME          print the value (empty when unset); exit 0
+#   sp11-esp-env set NAME=VALUE    set one value; exit 0 on success
+#   sp11-esp-env unset NAME        remove the value
+#   sp11-esp-env list              all values
+#
+# Risk S4: only the ESP of the boot medium is mounted, read-write for the duration of one call, then synced and unmounted. A disk that
+# carries NTFS, BitLocker or a Microsoft reserved partition is refused, as are all other disks. Test hook: SP11_ESP_ENV_FILE=<file>
+# uses that file and mounts nothing. The environment block is a fixed 1024-byte file; grub2-editenv keeps that size.
+set -u
+export LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin
+MNT=/run/sp11-esp-env
+SP11_MSR_GUID=e6d6d379-f507-44c2-a23c-238f2a3df928
+pkname() { local n=${1##*/}; if [ -e "/sys/class/block/$n/partition" ]; then basename "$(readlink -f "/sys/class/block/$n/..")"; else echo "$n"; fi; }
+find_boot_disk() {
+	local a label= dev src
+	for a in $(cat /proc/cmdline); do
+		case $a in root=live:CDLABEL=*) label=${a#root=live:CDLABEL=} ;; root=live:LABEL=*) label=${a#root=live:LABEL=} ;; esac
+	done
+	if [ -n "$label" ]; then dev=$(blkid -L "$label" 2>/dev/null | head -n1); [ -n "$dev" ] && { pkname "$dev"; return 0; }; fi
+	src=$(awk '$2=="/run/initramfs/live"{print $1}' /proc/mounts 2>/dev/null | head -n1)
+	[ -n "$src" ] && [ -b "$src" ] && { pkname "$src"; return 0; }
+	if [ -r /etc/sp11-boot-medium ]; then
+		. /etc/sp11-boot-medium
+		dev=$(blkid -L "$SP11_MEDIUM_LABEL" 2>/dev/null | head -n1); [ -n "$dev" ] && { pkname "$dev"; return 0; }
+	fi
+	return 1
+}
+disk_has_windows() {
+	local part t g
+	for part in /sys/class/block/$1/$1*; do
+		[ -e "$part/partition" ] || continue
+		t=$(blkid -p -o value -s TYPE "/dev/${part##*/}" 2>/dev/null | tr 'A-Z' 'a-z')
+		g=$(blkid -p -o value -s PART_ENTRY_TYPE "/dev/${part##*/}" 2>/dev/null | tr 'A-Z' 'a-z')
+		case $t in ntfs | bitlocker*) return 0 ;; esac
+		[ "$g" = "$SP11_MSR_GUID" ] && return 0
+	done
+	return 1
+}
+mounted=0
+cleanup() { [ "$mounted" = 1 ] && { sync -f "$MNT" 2>/dev/null; umount "$MNT" 2>/dev/null; }; return 0; }
+trap cleanup EXIT
+if [ -n "${SP11_ESP_ENV_FILE:-}" ]; then
+	F=$SP11_ESP_ENV_FILE
+else
+	disk=$(find_boot_disk) || { echo "sp11-esp-env: boot medium unknown" >&2; exit 3; }
+	disk_has_windows "$disk" && { echo "sp11-esp-env: S4: $disk carries NTFS/BitLocker/MSR; refusing" >&2; exit 4; }
+	dev=
+	for cand in $(blkid -t LABEL=BOOT -o device 2>/dev/null); do [ "$(pkname "$cand")" = "$disk" ] && { dev=$cand; break; }; done
+	[ -n "$dev" ] || { echo "sp11-esp-env: no partition labelled BOOT on $disk" >&2; exit 3; }
+	exec 9>/run/sp11-esp-env.lock; flock 9
+	mkdir -p "$MNT"; modprobe vfat 2>/dev/null
+	mount -t vfat -o rw,noatime,nodev,nosuid,noexec,umask=0077,shortname=winnt "$dev" "$MNT" 2>/dev/null || { echo "sp11-esp-env: cannot mount the ESP" >&2; exit 5; }
+	mounted=1
+	F=$MNT/EFI/BOOT/grubenv
+fi
+[ -f "$F" ] || { echo "sp11-esp-env: no environment block ($F)" >&2; exit 6; }
+case ${1:-} in
+get) grub2-editenv "$F" list 2>/dev/null | sed -n "s/^${2:?name}=//p" | head -n1 ;;
+set) grub2-editenv "$F" set "${2:?NAME=VALUE}" || exit 7 ;;
+unset) grub2-editenv "$F" unset "${2:?name}" || exit 7 ;;
+list) grub2-editenv "$F" list ;;
+*) echo "usage: sp11-esp-env get NAME | set NAME=VALUE | unset NAME | list" >&2; exit 2 ;;
+esac

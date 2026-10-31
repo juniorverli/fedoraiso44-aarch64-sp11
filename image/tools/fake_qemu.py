@@ -18,26 +18,34 @@ def out(s):
 
 out("UEFI firmware (fake)\r\n")
 time.sleep(1)
-ENT = ["SP11 debug", "SP11 debug, no sound", "SP11 debug, touch off", "SP11 debug, CDSP keep proxy votes", "SP11 debug, SAM shutdown quiet", "SP11 debug, SAM shutdown clean", "SP11 debug, SAM shutdown silent", "SP11 debug, speakers (gated; kernel gate still refuses playback)", "SP11 debug, rear camera diagnostic", "SP11 debug, USB + DSP trace", "SP11 debug, no early DSP", "SP11 debug, Wi-Fi unblock probe", "SP11 debug nomodeset", "SP11 debug, stop in initramfs", "VM test (no devicetree)", "SP11 debug, GPU diagnostic (WARNING: may reset the machine)"]
-for e in ENT[:10]:   # a long menu shows only its first screen; the rest scrolls into view with Down keys (as GRUB does)
+TOP = ["SP11 debug", "Recovery and tests"]
+SUB = ["SP11 debug, safe (no GPU, no cameras)", "SP11 debug, no sound", "SP11 debug, touch off", "SP11 debug, speakers (gated)", "SP11 debug, nomodeset", "SP11 debug, stop in initramfs", "VM test (no devicetree)"]
+for e in TOP:   # M14: the top level has the main entry and one submenu line
     out(f"\x1b[1;1H  {e}\r\n")
 tty.setraw(0)  # QEMU puts the terminal in raw mode for -serial stdio
 os.set_blocking(0, False)
 buf = b""
 choice = 0
+opened = False
 while True:
     try:
         d = os.read(0, 100)
     except BlockingIOError:
         d = b""
     buf += d
-    if b"\r" in buf:
+    if not opened and b"\r" in buf:
+        if buf.count(b"\x1b[B") == 0:      # Enter on the main entry
+            choice = -1
+            break
+        opened = True                        # Enter on the submenu line: draw its entries, count Down keys from here
+        buf = b""
+        for e in SUB:
+            out(f"\x1b[1;1H  {e}\r\n")
+    elif opened and b"\r" in buf:
+        choice = buf.split(b"\r")[0].count(b"\x1b[B")
         break
-    choice = buf.count(b"\x1b[B")
-    if choice and choice + 9 < len(ENT):
-        out(f"\x1b[1;1H  {ENT[min(choice + 9, len(ENT) - 1)]}\r\n")
     time.sleep(0.2)
-entry = ["debug", "nosnd", "notouch", "cdsp-keep", "ssam-quiet", "ssam-clean", "ssam-silent", "spk", "cam", "usbdbg", "nodsp", "wifi-unblock", "nomodeset", "initramfs", "vmtest", "gpu-diag"][choice]
+entry = "debug" if choice < 0 else ["safe", "nosnd", "notouch", "spk", "nomodeset", "initramfs", "vmtest"][choice]
 out(f"Booting entry {choice}\r\n")
 out(f"[    0.000000] Kernel command line: root=live:CDLABEL=X debug sp11.entry={entry}\r\n")
 time.sleep(1)

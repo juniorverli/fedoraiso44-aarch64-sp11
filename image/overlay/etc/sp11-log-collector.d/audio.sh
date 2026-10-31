@@ -24,6 +24,16 @@ echo "## UCM files in effect (hashes only; the speaker overlay replaces them onl
 ( cd /usr/share/alsa/ucm2/Qualcomm/x1e80100 2>/dev/null && sha256sum MICROSOFT-Surface-Pro-11.conf Surface11-*.conf 2>&1 )
 echo "speaker overlay marker: $(ls /run/sp11-speaker-ucm 2>&1 | head -n 1)"
 echo
+echo "## UCM lookup (M14, audio-mics evidence 2026-10-31-m13-mic.md): the card must now list the HiFi verb; list only, nothing is set"
+timeout 8 alsaucm -c hw:0 list _verbs 2>&1 | head -n 10
+echo
+echo "## PCM list (M14: MultiMedia5 capture, index 4, is the V/I trigger front end of the closed-loop topology)"
+cat /proc/asound/pcm 2>&1
+echo
+echo "## speaker guard (read only; first-test entry only gives anything but 'closed')"
+timeout 5 cat /sys/kernel/debug/sp11/guard 2>&1 | head -n 40
+echo "private speaker files present (names and sizes only): $(ls -l /usr/lib/firmware/qcom/x1e80100/ 2>/dev/null | awk '/sp11c|tplg/{printf "%s(%s) ", $NF, $5}')"
+echo
 echo "## kernel log: sound stack"
 timeout 8 dmesg --time-format=iso 2>&1 | grep -i -E 'q6apm|q6prm|\<apr\>|\<gpr\>|wsa884|soundwire|swr|snd-soc|asoc|audioreach|x1e80100|CMD timeout|microphone|DMIC|va-macro|lpass' | head -n 300
 echo

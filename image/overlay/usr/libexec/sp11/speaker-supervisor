@@ -1,0 +1,42 @@
+#!/usr/bin/python3
+"""Hold the V/I trigger capture open (MultiMedia5 capture, PCM device index 4) so the speaker-protection graph exists before any playback.
+
+audio-speakers evidence 2026-10-31-topology-rfc.md section 4: design A needs a front end that makes DPCM open the sense back end. The
+capture is opened, configured and started, and NEVER read: its input is unconnected by design, nothing arrives. Playback must only start
+while this process runs. If the open fails the process exits non-zero and the first-test script refuses to play. Kill: SIGTERM or SIGINT.
+No sound is produced here. Unproven on the device (H3 cross-graph control link, H10 capture graph with an unconnected input).
+"""
+import ctypes
+import signal
+import sys
+import time
+
+CARD = sys.argv[1] if len(sys.argv) > 1 else "hw:0,4"
+SND_PCM_STREAM_CAPTURE = 1
+SND_PCM_FORMAT_S32_LE = 10
+SND_PCM_ACCESS_RW_INTERLEAVED = 3
+try:
+    lib = ctypes.CDLL("libasound.so.2")
+except OSError as e:
+    sys.exit(f"supervisor: no libasound: {e}")
+pcm = ctypes.c_void_p()
+rc = lib.snd_pcm_open(ctypes.byref(pcm), CARD.encode(), SND_PCM_STREAM_CAPTURE, 0)
+if rc < 0:
+    sys.exit(f"supervisor: cannot open {CARD}: error {rc}")
+# 8 kHz, 4 channels, 32 bit: what the machine driver sets for the V/I back end (patch 0015); half a second of buffer, it is never read
+rc = lib.snd_pcm_set_params(pcm, SND_PCM_FORMAT_S32_LE, SND_PCM_ACCESS_RW_INTERLEAVED, 4, 8000, 0, 500000)
+if rc < 0:
+    sys.exit(f"supervisor: snd_pcm_set_params failed ({rc}) on {CARD}")
+rc = lib.snd_pcm_prepare(pcm)
+if rc < 0:
+    sys.exit(f"supervisor: snd_pcm_prepare failed ({rc})")
+rc = lib.snd_pcm_start(pcm)
+if rc < 0:
+    sys.exit(f"supervisor: snd_pcm_start failed ({rc})")
+print(f"supervisor: holding {CARD} open, never reading; stop with SIGTERM", flush=True)
+stop = []
+for s in (signal.SIGTERM, signal.SIGINT):
+    signal.signal(s, lambda *a: stop.append(1))
+while not stop:
+    time.sleep(1)
+lib.snd_pcm_close(pcm)

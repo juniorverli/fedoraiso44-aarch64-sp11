@@ -22,7 +22,11 @@ def check(root, repo, record, release):
         assert not re.search(r'WSA|Speaker|PlaybackPCM|WsaInit|SpeakerSeq', active), p.name
     assert 'SectionDevice."Mic"' in (ucm / 'Surface11-HiFi.conf').read_text(), 'capture device absent'
     topology = root / 'usr/lib/firmware/qcom/x1e80100/X1E80100-Microsoft-Surface-Pro-11-tplg.bin'
-    assert digest(topology) == pins['topology']['sha256'] and topology.stat().st_size == pins['topology']['size'], 'topology'
+    private_audio = (record.get('private_m14') or {}).get('audio')
+    if private_audio:   # M14 private mode: the closed-loop topology replaces the public file of the same name (hash recorded by the stage step)
+        assert digest(topology) == private_audio[topology.name], 'private topology differs from the recorded stage hash'
+    else:
+        assert digest(topology) == pins['topology']['sha256'] and topology.stat().st_size == pins['topology']['size'], 'topology'
     assert 'system-db:distro' in (root / 'etc/dconf/profile/user').read_text(), 'distro policy not active'
     assert (root / 'etc/dconf/db/distro').stat().st_size > 0, 'compiled dconf database missing'
     value = subprocess.run(['chroot', str(root), 'dconf', 'read', '/org/gnome/desktop/sound/allow-volume-above-100-percent'], capture_output=True, text=True, check=True)
@@ -49,7 +53,7 @@ def check(root, repo, record, release):
     assert 'for f in trace0 resource_table' in dsp and 'timeout 5 head -c 262144' in dsp, 'remoteproc bounded reads absent'
     # Kernel worker checked the compiled ceilings/reset values. Require those same
     # module bytes in this root, tied to the release record hash checked by L0 4.12.
-    modules = release['m13']['new_modules']
+    modules = release['m14']['new_modules']
     assert modules['snd-soc-x1e80100']['mix_volume_controls'] == 4, 'MIX caps evidence'
     assert modules['snd-soc-wsa884x']['pa_mixer_value'] == 6, 'PA reset evidence'
     for name, module in modules.items():

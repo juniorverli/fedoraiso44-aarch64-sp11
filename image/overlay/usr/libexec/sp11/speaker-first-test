@@ -1,0 +1,50 @@
+#!/usr/bin/bash
+# FIRST speaker test (D26, audio-speakers evidence 2026-10-31-topology-rfc.md section 6). Manual, as root, only on the boot-menu entry
+# `SP11 debug, speakers (gated)` (sp11.entry=spk with sp11.allow_nominal=1). NEVER automatic, never on the main line.
+# Limits, all enforced here: minimum volume (the script sets no control; the operator keeps the volume at the minimum, the kernel caps stay),
+# tones of at most 2 s at low level, 3 minutes of silence between tones, at most 10 tones, and the session ENDS at any fault latch
+# or guard refusal. Kill switch: sp11.nospk on the kernel line (press e in GRUB) or power off. Two ADSP behaviours are unproven (cross-graph
+# control link, capture graph with an unconnected input): if either fails the guard stays closed and the speakers stay muted: that is a result.
+#   sp11-speaker-first-test [--tones N] [--dry-run]
+set -u
+export LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin
+TONES=10 DRY=0
+while [ $# -gt 0 ]; do case $1 in --tones) TONES=${2:?}; shift ;; --dry-run) DRY=1 ;; *) echo "usage: $0 [--tones N] [--dry-run]" >&2; exit 2 ;; esac; shift; done
+[ "$TONES" -ge 1 ] && [ "$TONES" -le 10 ] || { echo "at most 10 tones" >&2; exit 2; }
+cmd=$(cat "${SP11_CMDLINE:-/proc/cmdline}")
+case " $cmd " in *" sp11.entry=spk "*) ;; *) echo "refused: not the speaker first-test entry (sp11.entry=spk)" >&2; exit 1 ;; esac
+case " $cmd " in *" sp11.allow_nominal=1 "*) ;; *) echo "refused: sp11.allow_nominal=1 is not on the command line" >&2; exit 1 ;; esac
+case " $cmd " in *" sp11.nospk "*) echo "refused: the kill switch sp11.nospk is set" >&2; exit 1 ;; esac
+[ "$(id -u)" = 0 ] || { echo "run as root" >&2; exit 1; }
+G=${SP11_GUARD:-/sys/kernel/debug/sp11/guard}
+LOG=/run/sp11/speaker-first-test.log; mkdir -p /run/sp11
+say() { echo "$(date -u +%T) $*" | tee -a "$LOG"; }
+guard() { cat "$G" 2>/dev/null; }
+latched() { guard | grep -qi -E 'latch|fault' && ! guard | grep -qi -E '(latched|fault)[^a-z]*(: *)?(no|none|0)'; }
+say "guard before: $(guard | tr '\n' ' ')"
+[ -r "$G" ] || { say "refused: no $G (kernel without the sp11 guard, or debugfs not mounted)"; exit 1; }
+[ "$DRY" = 1 ] && { say "dry run: stopping before the supervisor"; exit 0; }
+tone=/run/sp11/tone.wav
+python3 - "$tone" <<'PY'
+import math, struct, sys, wave
+w = wave.open(sys.argv[1], "wb"); w.setnchannels(2); w.setsampwidth(2); w.setframerate(48000)
+n = 48000 * 2   # 2 s
+w.writeframes(b"".join(struct.pack("<hh", s, s) for s in (int(1500 * math.sin(2 * math.pi * 1000 * i / 48000)) for i in range(n))))
+w.close()
+PY
+/usr/libexec/sp11/speaker-supervisor hw:0,4 >>"$LOG" 2>&1 &
+sup=$!
+trap 'kill "$sup" 2>/dev/null' EXIT
+sleep 3
+kill -0 "$sup" 2>/dev/null || { say "supervisor did not stay up (see $LOG): no playback; the guard stays closed"; exit 1; }
+say "guard with the V/I capture held open: $(guard | tr '\n' ' ')"
+n=0
+while [ "$n" -lt "$TONES" ]; do
+	n=$((n + 1))
+	if latched; then say "STOP: guard reports a fault latch or refusal: $(guard | tr '\n' ' '). Power off."; exit 1; fi
+	say "tone $n of $TONES (2 s)"
+	timeout 5 aplay -q -D hw:0,0 "$tone" 2>>"$LOG" || say "playback refused or failed (expected while the guard is closed): $(guard | tr '\n' ' ')"
+	if latched; then say "STOP: fault latch after tone $n: $(guard | tr '\n' ' '). Power off."; exit 1; fi
+	[ "$n" -lt "$TONES" ] && { say "silence 180 s"; sleep 180; }
+done
+say "done: $n tones. guard after: $(guard | tr '\n' ' '). Power off."

@@ -74,10 +74,10 @@ if [ "$inside" = 0 ]; then
 	if [ "$builder" = kiwi ]; then
 		ls "$out"/rpms/kernel-core-*.rpm >/dev/null 2>&1 || { echo "image-build: no kernel-core RPM in $out/rpms/" >&2; exit 1; }
 		[ -d "$out/firmware-root/lib/firmware" ] || { echo "image-build: $out/firmware-root missing; run scripts/firmware-stage.sh" >&2; exit 1; }
-		for v in m13 m13-nosnd m13-notouch m13-spk m13-gpu m13-cam; do
+		for v in m14 m14-safe m14-nosnd m14-notouch m14-spk; do
 			for ext in dtb json; do
-				[ -s "$out/dtb-variants/7.3.0-65.sp11.10.fc44.aarch64/qcom/x1p64100-microsoft-denali-$v.$ext" ] || {
-					echo "image-build: REFUSED: kernel worker has not published the M13 $v $ext" >&2; exit 6;
+				[ -s "$out/dtb-variants/7.3.0-65.sp11.11.fc44.aarch64/qcom/x1p64100-microsoft-denali-$v.$ext" ] || {
+					echo "image-build: REFUSED: kernel worker has not published the M14 $v $ext" >&2; exit 6;
 				}
 			done
 		done
@@ -101,6 +101,12 @@ if [ "$inside" = 0 ]; then
 			trap 'exit 129' HUP
 			echo "image-build: PRIVATE build: embeds device addresses; never share the ISO"
 			python3 -I "$here/image/tools/private-stage.py" stage --mac-conf "$macconf" "${board_args[@]}" --out "$out/private-stage" || exit 6
+			# M14: the sensor configuration derives from the Windows driver store (S5): staged here on the host, copied by the container side
+			bash "$here/hardware/sensors/userspace/sp11-sensors-stage.sh" --windows "$here/sources/windows" --out "$out/private-stage/sensors" >"$out/private-stage/sensors-stage.log" 2>&1 \
+				|| { echo "image-build: REFUSED: sensor staging failed (names only: $(tail -n 2 "$out/private-stage/sensors-stage.log" | cut -c1-160))" >&2; exit 6; }
+			for f in "$out/firmware-private/audio/qcom/x1e80100/X1E80100-Microsoft-Surface-Pro-11-"{tplg,sp11cl,sp11cal}.bin; do
+				[ -s "$f" ] || { echo "image-build: REFUSED: missing private audio file $(basename "$f") (hardware/audio-speakers/userspace/build-topology/build-closedloop.sh, SP11_TOPOLOGY=1, --nominal-cal)" >&2; exit 6; }
+			done
 			kargs+=(--private)
 		fi
 		[ -n "$name" ] && kargs+=("$name")

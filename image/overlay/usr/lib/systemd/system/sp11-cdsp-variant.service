@@ -1,0 +1,16 @@
+[Unit]
+Description=SP11 CDSP experiment rotor report (variant of this boot, what the next boot loads)
+DefaultDependencies=no
+After=local-fs.target systemd-udevd.service sp11-sam-mode-rotor.service
+Before=sp11-log-collector.service
+Conflicts=shutdown.target
+Before=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/sp11/cdsp-variant
+TimeoutStartSec=60
+
+[Install]
+WantedBy=sysinit.target
