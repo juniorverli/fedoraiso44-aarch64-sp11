@@ -1,0 +1,17 @@
+sp11-camera-spectra
+===================
+
+Qualcomm's downstream camera driver (qualcomm-linux/camera-driver, GPL-2.0-only) built out of tree as the single
+module camera_x1e80100.ko against the SP11 kernel of the same version, plus two Kbuild patches
+(hardware/cameras/spectra/patches). Installed in /lib/modules/<kver>/extra. Not signed.
+
+Use only with the m15-spectra DTB (x1p64100-microsoft-denali-m15-spectra.dtb). With any other DTB nothing loads:
+none of Qualcomm's qcom,cam-* nodes exists, so udev has no alias to autoload, and the guard refuses a manual load. On the Spectra DTB the guard keeps
+qcom_camss and i2c_qcom_cci from loading.
+
+Firmware: the driver requests qcom/x1e80100/CAMERA_ICP.mbn (only when a client acquires the ICP/IPE/BPS devices;
+the TPG/CSID/IFE test does not need it). The file is NOT in this package. The private image build fetches it from
+Qualcomm's own Linux package with hardware/cameras/spectra/rpm/fetch-camera-icp.sh (checksum pinned) and installs
+it under /usr/lib/firmware/qcom/x1e80100/.
+
+Check: hardware/cameras/spectra/collector/spectra.sh (read-only).

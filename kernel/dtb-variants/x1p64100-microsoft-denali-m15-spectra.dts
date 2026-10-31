@@ -1,0 +1,134 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * M15 Spectra path (cameras worker, first device test): the m15-safe content (microphones only, GPU off, speakers
+ * off, S1) with the upstream camera stack replaced by Qualcomm's downstream Spectra devicetree, so that the
+ * out-of-tree module camera_x1e80100.ko (hardware/cameras/spectra/rpm) can bind.
+ *
+ *  - CAMSS, the upstream CCI controllers and the upstream OV13858/VD55G0/IMX681 nodes (patches 0003..0019) are OFF:
+ *    Spectra and CAMSS claim the same CSID/VFE/CSIPHY/CCI registers, IRQs, clocks and GDSCs and cannot coexist.
+ *  - Qualcomm's hamoa-camera.dtsi (qualcomm-linux/kernel, qcom-next 17bbb4b3, BSD-3-Clause, unmodified, see
+ *    hardware/cameras/spectra/dt/qcl/SOURCE.txt) provides every qcom,cam-* node. Its register bases and interrupts
+ *    equal the Surface ACPI (QCOM0C32/0C98/0C33/0C25), see evidence 2026-10-31-spectra-integration.md.
+ *  - Qualcomm's regulator file is NOT used: the Denali regulators-8 (pm8010, patches 0004/0005) already exist and
+ *    are enabled here. Qualcomm's sensor file is NOT used: one qcom,cam-sensor node for the rear OV13858 below.
+ *  - Front (IMX681) and IR (VD55G0) cameras: no node. The IR emitter and the flash are not described (S2); no
+ *    qcom,cam-flash / qcom,led-flash node exists in this file or in hamoa-camera.dtsi.
+ *  - Qualcomm's AON CCI (cam_cci1, 0xac16000) is disabled: its pin states use GPIO105..108, and GPIO105 is the
+ *    Surface rear privacy LED; the Surface front camera is on GPIO235/236, not described by that node.
+ *
+ * Built by hardware/cameras/spectra/scripts/build-dtb-spectra.sh; the kernel worker wires the same inputs into its
+ * variant script (the .dtsi and msm-camera.h must be in the kernel tree include path). Not a patch, not part of
+ * the RPM. Grades: see the evidence file.
+ */
+#include "x1p64100-microsoft-denali-m15-safe.dts"
+#include "hamoa-camera.dtsi"
+
+/* Upstream camera stack off (already disabled in the board DTS; explicit so no later include can enable it). */
+&camss {
+	status = "disabled";
+};
+
+&cci0 {
+	status = "disabled";
+};
+
+&cci0_i2c0 {
+	status = "disabled";
+};
+
+&cci0_i2c1 {
+	status = "disabled";
+};
+
+&cci1 {
+	status = "disabled";
+};
+
+&cci1_i2c1 {
+	status = "disabled";
+};
+
+/* Qualcomm's AON CCI: wrong pins for the Surface and it would own GPIO105 (privacy LED). */
+&cam_cci1 {
+	status = "disabled";
+};
+
+/* Rear camera rails: pm8010 (PMIC "m") L1 1.2 V, L5 2.8 V, L6 1.8 V (Windows data, patch 0005). */
+&apps_rsc {
+	regulators-8 {
+		status = "okay";
+	};
+};
+
+/*
+ * The downstream driver has no privacy-LED hook (only cam_flash drives LED triggers, and the flash is S2).
+ * Keep the board's gpio-leds node with the rear indicator (GPIO105) only, so userspace can light it while a
+ * stream runs; GPIO225 (front and IR indicator) stays unclaimed.
+ */
+&camera_indicator {
+	status = "disabled";
+};
+
+&{/camera-leds} {
+	pinctrl-0 = <&cam_rear_indicator_en>;
+	status = "okay";
+};
+
+/* MCLK1 pad strength of the Surface (4 mA, Windows data in patch 0005); Qualcomm's default is 2 mA. */
+&cam_sensor_mclk1_active {
+	config {
+		drive-strength = <4>;
+	};
+};
+
+/*
+ * Rear OV13858, the EVK "cam0" slot: CSIPHY1, CCI0 master 1 (GPIO103/104, the pins of Qualcomm's cci1_active
+ * state), MCLK1 (GPIO97), reset GPIO110. The I2C address (0x10, 7-bit) and the sensor probe/power sequence are
+ * not devicetree data in the downstream stack: userspace sends them in the CAM_SENSOR_PROBE packet (CamX
+ * com.qti.sensor.ov13858*.so). The GPIO flags are 0 on purpose: the driver sets raw levels
+ * (gpiod_set_raw_value_cansleep, cam_compat.h), the sensor reset is active low in hardware.
+ */
+&cam_cci0 {
+	qcom,cam-sensor1 {
+		compatible = "qcom,cam-sensor";
+		csiphy-sd-index = <1>;
+		sensor-position-roll = <0>;
+		sensor-position-pitch = <0>;
+		sensor-position-yaw = <180>;
+		cam_vio-supply = <&vreg_l6m_1p8>;
+		cam_vdig-supply = <&vreg_l1m_1p2>;
+		cam_vana-supply = <&vreg_l5m_2p8>;
+		regulator-names = "cam_vio", "cam_vdig", "cam_vana";
+		power-domains = <&camcc CAM_CC_TITAN_TOP_GDSC>;
+		rgltr-cntrl-support;
+		pwm-switch;
+		rgltr-min-voltage = <1800000 1200000 2800000>;
+		rgltr-max-voltage = <1800000 1200000 2800000>;
+		rgltr-load-current = <120000 120000 120000>;
+		gpio-no-mux = <0>;
+		pinctrl-names = "cam_default", "cam_suspend";
+		pinctrl-0 = <&cam_sensor_mclk1_active &cam_sensor_active_rst1>;
+		pinctrl-1 = <&cam_sensor_mclk1_suspend &cam_sensor_suspend_rst1>;
+		gpios = <&tlmm 97 0>,
+			<&tlmm 110 0>;
+		gpio-reset = <1>;
+		gpio-req-tbl-num = <0 1>;
+		gpio-req-tbl-flags = <1 0>;
+		gpio-req-tbl-label = "CAM_MCLK1",
+				     "CAMIF_RESET1";
+		cci-master = <1>;
+		clocks = <&camcc CAM_CC_MCLK1_CLK>;
+		clock-names = "cam_clk";
+		clock-cntl-level = "nominal";
+		clock-rates = <19200000>;
+		cell-index = <0>;
+		status = "okay";
+	};
+};
+
+&soc {
+	qcom,cam-res-mgr {
+		compatible = "qcom,cam-res-mgr";
+		status = "okay";
+	};
+};

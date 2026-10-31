@@ -1,0 +1,30 @@
+#!/bin/sh
+# sp11-camera-spectra-guard: modprobe `install` helper of sp11-camera-spectra.
+#
+#   sp11-camera-spectra-guard load-if-spectra MODULE [PARAMS...]   load MODULE only when the Spectra DT is active
+#   sp11-camera-spectra-guard skip-if-spectra MODULE [PARAMS...]   load MODULE only when the Spectra DT is NOT active
+#
+# The Spectra DT is active when /proc/device-tree/soc@0/qcom,cam-cpas* exists and is not disabled (the node comes
+# from Qualcomm's hamoa-camera.dtsi, present only in the m15-spectra DTB). SP11_DT_ROOT overrides /proc/device-tree
+# (tests). Spectra (camera_x1e80100) and upstream CAMSS/CCI claim the same registers, IRQs, clocks and GDSCs and
+# cannot coexist; a refused load returns success so udev and modprobe stay quiet, the reason goes to the journal.
+mode=$1; mod=$2; shift 2
+root=${SP11_DT_ROOT:-/proc/device-tree}
+spectra=no
+for d in "$root"/soc@0/qcom,cam-cpas*; do
+    [ -e "$d" ] || continue
+    st=ok
+    [ -r "$d/status" ] && st=$(tr -d '\0' < "$d/status")
+    case $st in ok|okay) spectra=yes ;; esac
+done
+case "$mode:$spectra" in
+    load-if-spectra:yes|skip-if-spectra:no)
+        exec /usr/sbin/modprobe --ignore-install "$mod" "$@" ;;
+    load-if-spectra:no)
+        logger -t sp11-camera-spectra "not loading $mod: the Spectra devicetree (qcom,cam-cpas) is not active" 2>/dev/null || : ;;
+    skip-if-spectra:yes)
+        logger -t sp11-camera-spectra "not loading $mod: the Spectra devicetree is active and owns the camera hardware" 2>/dev/null || : ;;
+    *)
+        echo "usage: $0 load-if-spectra|skip-if-spectra MODULE [PARAMS...]" >&2; exit 2 ;;
+esac
+exit 0

@@ -1,0 +1,11 @@
+Qualcomm downstream Spectra devicetree for hamoa (Snapdragon X Elite / X1E80100), BSD-3-Clause, unmodified.
+Repository: https://github.com/qualcomm-linux/kernel
+Branch:     qcom-next
+Commit:     17bbb4b37bbc4fc5827b4667445a0c43967c0f48 (head of qcom-next on 2026-10-31, verified with git ls-remote)
+Path:       arch/arm64/boot/dts/qcom/<name>
+Fetched:    2026-10-31, curl https://raw.githubusercontent.com/qualcomm-linux/kernel/17bbb4b37bbc4fc5827b4667445a0c43967c0f48/arch/arm64/boot/dts/qcom/<name>
+Used:       hamoa-camera.dtsi (all qcom,cam-* nodes, TLMM pin states)
+Reference only (not included by the Surface variant): hamoa-camera-regulators.dtsi, hamoa-camera-sensor.dtsi,
+            hamoa-evk-camx.dtso
+Header:     ../include/dt-bindings/camera/msm-camera.h from qualcomm-linux/camera-driver 08171dd
+            camera/dt-bindings/msm-camera.h (GPL-2.0-only), needed by hamoa-camera.dtsi
