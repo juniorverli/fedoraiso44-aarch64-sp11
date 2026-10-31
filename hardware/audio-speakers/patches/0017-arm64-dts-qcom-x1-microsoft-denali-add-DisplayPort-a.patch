@@ -1,0 +1,99 @@
+From 36ce336602cfd9eb10efcc40a1c3fc4cfc8e8ccc Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Sat, 31 Oct 2026 18:52:23 +0000
+Subject: [PATCH] arm64: dts: qcom: x1-microsoft-denali: add DisplayPort audio
+ to the microphone card
+
+The USB-C DisplayPort controllers are the audio sinks of the
+DISPLAY_PORT_RX_0 and DISPLAY_PORT_RX_1 AudioReach back ends, as on the
+Hamoa IoT EVK. The Surface Pro 11 sound node has no such links, so the
+card has no DisplayPort back end, no "DPn Jack" control and the
+controllers never bind their audio codec.
+
+Add the two links in a separate fragment and include it from the opt-in
+microphone fragment, so every variant that enables the sound card gets
+them. The fragment adds no speaker path and does not enable the node:
+the packaged DTB keeps /sound disabled.
+
+Assisted-by: Claude Sonnet 5.5
+---
+ .../qcom/x1-microsoft-denali-audio-dp.dtsi    | 49 +++++++++++++++++++
+ .../qcom/x1-microsoft-denali-audio-mics.dtsi  |  4 ++
+ 2 files changed, 53 insertions(+)
+ create mode 100644 arch/arm64/boot/dts/qcom/x1-microsoft-denali-audio-dp.dtsi
+
+diff --git a/arch/arm64/boot/dts/qcom/x1-microsoft-denali-audio-dp.dtsi b/arch/arm64/boot/dts/qcom/x1-microsoft-denali-audio-dp.dtsi
+new file mode 100644
+index 000000000..c50bd482a
+--- /dev/null
++++ b/arch/arm64/boot/dts/qcom/x1-microsoft-denali-audio-dp.dtsi
+@@ -0,0 +1,49 @@
++// SPDX-License-Identifier: BSD-3-Clause
++/*
++ * Surface Pro 11: DisplayPort audio back ends of the sound card.
++ *
++ * The two USB-C DisplayPort controllers (mdss_dp0 and mdss_dp1) are the
++ * audio sinks of the DISPLAY_PORT_RX_0 and DISPLAY_PORT_RX_1 AudioReach back
++ * ends, as on the Hamoa IoT EVK. Without these links the card has no
++ * DisplayPort back end, no "DPn Jack" control and the controllers never bind
++ * their audio codec.
++ *
++ * This file only adds links to the sound node. It does not enable the node
++ * and it carries no speaker path: include it only from a DTS that enables
++ * the sound card, next to x1-microsoft-denali-audio-mics.dtsi or the
++ * speaker fragments.
++ */
++
++&{/sound} {
++	dp0-dai-link {
++		link-name = "DP0 Playback";
++
++		codec {
++			sound-dai = <&mdss_dp0>;
++		};
++
++		cpu {
++			sound-dai = <&q6apmbedai DISPLAY_PORT_RX_0>;
++		};
++
++		platform {
++			sound-dai = <&q6apm>;
++		};
++	};
++
++	dp1-dai-link {
++		link-name = "DP1 Playback";
++
++		codec {
++			sound-dai = <&mdss_dp1>;
++		};
++
++		cpu {
++			sound-dai = <&q6apmbedai DISPLAY_PORT_RX_1>;
++		};
++
++		platform {
++			sound-dai = <&q6apm>;
++		};
++	};
++};
+diff --git a/arch/arm64/boot/dts/qcom/x1-microsoft-denali-audio-mics.dtsi b/arch/arm64/boot/dts/qcom/x1-microsoft-denali-audio-mics.dtsi
+index 0004b2b78..bf14e6ec5 100644
+--- a/arch/arm64/boot/dts/qcom/x1-microsoft-denali-audio-mics.dtsi
++++ b/arch/arm64/boot/dts/qcom/x1-microsoft-denali-audio-mics.dtsi
+@@ -11,8 +11,12 @@
+  *  - &swr0 is not touched, so it stays as the board DTS left it (disabled),
+  *    no WSA8845 is enumerated and the amplifiers are never programmed.
+  *
++ * The DisplayPort audio links of x1-microsoft-denali-audio-dp.dtsi are part of
++ * the card in this variant: they add no speaker path.
++ *
+  * Include this file only from a DTS whose name says it is an audio variant.
+  */
++#include "x1-microsoft-denali-audio-dp.dtsi"
+ 
+ &{/sound} {
+ 	status = "okay";
+-- 
+2.43.0
+
