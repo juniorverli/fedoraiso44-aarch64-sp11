@@ -51,7 +51,8 @@ def main():
     parser.add_argument('dtb', type=Path)
     parser.add_argument('--variant', choices=['packaged', 'm8', 'm8-notouch', 'm9', 'm9-notouch', 'm10', 'm10-notouch', 'm11', 'm11-notouch', 'm11-audio', 'm12', 'm12-notouch', 'm12-audio',
                                  'm13', 'm13-nosnd', 'm13-notouch', 'm13-spk', 'm13-gpu', 'm13-cam',
-                                 'm14', 'm14-safe', 'm14-nosnd', 'm14-notouch', 'm14-spk'],
+                                 'm14', 'm14-safe', 'm14-nosnd', 'm14-notouch', 'm14-spk',
+                                 'm15', 'm15-safe', 'm15-nosnd', 'm15-notouch', 'm15-spk'],
                         required=True)
     parser.add_argument('--baseline', type=Path)
     parser.add_argument('--previous', type=Path, help='M8 DTB: require only the CMA range addition')
@@ -60,6 +61,8 @@ def main():
     parser.add_argument('--previous-m12', type=Path,
                         help='M12-behaviour DTB: require only disabled camera nodes added (M13 camera patches)')
     parser.add_argument('--cma-dma32', action='store_true', help='Require the M9 DMA32 CMA window')
+    parser.add_argument('--volume-keys', action='store_true',
+                        help='Require the ec-sam 0005 volume-key nodes (implied for m15 variants)')
     parser.add_argument('--parity-in-base', action='store_true',
                         help='Require integrated LCD parity in the packaged board')
     args = parser.parse_args()
@@ -69,7 +72,7 @@ def main():
     symbols = {k: strings(v)[0] for k, v in nodes['/__symbols__'].items()}
 
     cma_record = None
-    if args.cma_dma32 or args.variant.startswith(('m9', 'm10', 'm11', 'm12', 'm13', 'm14')):
+    if args.cma_dma32 or args.variant.startswith(('m9', 'm10', 'm11', 'm12', 'm13', 'm14', 'm15')):
         pools = [(p, props) for p, props in nodes.items() if 'linux,cma-default' in props]
         require(len(pools) == 1, 'Missing/ambiguous default CMA pool')
         path, pool = pools[0]
@@ -100,7 +103,7 @@ def main():
         return cells(node(label)['phandle'])[0]
 
     # The only enabled-card exceptions are the microphone DTs and, under the d26 profile, m13-spk.
-    spk = args.variant in ('m13-spk', 'm14-spk')
+    spk = args.variant in ('m13-spk', 'm14-spk', 'm15-spk')
     profile = 'd26' if spk else 'default'
     safety_tool = str(Path(__file__).with_name('kernel-dtb-safety.py'))
     safety = subprocess.run(['python3', '-I', safety_tool, '/dev/stdin', '--profile', profile],
@@ -120,7 +123,8 @@ def main():
         require(len(watched) == 3, 'Unexpected S1 watched-node count')
         require(safety_json['speaker_marker'] is None, 'Speaker policy marker in a non-speaker DTB')
         require(node('swr0').get('status') == '\"disabled\"', 'swr0 is not disabled')
-    mic_variants = ('m11-audio', 'm12-audio', 'm13', 'm13-notouch', 'm13-cam', 'm14', 'm14-safe', 'm14-notouch')
+    mic_variants = ('m11-audio', 'm12-audio', 'm13', 'm13-notouch', 'm13-cam', 'm14', 'm14-safe', 'm14-notouch',
+                    'm15', 'm15-safe', 'm15-notouch')
     if spk:
         require(enabled('/sound'), 'm13-spk: sound card disabled')
     elif args.variant in mic_variants:
@@ -130,6 +134,35 @@ def main():
                 ['VA DMIC0', 'vdd-micb', 'VA DMIC1', 'vdd-micb'], 'Non-microphone audio routes')
     else:
         require(nodes['/sound'].get('status') == '\"disabled\"', '/sound is not disabled')
+
+    # M15 (audio-speakers 0017): the sound variants carry the two DisplayPort back-end links and no WSA link outside
+    # m15-spk; sound-off variants (nosnd, packaged) carry none. The links add no speaker path.
+    dp_links = None
+    if args.variant.startswith('m15') and args.variant != 'm15-nosnd':
+        dp_links = {}
+        for index, (name, port, dai) in enumerate((('dp0-dai-link', 'mdss_dp0', 104), ('dp1-dai-link', 'mdss_dp1', 129))):
+            base = '/sound/' + name
+            require(base in nodes, f'{args.variant}: missing {name}')
+            require(strings(nodes[base]['link-name']) == [f'DP{index} Playback'], f'{name}: link name')
+            require(cells(nodes[base + '/codec']['sound-dai']) == [phandle(port)], f'{name}: codec is not {port}')
+            require(cells(nodes[base + '/cpu']['sound-dai']) == [phandle('q6apmbedai'), dai],
+                    f'{name}: cpu is not DISPLAY_PORT_RX_{index}')
+            require(cells(nodes[base + '/platform']['sound-dai']) == [phandle('q6apm')], f'{name}: platform')
+            require(enabled(symbols[port]), f'{name}: {port} disabled')
+            dp_links[name] = dict(codec=port, cpu_dai=dai)
+    elif args.variant in ('m15-nosnd', 'packaged'):
+        require(not any(p.startswith('/sound/dp') for p in nodes), 'DP audio links in a sound-off DTB')
+
+    # ec-sam 0005: volume keys on PM8550 GPIO 6 and 8 (packaged board DT, so every M15 DTB carries them).
+    volume_keys = None
+    if args.volume_keys or args.variant.startswith('m15'):
+        require('/volume-keys' in nodes and enabled('/volume-keys'), 'Volume-key node missing or disabled')
+        require(strings(nodes['/volume-keys']['compatible']) == ['gpio-keys'], 'Volume-key compatible')
+        pm = phandle('pm8550_gpios')
+        up, down = nodes['/volume-keys/key-volume-up'], nodes['/volume-keys/key-volume-down']
+        require(cells(up['gpios']) == [pm, 6, 1] and cells(up['linux,code']) == [115], 'Volume-up key')
+        require(cells(down['gpios']) == [pm, 8, 1] and cells(down['linux,code']) == [114], 'Volume-down key')
+        volume_keys = dict(up_gpio=6, down_gpio=8, active_low=True)
 
     tlmm = phandle('tlmm')
     require(node('pcie4')['pinctrl-names'] == '"default"', 'PCIe4 pinctrl names')
@@ -159,7 +192,7 @@ def main():
         require('domain-idle-states' not in node('system_pd'), 'System SS3 still referenced')
         # Keep both cluster idle states in the DT.
         require('cluster_cl4' in symbols and 'cluster_cl5' in symbols, 'Cluster idle state removed')
-    if args.variant in ('m13-gpu', 'm14'):
+    if args.variant in ('m13-gpu', 'm14', 'm15'):
         require(enabled(symbols['gpu']), f'{args.variant}: GPU not enabled')
     else:
         require(not enabled(symbols['gpu']), 'GPU enabled in LCD DTB')
@@ -181,18 +214,18 @@ def main():
         require(enabled('/camera-leds'), 'm13-cam: indicator LED bank disabled')
         for label in ('cci1', 'cci0_i2c0', 'cci1_i2c0', 'cci1_i2c1'):
             require(not enabled(symbols[label]), f'm13-cam: {label} must stay disabled')
-    elif args.variant == 'm14':
+    elif args.variant in ('m14', 'm15'):
         # Combined diagnostic default: rear, front and IR chains all effectively enabled.
         front = [p for p in nodes if 'sony,imx681' in nodes[p].get('compatible', '')]
         ir = [p for p in nodes if 'st,vd55g0' in nodes[p].get('compatible', '')]
-        require(len(rear) == 1 and len(front) == 1 and len(ir) == 1, 'm14: camera sensor nodes missing')
+        require(len(rear) == 1 and len(front) == 1 and len(ir) == 1, f'{args.variant}: camera sensor nodes missing')
         for path in rear + front + ir:
-            require(enabled(path), f'm14: {path} not effectively enabled')
+            require(enabled(path), f'{args.variant}: {path} not effectively enabled')
         for label in ('camss', 'cci0', 'cci0_i2c0', 'cci0_i2c1', 'cci1', 'cci1_i2c1'):
-            require(enabled(symbols[label]), f'm14: {label} disabled')
-        require(enabled('/camera-leds'), 'm14: indicator LED bank disabled')
-        require(not enabled(symbols['cci1_i2c0']), 'm14: cci1_i2c0 must stay disabled')
-    elif args.variant.startswith(('m13', 'm14')) or args.variant == 'packaged' and args.previous_m12:
+            require(enabled(symbols[label]), f'{args.variant}: {label} disabled')
+        require(enabled('/camera-leds'), f'{args.variant}: indicator LED bank disabled')
+        require(not enabled(symbols['cci1_i2c0']), f'{args.variant}: cci1_i2c0 must stay disabled')
+    elif args.variant.startswith(('m13', 'm14', 'm15')) or args.variant == 'packaged' and args.previous_m12:
         require(camera_present, 'Camera nodes missing in an M13/M14 DTB')
         require(not camera_on, f'Camera nodes enabled outside the camera diagnostic variants: {camera_on}')
         require(not any(enabled(p) for p in rear), 'Rear camera enabled outside m13-cam')
@@ -312,10 +345,11 @@ def main():
         # A changed property is allowed only as an added __symbols__ entry for such a node.
         # (apps_rsc, soc, tlmm and pinctrl gain disabled children only.)
         extra = [c for c in changed if not (c['path'] == '/__symbols__' and c['before'] is None)]
-        allowed = ('/camera-leds', '/soc@0/cci@', '/soc@0/isp@', '/soc@0/rsc@17500000/regulators-8',
+        allowed = ('/volume-keys', '/sound/dp0-dai-link', '/sound/dp1-dai-link', '/camera-leds', '/soc@0/cci@', '/soc@0/isp@', '/soc@0/rsc@17500000/regulators-8',
                    '/soc@0/rsc@17500000/regulators-0/ldo7', '/soc@0/rsc@17500000/regulators-0/ldo16')
         require(not extra, f'Existing nodes changed relative to M12: {extra}')
         require(all(n.startswith(allowed) or ('/pinctrl@f100000/' in n and n.rsplit('/', 1)[-1].startswith(('cam-', 'cci')))
+                    or n.rsplit('/', 1)[-1] in ('vol-up-n-state', 'vol-down-n-state')
                     for n in added), f'Nodes added relative to M12 outside the camera chain: {added}')
         m12_changes = dict(added_nodes=added, changed_properties=extra,
                            added_symbols=[c['property'] for c in changed if c not in extra])
@@ -323,6 +357,7 @@ def main():
                           camera_nodes_enabled=camera_on, diff_vs_m12=m12_changes, watched_count=len(watched),
                           wifi=dict(perst_gpio=146, wake_gpio=148, active_low=True, pinctrl='pcie4_default'),
                           usb_typec=dict(reset_gpio=176, pinctrl='rtmr1_default', drive_strength=2),
+                          dp_audio_links=dp_links, volume_keys=volume_keys,
                           cpu_count=len(cpus), no_system_ss3=parity,
                           gpu_enabled=enabled(symbols['gpu']),
                           microphone_only=args.variant in mic_variants,

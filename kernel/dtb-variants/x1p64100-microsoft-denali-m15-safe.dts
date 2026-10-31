@@ -1,0 +1,10 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * M15 fallback (automatic entry): the M14 fallback plus the DisplayPort audio back ends. M12 board DT
+ * (touch on, GPU off, D20 parity) plus the sound card with the digital microphones and the two DisplayPort
+ * links (audio-speakers patch 0017, included by x1-microsoft-denali-audio-mics.dtsi). GPU off, no camera node
+ * enabled, speakers off (S1). The volume keys (ec-sam 0005) are in the packaged board DT.
+ * Built by the kernel DTB variants script; not a patch, not part of the RPM.
+ */
+#include "x1p64100-microsoft-denali-m12.dts"
+#include "x1-microsoft-denali-audio-mics.dtsi"

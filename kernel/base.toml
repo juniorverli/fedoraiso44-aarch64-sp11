@@ -32,7 +32,10 @@ dist = ".fc44"
 # Series revision: the RPM release is 65<buildid>.<series_rev><dist>, e.g. kernel-7.3.0-65.sp11.3.fc44.
 # Bump series_rev whenever kernel/series or a patch in it changes, and set series_sha256 to the value
 # scripts/kernel-build.sh prints (sha256 of the "<path> <patch sha256>" lines of kernel/series).
-# 0 = M1 (empty series), 3 = M3 (display-lcd 0001-0003), 4 = M7 (nine patches), 5 = M8 (touch/QSPI, GPU off), 6 = M9 (rfkill, DMA32 CMA, USB-C diagnostics), 7 = M10 (GLINK OPEN_ACK diagnostic), 8 = M11 (FIFO diagnostic, packaged parity, audio safety/fragments), 9 = M12 (spi-hid-of supply fix F-09, audio safety 0004/0005), 10 = M13 (GPR fix, D26 gate, DSP 0003, ec-sam 0007, rear camera), 11 = M14 (closed-loop audio stage 2 0010-0016, camera C-PHY 0006-0010 and follow-ups 0011-0019).
+# 0 = M1 (empty series), 3 = M3 (display-lcd 0001-0003), 4 = M7 (nine patches), 5 = M8 (touch/QSPI, GPU off), 6 = M9 (rfkill, DMA32 CMA, USB-C diagnostics), 7 = M10 (GLINK OPEN_ACK diagnostic), 8 = M11 (FIFO diagnostic, packaged parity, audio safety/fragments), 9 = M12 (spi-hid-of supply fix F-09, audio safety 0004/0005), 10 = M13 (GPR fix, D26 gate, DSP 0003, ec-sam 0007, rear camera), 11 = M14 (closed-loop audio stage 2 0010-0016, camera C-PHY 0006-0010 and follow-ups 0011-0019), 12 = M15 (DisplayPort audio links 0017, AudioReach generic module blobs 0018, writable keep_proxy_pds, volume keys, built-in SCMI cpufreq, amended camera patches).
 # kernel-build.sh and kernel-check fail on a mismatch.
-series_rev = 11
-series_sha256 = "1f7316fd07ed99bf7ff8f06171f6d3a5adc77f62e02184b625d89e809039b2eb"
+series_rev = 12
+# PROVISIONAL: the amended camera patches are merged after this value was computed. Recompute it with
+#   bash -c '. scripts/kernel-common.sh; kernel_series_hash'
+# and paste it here (kernel-build.sh and kernel-check fail on a mismatch).
+series_sha256 = "9e71502527dd1995cd144c1aaa3c8cc3c58db355dd8e6ec03b1a024473db9471"
