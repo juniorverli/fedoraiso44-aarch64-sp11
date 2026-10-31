@@ -10,32 +10,39 @@ power domains show off in genpd after the handover IRQ. Whether the
 Microsoft-signed firmware relies on the Apps proxy votes beyond the
 handover cannot be told from the logs.
 
-Add a read-only module parameter, default off, that keeps the proxy power
-domain votes after the handover IRQ and releases them when the remote
-processor is stopped. Log the handover so its time can be compared with
-the GLINK log. No behaviour change unless the parameter is set.
+Add a module parameter, default off, that keeps the proxy power domain
+votes after the handover IRQ and releases them when the remote processor
+is stopped. Log the handover so its time can be compared with the GLINK
+log. No behaviour change unless the parameter is set.
+
+The parameter is writable at runtime (0644) so an experiment can set it
+between a stop and the next start of the remote processor without
+reloading the module. It is read once at each handover: setting it
+after the handover has no effect on the running instance, and clearing
+it while the votes are held does not drop them until the processor
+stops.
 
 Assisted-by: Claude Sonnet 5.5
 ---
- drivers/remoteproc/qcom_q6v5_pas.c | 19 +++++++++++++++++++
- 1 file changed, 19 insertions(+)
+ drivers/remoteproc/qcom_q6v5_pas.c | 21 +++++++++++++++++++++
+ 1 file changed, 21 insertions(+)
 
 diff --git a/drivers/remoteproc/qcom_q6v5_pas.c b/drivers/remoteproc/qcom_q6v5_pas.c
-index a005546c2..e88cc499e 100644
+index a005546..384bf1d 100644
 --- a/drivers/remoteproc/qcom_q6v5_pas.c
 +++ b/drivers/remoteproc/qcom_q6v5_pas.c
-@@ -32,6 +32,11 @@
- #include "qcom_common.h"
- #include "qcom_pil_info.h"
+@@ -34,6 +34,11 @@
  #include "qcom_q6v5.h"
-+
-+static bool keep_proxy_pds;
-+module_param(keep_proxy_pds, bool, 0444);
-+MODULE_PARM_DESC(keep_proxy_pds,
-+		 "Diagnostic: keep the proxy power domain votes after the handover IRQ (default: off)");
  #include "remoteproc_internal.h"
  
++static bool keep_proxy_pds;
++module_param(keep_proxy_pds, bool, 0644);
++MODULE_PARM_DESC(keep_proxy_pds,
++		 "Diagnostic: keep the proxy power domain votes after the handover IRQ until the remote processor stops. Read at each handover: change it between stop and start (default: off)");
++
  #define QCOM_PAS_DECRYPT_SHUTDOWN_DELAY_MS	100
+ 
+ #define MAX_ASSIGN_COUNT 3
 @@ -81,6 +86,7 @@ struct qcom_pas {
  	struct device *proxy_pds[3];
  
@@ -44,14 +51,23 @@ index a005546c2..e88cc499e 100644
  
  	const char *dtb_firmware_name;
  	int pas_id;
-@@ -398,6 +404,14 @@ static void qcom_pas_handover(struct qcom_q6v5 *q6v5)
+@@ -391,6 +397,7 @@ disable_irqs:
+ static void qcom_pas_handover(struct qcom_q6v5 *q6v5)
+ {
+ 	struct qcom_pas *pas = container_of(q6v5, struct qcom_pas, q6v5);
++	bool keep;
+ 
+ 	if (pas->px_supply)
+ 		regulator_disable(pas->px_supply);
+@@ -398,6 +405,15 @@ static void qcom_pas_handover(struct qcom_q6v5 *q6v5)
  		regulator_disable(pas->cx_supply);
  	clk_disable_unprepare(pas->aggre2_clk);
  	clk_disable_unprepare(pas->xo);
 +
++	keep = READ_ONCE(keep_proxy_pds);
 +	dev_info(pas->dev, "handover: proxy power domains %s\n",
-+		 keep_proxy_pds ? "kept" : "released");
-+	if (keep_proxy_pds) {
++		 keep ? "kept" : "released");
++	if (keep) {
 +		pas->proxy_pds_held = true;
 +		return;
 +	}
@@ -59,7 +75,7 @@ index a005546c2..e88cc499e 100644
  	qcom_pas_pds_disable(pas, pas->proxy_pds, pas->proxy_pd_count);
  }
  
-@@ -436,6 +450,11 @@ static int qcom_pas_stop(struct rproc *rproc)
+@@ -436,6 +452,11 @@ static int qcom_pas_stop(struct rproc *rproc)
  	if (handover)
  		qcom_pas_handover(&pas->q6v5);
  
@@ -71,3 +87,6 @@ index a005546c2..e88cc499e 100644
  	if (pas->smem_host_id)
  		ret = qcom_smem_bust_hwspin_lock_by_host(pas->smem_host_id);
  
+-- 
+2.43.0
+
