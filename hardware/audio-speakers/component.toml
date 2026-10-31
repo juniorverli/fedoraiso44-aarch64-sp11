@@ -3,7 +3,7 @@ name = "Speakers: 2x WSA8845 on SoundWire, with speaker protection (SP + VI feed
 phase = 3
 status = "designed"
 depends_on = ["dsp-subsystems"]
-updated = "2026-10-30"
+updated = "2026-10-31"
 
 [windows]
 hardware_ids = ["MEDIA ADCM\\VEN_QCOM&DEV_0CE6&SUBSYS_MSHW0486&REV_0d (ACX audio)", "ADCM\\VEN_QCOM&DEV_0CC1&SUBSYS_MSHW0486&REV_0d", "AUCD\\VEN_QCOM&DEV_0C29&SUBSYS_MSHW0486&REV_0d", "ADSP\\VEN_QCOM&DEV_0C22&SUBSYS_MSHW0486&REV_0d (calibration manager)", "ADSP\\VEN_QCOM&DEV_0C0F (slimbus/soundwire)"]
@@ -13,7 +13,7 @@ packages = ["qcaudminiport_base8380", "qcaudminiport_apo8380", "qcaucd8380", "su
 drivers = ["sound/soc/qcom/x1e80100.c", "codecs/wsa884x", "codecs/lpass-wsa-macro", "qdsp6 q6apm/audioreach (MODULE_ID_SPEAKER_PROTECTION, _VI)", "soundwire/qcom", "userspace: AudioReach topology, alsa-ucm-conf"]
 dt = ["x1-microsoft-denali.dtsi sound, &swr0 left_spkr/right_spkr, &lpass_tlmm"]
 native = "partial"
-gaps = ["topology .bin with the SP/VI/CPS chains not generated (host tap undecided, evidence 2026-10-30-closed-loop.md section 6)", "measured per-unit R0/T0 flow (kernel calibration mode not implemented)", "no readback of Re/T from the DSP", "sense gain operating point and port map unverified on hardware", "UCM profile and V/I supervisor in user space"]
+gaps = ["closed-loop topology generated and parsed offline (2026-10-31) but ADSP acceptance unknown: control link across two graphs (H3) and trigger front end with unconnected input (H10); design B (Qualcomm RFC) is the M15 fallback", "measured per-unit R0/T0 flow (kernel calibration mode not implemented)", "no readback of Re/T from the DSP", "sense gain operating point and port map unverified on hardware", "UCM profile and V/I supervisor in user space"]
 
 [firmware]
 needs = ["AudioReach topology for X1E80100-Microsoft-Surface-Pro-11", "private sp11cl.bin and sp11cal.bin (generated locally, never in git)"]
