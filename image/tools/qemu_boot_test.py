@@ -23,7 +23,7 @@ import pexpect
 
 ENTRIES = [   # M15: one flat static menu (M13 style); the VM entry is the LAST line, selected by counting Down keys
     "SP11 debug",
-    "SP11 debug, safe (no cameras)",
+    "SP11 debug, safe (no GPU, no cameras)",
     "SP11 debug, no sound",
     "SP11 debug, touch off",
     "SP11 debug, speakers (gated)",

@@ -75,14 +75,19 @@ def check(root, repo, record):
     assert 'ConditionKernelCommandLine=sp11.gpu_diag=1' in gunit.read_text(), 'GPU unit is not gated by sp11.gpu_diag=1'
     drop = root / 'usr/lib/systemd/system/sp11-gpu-two-step.service.d/10-sp11-image.conf'
     assert drop.read_bytes() == (repo / 'image/overlay/usr/lib/systemd/system/sp11-gpu-two-step.service.d/10-sp11-image.conf').read_bytes() and 'Before=gdm.service' in drop.read_text(), 'GPU drop-in'
-    assert not (root / 'etc/systemd/system/multi-user.target.wants/sp11-gpu-two-step.service').exists(), 'GPU two-step is enabled (M15: installed disabled)'
+    assert (root / 'etc/systemd/system/multi-user.target.wants/sp11-gpu-two-step.service').readlink() == Path('/usr/lib/systemd/system/sp11-gpu-two-step.service'), 'GPU two-step not enabled (M15: enabled, runs only through sp11.gpu_diag=1)'
     preset = (root / 'usr/lib/systemd/system-preset/80-sp11.preset').read_text()
-    assert 'disable sp11-gpu-two-step.service' in preset and 'enable sp11-gpu-two-step.service' not in preset, 'preset does not disable the GPU two-step'
+    assert 'enable sp11-gpu-two-step.service' in preset and 'disable sp11-gpu-two-step.service' not in preset, 'preset does not enable the GPU two-step'
     for u in ('sp11-speaker-ucm.service', 'sp11-sam-mode-rotor.service', 'sp11-cdsp-experiment.service', 'sp11-cpufreq-cap.service',
               'sp11-identity-switch.service', 'sp11-wifi-identity.service', 'sp11-identity-bt-pre.service',
               'sp11-suspend-policy.service', 'sp11-wakeup-policy.service', 'sp11-suspend-diag.service', 'sp11-thermal-sample.service'):
         assert f'enable {u}' in preset, f'preset lacks {u}'
-    assert not any('sp11.gpu_diag' in (e['linux_args'] or '') or 'sp11.gpu_dtb' in (e['linux_args'] or '') for e in record['grub_entries']), 'GPU argument in the M15 menu'
+    gd = [e['title'] for e in record['grub_entries'] if 'sp11.gpu_diag' in (e['linux_args'] or '')]
+    assert gd == ['SP11 debug'], f'sp11.gpu_diag=1 only on line 1: {gd}'
+    assert 'sp11.gpu_diag=1' in record['grub_entries'][0]['linux_args'].split(), 'gpu_diag missing on line 1'
+    assert not any('sp11.gpu_dtb' in (e['linux_args'] or '') for e in record['grub_entries']), 'GPU DTB argument in the M15 menu'
+    assert 'RESET THE MACHINE' in hooks.read_text() and 'line 2' in hooks.read_text(), 'GPU hooks lack the plain reset warning'
+    assert 'sp11-boot-state' in hooks.read_text() and 'grubenv' not in hooks.read_text().replace('no grubenv', ''), 'GPU hooks must use the boot-state helper only'
     assert not any('denali-m1' in str(e) for e in record['grub_entries']) and len(record['grub_entries']) == 11, 'M15 menu is 11 flat entries'
     assert not any(re.search(r'cdsp_variant|firmware_class|keep_proxy_pds|surface_aggregator|sp11\.identity|cpufreq', e['linux_args'] or '') for e in record['grub_entries']), 'experiment argument on a static line'
     assert all('sp11.allow_nominal' not in e['linux_args'] for e in record['grub_entries'] if 'speakers' not in e['title']), 'allow_nominal outside the speaker entry'
@@ -112,6 +117,11 @@ def check(root, repo, record):
     assert 'ConditionKernelCommandLine=sp11.entry=debug' in (root / 'usr/lib/systemd/system/sp11-cdsp-experiment.service').read_text(), 'CDSP experiment is not main-entry gated'
     assert 'ConditionPathExists=/usr/share/sp11/image-mode' in (root / 'usr/lib/systemd/system/sp11-identity-switch.service').read_text(), 'identity switch not private-gated'
     assert (root / 'etc/modules-load.d/sp11-cpufreq.conf').read_text().split('\n')[-2] == 'scmi_cpufreq' and 'scmi_cpufreq' in (repo / 'image/overlay/etc/modules-load.d/sp11-cpufreq.conf').read_text(), 'modules-load.d scmi_cpufreq'
+    # thermal sampler: enabled by the marker file, not by a kernel argument
+    td = (root / 'usr/lib/systemd/system/sp11-thermal-sample.service.d/10-sp11-marker.conf')
+    assert td.read_bytes() == (repo / 'image/overlay/usr/lib/systemd/system/sp11-thermal-sample.service.d/10-sp11-marker.conf').read_bytes(), 'thermal drop-in'
+    tt = td.read_text()
+    assert re.search(r'^ConditionKernelCommandLine=$', tt, re.M) and 'ExecCondition=/usr/libexec/sp11-boot-state marker enable-thermal-sample' in tt, 'thermal sampler marker drop-in'
     # touch: profile B default, A by marker; owner files byte for byte, image-owned selector
     for src, dst in (('hardware/touch-pen/userspace/iptsd-sp11.conf', 'usr/share/sp11/touch/iptsd-sp11.conf'),
                      ('hardware/touch-pen/userspace/10-sp11-touch-conf.conf', 'usr/lib/systemd/system/iptsd@.service.d/10-sp11-touch-conf.conf'),
@@ -139,7 +149,7 @@ def check(root, repo, record):
     for needle in ('sp11_cdsp_counter', 'keep_proxy_pds', 'FULL POWER-OFF', 'NOT a reboot', 'firmware-sp11-cdsp46', 'twrite "$cd_dir/state" stop', 'twrite "$cd_dir/state" start', 'mkdir "$RUN/cdsp-experiment.lock"', 'sp11.entry', 'WAIT_STATE', 'firmware_class/parameters/path'):
         assert needle in cd, f'CDSP experiment lacks {needle}'
     cf = (root / 'usr/libexec/sp11/cpufreq-cap').read_text()
-    for needle in ('enable-cpufreq-cap', 'schedutil', 'scaling_max_freq', 'scaling_available_frequencies', 'never performance'):
+    for needle in ('cpufreq-uncapped', 'schedutil', 'scaling_max_freq', 'scaling_available_frequencies', 'never performance'):
         assert needle in cf, f'cpufreq cap lacks {needle}'
     assert 'printf performance' not in cf and 'printf ondemand' not in cf, 'cpufreq cap sets a forbidden governor'
     on = (root / 'usr/libexec/sp11/operator-notice').read_text()

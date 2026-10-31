@@ -32,7 +32,7 @@ echo
 echo "## operator notices of this boot"
 cat /run/sp11/notice.d/*.txt 2>&1
 echo
-echo "## cpufreq (M15: scmi_cpufreq loaded by modules-load.d; cap only with the marker sp11/enable-cpufreq-cap)"
+echo "## cpufreq (M15: scmi_cpufreq loaded by modules-load.d; cap by default, lifted by the marker sp11/cpufreq-uncapped)"
 cat /run/sp11/cpufreq-cap 2>&1
 systemctl is-active systemd-modules-load.service 2>&1 | sed "s/^/modules-load: /"
 echo "cpufreq dir: $(ls /sys/devices/system/cpu/cpufreq 2>&1 | tr '\n' ' ')"

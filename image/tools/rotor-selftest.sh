@@ -134,12 +134,14 @@ mkpol() { rm -rf "$T/cpu"; for p in 0 4 8; do d=$T/cpu/policy$p; mkdir -p "$d"; 
 	echo "performance schedutil ondemand" >"$d/scaling_available_governors"; echo "${1:-schedutil}" >"$d/scaling_governor"; echo 400000 >"$d/cpuinfo_min_freq"; echo 3400000 >"$d/cpuinfo_max_freq"; echo 3400000 >"$d/scaling_max_freq"; done; }
 cfenv() { SP11_CPU_DIR=$T/cpu SP11_RUN=$T/run2 SP11_CPUFREQ_WAIT=2 bash "$L/sp11/cpufreq-cap" 2>/dev/null; }
 mkpol; cfenv
-eq "cpufreq: no marker, no cap" "$(cat $T/cpu/policy0/scaling_max_freq)" 3400000
-grep -q 'cap NOT applied' "$T/run2/cpufreq-cap" && ok "cpufreq: recorded and reported without the marker" || bad "cpufreq without marker report"
-: >"$T/medium/sp11/enable-cpufreq-cap"; mkpol performance; cfenv
-eq "cpufreq: marker caps to the median (index 3 of 7)" "$(cat $T/cpu/policy4/scaling_max_freq)" 1600000
+eq "cpufreq: the cap applies BY DEFAULT (median, index 3 of 7)" "$(cat $T/cpu/policy0/scaling_max_freq)" 1600000
+grep -q 'scaling_max_freq 3400000 -> 1600000' "$T/run2/cpufreq-cap" && ok "cpufreq: default cap recorded" || bad "cpufreq default cap record"
+mkpol performance; cfenv
 eq "cpufreq: governor performance replaced by schedutil" "$(cat $T/cpu/policy8/scaling_governor)" schedutil
-rm -f "$T/medium/sp11/enable-cpufreq-cap"
+: >"$T/medium/sp11/cpufreq-uncapped"; mkpol; cfenv
+eq "cpufreq: marker sp11/cpufreq-uncapped lifts the cap" "$(cat $T/cpu/policy4/scaling_max_freq)" 3400000
+grep -q 'cap NOT applied' "$T/run2/cpufreq-cap" && ok "cpufreq: recorded and reported with the marker" || bad "cpufreq marker report"
+rm -f "$T/medium/sp11/cpufreq-uncapped"
 mkdir -p "$T/emptycpu"; SP11_CPU_DIR=$T/emptycpu SP11_RUN=$T/run3 SP11_CPUFREQ_WAIT=1 bash "$L/sp11/cpufreq-cap" 2>/dev/null; grep -q 'no cpufreq policy' "$T/run3/cpufreq-cap" && ok "cpufreq: no policy is reported, nothing written" || bad "cpufreq no-policy path"
 grep -q '^scmi_cpufreq$' "$R/etc/modules-load.d/sp11-cpufreq.conf" && ok "modules-load.d loads scmi_cpufreq" || bad "modules-load.d scmi_cpufreq missing"
 ! grep -E 'printf +(performance|ondemand)' "$L/sp11/cpufreq-cap" >/dev/null && ok "cpufreq: never writes performance or ondemand" || bad "cpufreq writes a forbidden governor"
@@ -152,6 +154,11 @@ tail -c 24 "$T/run4/cmdline-effective" | grep -q 'sp11.identity=none' && grep -q
 grep -q 'identity-none' "$T/notice/15-identity.txt" && ok "identity switch: operator notice" || bad "identity notice"
 rm -f "$T/medium/sp11/identity-none"; unset SP11_ID_CMDLINE SP11_MOUNT SP11_RUN
 
+# --- thermal sampler: enabled by a marker file (drop-in), not by a kernel argument
+grep -q '^ConditionKernelCommandLine=$' "$R/usr/lib/systemd/system/sp11-thermal-sample.service.d/10-sp11-marker.conf" && grep -q 'ExecCondition=/usr/libexec/sp11-boot-state marker enable-thermal-sample' "$R/usr/lib/systemd/system/sp11-thermal-sample.service.d/10-sp11-marker.conf" && ok "thermal sampler: marker drop-in resets the cmdline condition and reads sp11/enable-thermal-sample" || bad "thermal drop-in"
+bs marker enable-thermal-sample; [ $? -ne 0 ] && ok "thermal sampler: off without the marker" || bad "thermal marker present"
+: >"$T/medium/sp11/enable-thermal-sample"; bs marker enable-thermal-sample && ok "thermal sampler: on with the marker" || bad "thermal marker not seen"; rm -f "$T/medium/sp11/enable-thermal-sample"
+
 # --- touch profile selector (default B, A by marker sp11/touch-conf-A)
 mkdir -p "$T/touchshare"; cp "$REPO/hardware/touch-pen/userspace/iptsd-sp11.conf" "$T/touchshare/b.conf"
 tsel() { SP11_TOUCH_CONF_B=$T/touchshare/b.conf SP11_TOUCH_DEST=$T/touch50.conf SP11_RUN=$T/trun bash "$L/sp11-touch-conf-select" 2>/dev/null; }
@@ -160,7 +167,7 @@ tsel; cmp -s "$T/touchshare/b.conf" "$T/touch50.conf" && grep -q 'profile B' "$T
 [ ! -e "$T/touch50.conf" ] && grep -q 'profile A' "$T/trun/touch-conf" && ok "touch: marker sp11/touch-conf-A selects A (no config file)" || bad "touch marker A"
 rm -f "$T/medium/sp11/touch-conf-A"; tsel; [ -e "$T/touch50.conf" ] && ok "touch: removing the marker returns to B" || bad "touch back to B"
 
-# --- GPU hooks (kept for later; the unit is disabled in M15)
+# --- GPU hooks (the two-step runs on line 1 only, through sp11.gpu_diag=1)
 (
 	set -u
 	OUT=$T/gpuout; RUN=$T/gpurun; STATE=$T/state.log; BOOT_ID=bootB; mkdir -p "$OUT"
@@ -173,6 +180,9 @@ rm -f "$T/medium/sp11/touch-conf-A"; tsel; [ -e "$T/touch50.conf" ] && ok "touch
 	echo "boot bootA: previous boot died during step 2 (last marker: STEP2_SUB open-call; uptime 40 s, epoch 1)" >"$OUT/previous-boot-report.txt"
 	sp11_gpu_hook_report
 	grep -q '^GPU test: died during step 2' "$OUT/gpu-test-result.txt" && echo "PASS GPU hook: reports 'GPU test: died during step 2'" || echo "FAIL GPU hook died report"
+	grep -q 'may RESET THE MACHINE' "$T/gpu-test" && grep -q "line 2" "$T/gpu-test" && echo "PASS GPU hook: the reset warning and line 2 are in the notice text" || echo "FAIL GPU reset warning"
+	: >"$OUT/gpu-test-result.txt"; echo "boot bootA: ended normally (DONE)" >"$OUT/previous-boot-report.txt"; sp11_gpu_hook_report
+	grep -q '^GPU test: survived' "$OUT/gpu-test-result.txt" && echo "PASS GPU hook: reports 'GPU test: survived'" || echo "FAIL GPU survived report"
 	bs set sp11_gpu_state=failed; echo "sp11.gpu_retry=1" >"$CMD"; sp11_gpu_hook_report
 	[ -z "$(bs get sp11_gpu_state)" ] && echo "PASS GPU hook: sp11.gpu_retry=1 clears the state (plain file)" || echo "FAIL gpu_retry"
 	echo "" >"$CMD"; sp11_gpu_hook_arm

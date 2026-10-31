@@ -6,8 +6,9 @@ Usage: check-m8-menu.py grub.cfg
 M15 policy (image/README.md, "M15 menu"):
   * the file has NO function except load_video, NO load_env/save_env/grubenv, NO variable assignment except the standard header ones,
     NO submenu, NO GRUB variable inside any entry except the template's own ($root); every entry has a fixed DTB (or none for the VM test);
-  * line 1 `SP11 debug` = m15 (microphones + camera nodes, GPU off), line 2 `safe (no cameras)` = m15-safe (always-booting fallback);
-  * no GPU DTB, no GPU entry; no per-variant SAM/CDSP entries (those are Linux-side rotors);
+  * line 1 `SP11 debug` = m15 (microphones + camera nodes + GPU/GMU/zap) with the constant `sp11.gpu_diag=1` (on no other line);
+    line 2 `safe (no GPU, no cameras)` = m15-safe (always-booting fallback, no gpu_diag); no separate GPU or camera entry;
+  * no per-variant SAM/CDSP entries (those are Linux-side rotors);
   * the main-entry diagnostic arguments are the M13 ones with the corrected trace string; nothing variable; the command line never carries
     rotor, SAM, GPU or firmware_class arguments.
 """
@@ -24,8 +25,8 @@ USBDSP = set(BASE + USB + PDR + ["trace_event=:mod:qcom_glink", "trace_buf_size=
 
 # ident: (title, DTB variant or None, set of special arguments); order is the menu order
 ENTRIES = {
-    "debug": ("SP11 debug", "m15", DEFAULT),
-    "safe": ("SP11 debug, safe (no cameras)", "m15-safe", DEFAULT),
+    "debug": ("SP11 debug", "m15", DEFAULT | {"sp11.gpu_diag=1"}),
+    "safe": ("SP11 debug, safe (no GPU, no cameras)", "m15-safe", DEFAULT),
     "nosnd": ("SP11 debug, no sound", "m15-nosnd", DEFAULT),
     "notouch": ("SP11 debug, touch off", "m15-notouch", DEFAULT),
     "spk": ("SP11 debug, speakers (gated)", "m15-spk", DEFAULT | {"sp11.allow_nominal=1"}),
@@ -38,9 +39,9 @@ ENTRIES = {
 }
 COMMON_KIWI = {"printk.devkmsg=on", "log_buf_len=16M"}
 FORBIDDEN_WORDS = {"quiet", "rhgb", "splash"}
-SPECIAL_PREFIX = ("modprobe.blacklist=", "rd.driver.blacklist=", "trace_", "drm.debug=", "sp11.allow_nominal", "sp11.nospk", "sp11.wifi_unblock",
+SPECIAL_PREFIX = ("modprobe.blacklist=", "rd.driver.blacklist=", "trace_", "drm.debug=", "sp11.allow_nominal", "sp11.nospk", "sp11.gpu_diag", "sp11.wifi_unblock",
                   "systemd.unit=", "nomodeset", "rd.break=", "console=")
-NEVER_PREFIX = ("surface_aggregator.", "qcom_q6v5_pas.", "firmware_class.", "sp11.gpu_", "sp11.cdsp_", "sp11.ssam_", "sp11.identity", "sp11.cpufreq")
+NEVER_PREFIX = ("surface_aggregator.", "qcom_q6v5_pas.", "firmware_class.", "sp11.gpu_dtb", "sp11.gpu_retry", "sp11.cdsp_", "sp11.ssam_", "sp11.identity", "sp11.cpufreq")
 DTB_RE = "($root)/boot/dtb/qcom/x1p64100-microsoft-denali-{}.dtb"
 ENTRY_RE = r"^menuentry '([^']*)'[^\n]*--id sp11-([a-z0-9-]+)[^\n]*\{\n(.*?)^\}"
 
@@ -78,7 +79,7 @@ def check_static(cfg):
     sets = re.findall(r"^\s*set (\w+)=", code, re.M)
     assert sorted(sets) == ["default", "gfxpayload", "timeout", "timeout_style"], f"unexpected variables: {sets}"
     assert "power:power_domain_target" not in code, "power_domain_target is back in a trace_event string"
-    assert not re.search(r"denali-m1[34]|-gpu\.dtb|gpu_diag|m15-gpu", code), "old (M13/M14) or GPU DTB/argument in the M15 menu"
+    assert not re.search(r"denali-m1[34]|-gpu\.dtb|m15-gpu|sp11\.gpu_dtb", code), "old (M13/M14) or separate GPU DTB/argument in the M15 menu"
 
 
 def check(cfg):
@@ -97,16 +98,19 @@ def check(cfg):
         arglists[ident] = check_entry(body, ident, variant, want)
     # line 1 and line 2 carry exactly the same arguments (only the entry mark differs)
     strip = lambda ident: [a for a in arglists[ident] if not a.startswith("sp11.entry=")]
+    line1 = [a for a in strip("debug") if a != "sp11.gpu_diag=1"]
+    assert strip("debug").count("sp11.gpu_diag=1") == 1, "line 1 lacks the constant sp11.gpu_diag=1"
     for i in ("safe", "nosnd", "notouch"):
-        assert strip(i) == strip("debug"), f"{i}: arguments differ from line 1"
-    assert [a for a in strip("spk") if a != "sp11.allow_nominal=1"] == strip("debug"), "spk: arguments differ beyond allow_nominal"
+        assert strip(i) == line1, f"{i}: arguments differ from line 1 minus gpu_diag"
+    assert [a for a in strip("spk") if a != "sp11.allow_nominal=1"] == line1, "spk: arguments differ beyond allow_nominal"
+    assert [i for i, a in arglists.items() if "sp11.gpu_diag=1" in a] == ["debug"], "sp11.gpu_diag=1 only on line 1"
     # DTB placement: speakers only in spk, cameras only in line 1 (m15); no other DTB names
     used = {}
     for _, ident, body in entries:
         for d in re.findall(r"denali-(m[0-9a-z-]+)\.dtb", body):
             used.setdefault(d, []).append(ident)
     assert used["m15-spk"] == ["spk"], f"m15-spk used by {used['m15-spk']}"
-    assert used["m15"] == ["debug"], f"m15 (camera nodes) used by {used['m15']}: only line 1"
+    assert used["m15"] == ["debug"], f"m15 (GPU and camera nodes) used by {used['m15']}: only line 1"
     assert set(used) == {"m15", "m15-safe", "m15-nosnd", "m15-notouch", "m15-spk"}, f"DTB set differs: {sorted(used)}"
     # the speaker entry keeps the first-test notice
     spk = [b for _, i, b in entries if i == "spk"][0]

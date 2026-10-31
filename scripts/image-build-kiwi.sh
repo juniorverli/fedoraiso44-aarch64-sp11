@@ -183,8 +183,9 @@ for f in MICROSOFT-Surface-Pro-11.conf Surface11-HiFi.conf Surface11-SpeakerSeq.
 done
 mkdir -p "$desc/root/etc/systemd/system/sysinit.target.wants"
 ln -sf /usr/lib/systemd/system/sp11-speaker-ucm.service "$desc/root/etc/systemd/system/sysinit.target.wants/sp11-speaker-ucm.service"
-# M15: the gpu worker's two-step diagnostic (hardware/gpu/collector) is installed but DISABLED (no enable symlink, preset `disable`): the GPU is
-# skipped in M15 (no GPU DTB, no GPU entry; the menu is static). The files stay for the next GPU test; its state is a plain file on the boot medium.
+# M15: the gpu worker's two-step diagnostic (hardware/gpu/collector) is ENABLED (multi-user.target.wants, preset `enable`) and runs only through the owner
+# unit's ConditionKernelCommandLine=sp11.gpu_diag=1, a constant argument of line 1 `SP11 debug` and of no other line; the image drop-in orders it before
+# gdm. GRUB is static; the markers are plain files on the boot medium (sp11-boot-state). The machine reset of the first DRM open cannot be prevented here.
 # Image-owned changes to the owner script, pinned in image/component-inputs/m15.json and required exactly by L0 8.37: (1) the label list gains BOOT (this ISO's embedded ESP label);
 # (2) the hook functions of image/component-inputs/gpu-state-hooks.sh are inserted before the main section; (3) four one-line calls to them.
 # The owner unit stays byte for byte; the image adds a drop-in with Before=gdm.service.
@@ -204,7 +205,8 @@ awk -v hooks="$gpu_hooks" '
 chmod 0755 "$desc/root/usr/libexec/sp11-gpu-two-step"
 bash -n "$desc/root/usr/libexec/sp11-gpu-two-step" || { log "REFUSED: the patched gpu-two-step.sh has a syntax error"; exit 6; }
 install -m 0644 "$gpu_src/sp11-gpu-two-step.service" "$desc/root/usr/lib/systemd/system/sp11-gpu-two-step.service"
-# M15: no enable symlink for sp11-gpu-two-step.service (the preset says `disable`); L0 8.37 requires it to be inactive.
+mkdir -p "$desc/root/etc/systemd/system/multi-user.target.wants"
+ln -sf /usr/lib/systemd/system/sp11-gpu-two-step.service "$desc/root/etc/systemd/system/multi-user.target.wants/sp11-gpu-two-step.service"
 # M14: power-thermal owner files (suspend ladder opt-in, default-on s2idle cpuidle guard, thermal sampler opt-in) and its read-only collector
 cp -a "$REPO/hardware/power-thermal/userspace/overlay/." "$desc/root/"
 install -m 0644 "$REPO/hardware/power-thermal/collector/power-thermal.sh" "$desc/root/etc/sp11-log-collector.d/power-thermal.sh"
@@ -474,10 +476,10 @@ record = {
     "kernel_touch_modules": next(v["touch_modules"] for k in ("m15", "m14", "m13") for v in [json.load(open(kernel_record_path)).get(k)] if v and "touch_modules" in v),
     "module_policy": {"qcom_battmgr": "blacklist + install false + dracut omit_drivers (D23)",
                       "ucsi_glink": "retained early", "ath12k.debug_mask": "0x70; CONFIG_ATH12K_DEBUG=y; output checked by L0",
-                      "scmi_cpufreq": "modules-load.d/sp11-cpufreq.conf (soc-boot R-I2); cap only with the boot-medium marker sp11/enable-cpufreq-cap"},
-    "menu": "M15 flat static menu, 11 entries, no GRUB function except load_video, no grubenv, no variable: debug (m15), safe (m15-safe), nosnd, notouch, spk, usbdbg, nodsp, wifi-unblock, nomodeset, initramfs, vmtest",
-    "diagnostic_args_reason": {"debug": "M15 line 1: m15 DTB (microphones + rear/front/IR camera nodes, GPU off), USB dynamic debug (usb-typec R-I1), PDR dynamic debug, DSP trace string without power:power_domain_target; nothing variable",
-                               "safe": "m15-safe: microphones only, camera and GPU nodes off (the M13/M14-safe content); the always-booting fallback with the same arguments as line 1",
+                      "scmi_cpufreq": "modules-load.d/sp11-cpufreq.conf (soc-boot R-I2); cap by default, lifted only by the boot-medium marker sp11/cpufreq-uncapped"},
+    "menu": "M15 flat static menu, 11 entries, no GRUB function except load_video, no grubenv, no variable: debug (m15 with GPU and cameras), safe (m15-safe), nosnd, notouch, spk, usbdbg, nodsp, wifi-unblock, nomodeset, initramfs, vmtest",
+    "diagnostic_args_reason": {"debug": "M15 line 1: m15 DTB (microphones + rear/front/IR camera nodes + GPU/GMU/zap), the constant sp11.gpu_diag=1 (two-step before gdm; may reset the machine), USB dynamic debug (usb-typec R-I1), PDR dynamic debug, DSP trace string without power:power_domain_target; nothing variable",
+                               "safe": "m15-safe: microphones only, camera and GPU nodes off (the M13/M14-safe content); the always-booting fallback, line 1 arguments without sp11.gpu_diag",
                                "nosnd": "m15-nosnd: sound card off", "notouch": "touch-pen section 8: m15-notouch, touch child disabled",
                                "spk": "speaker FIRST TEST (D26): m15-spk, speaker UCM overlay, sp11.allow_nominal=1 on this entry only; kill switch sp11.nospk (operator edit)",
                                "usbdbg": "M13 USB + DSP trace (8M buffer) on m15-safe", "nodsp": "qcom_q6v5_pas blacklisted (no early DSP) on m15-safe",
@@ -486,8 +488,8 @@ record = {
                "cdsp_variants": ["fw=c1-00078 keep=0", "fw=c1-00046.1 keep=0", "fw=c1-00078 keep=1", "fw=c1-00046.1 keep=1"],
                "cdsp_mechanism": "sp11-cdsp-experiment.service: main entry only, once per boot, restart of the cdsp remoteproc with keep_proxy_pds and the firmware directory; counter sp11_cdsp_counter",
                "identity_switch": "marker sp11/identity-none on the boot medium (private ISO); sp11-identity-switch.service",
-               "cpufreq_cap": "marker sp11/enable-cpufreq-cap; sp11-cpufreq-cap.service",
-               "gpu_two_step": "installed disabled, never active in M15"},
+               "cpufreq_cap": "cap applies BY DEFAULT (schedutil, median scaling_max_freq); marker sp11/cpufreq-uncapped lifts it (S6); sp11-cpufreq-cap.service",
+               "gpu_two_step": "enabled; runs only with sp11.gpu_diag=1 (line 1 only); plain-file markers on the boot medium"},
     "collector_sources": {c: sha256(f"{repo}/hardware/{c}/collector/{c}.sh") for c in ("dsp-subsystems", "wifi")},
     "m15_inputs": json.load(open(f"{repo}/image/component-inputs/m15.json")),
     "touch_collector_sha256": sha256(f"{repo}/hardware/touch-pen/collect-read-only.sh"),

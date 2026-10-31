@@ -1,11 +1,11 @@
 #!/usr/bin/bash
-# First-boot cpufreq safety policy (M15, soc-boot request R-I2, evidence 2026-10-31-cpufreq.md "Safety (S6)"). scmi_cpufreq is loaded at every
-# boot by /etc/modules-load.d/sp11-cpufreq.conf; this script, run once per boot after it, applies the cap ONLY when the operator marker
-# file sp11/enable-cpufreq-cap exists on the boot medium (sp11-boot-state marker; the kernel command line is static and carries no switch):
+# cpufreq safety policy (M15, soc-boot request R-I2, evidence 2026-10-31-cpufreq.md "Safety (S6)"). scmi_cpufreq is loaded at every
+# boot by /etc/modules-load.d/sp11-cpufreq.conf; this script, run once per boot after it, applies the cap BY DEFAULT and lifts it ONLY when the
+# operator marker file sp11/cpufreq-uncapped exists on the boot medium (sp11-boot-state marker; the kernel command line is static and carries no switch):
 #   - governor schedutil on every policy (never performance, never ondemand);
 #   - scaling_max_freq = the middle entry of the sorted scaling_available_frequencies of that policy (median; a mid-range level, not the SCMI maximum);
 #   - everything recorded in /run/sp11/cpufreq-cap (the collector prints it) and shown to the operator.
-# It never raises a limit above what the kernel offers and never touches thermal trips (S6: no raise). Without the marker it only records.
+# It never raises a limit above what the kernel offers and never touches thermal trips (S6: no raise). With the marker it only records.
 set -u
 export LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin
 CPU=${SP11_CPU_DIR:-/sys/devices/system/cpu/cpufreq}
@@ -24,9 +24,9 @@ fi
 for p in "$CPU"/policy*; do
 	log "${p##*/}: cpus=[$(cat "$p/related_cpus" 2>/dev/null)] governor=$(cat "$p/scaling_governor" 2>/dev/null) min=$(cat "$p/cpuinfo_min_freq" 2>/dev/null) max=$(cat "$p/cpuinfo_max_freq" 2>/dev/null) scaling_max=$(cat "$p/scaling_max_freq" 2>/dev/null) available=[$(cat "$p/scaling_available_frequencies" 2>/dev/null)]"
 done
-if ! "$BS" marker enable-cpufreq-cap 2>/dev/null; then
-	log "cap NOT applied: marker sp11/enable-cpufreq-cap not found on the boot medium"
-	"$NOTICE" add 40-cpufreq "cpufreq: scmi_cpufreq registered $(ls -d "$CPU"/policy* | wc -l) policies, NO cap applied (create the empty file sp11/enable-cpufreq-cap on the SP11LOGS partition to cap at a mid-range frequency, governor schedutil)." || true
+if "$BS" marker cpufreq-uncapped 2>/dev/null; then
+	log "cap NOT applied: marker sp11/cpufreq-uncapped found on the boot medium"
+	"$NOTICE" add 40-cpufreq "cpufreq: scmi_cpufreq registered $(ls -d "$CPU"/policy* | wc -l) policies, NO cap applied because the marker sp11/cpufreq-uncapped exists on the boot medium (remove the file to cap again at a mid-range frequency)." || true
 	exit 0
 fi
 capped=0 failed=0
@@ -48,5 +48,5 @@ for p in "$CPU"/policy*; do
 	got=$(cat "$p/scaling_max_freq" 2>/dev/null)
 	if [ "$got" = "$cap" ]; then log "$n: scaling_max_freq $cur -> $cap (index $((${#fr[@]} / 2)) of ${#fr[@]}), governor $(cat "$p/scaling_governor")"; capped=$((capped + 1)); else log "$n: write of scaling_max_freq $cap failed (reads $got)"; failed=$((failed + 1)); fi
 done
-"$NOTICE" add 40-cpufreq "cpufreq cap (marker sp11/enable-cpufreq-cap): $capped policies capped to a mid-range frequency, $failed problems; governor schedutil. Details: cpufreq-cap in the log set. Remove the marker file to stop capping." || true
+"$NOTICE" add 40-cpufreq "cpufreq cap (default, S6): $capped policies capped to a mid-range frequency, $failed problems; governor schedutil. Details: cpufreq-cap in the log set. Create the file sp11/cpufreq-uncapped on the boot medium to lift the cap." || true
 exit 0
