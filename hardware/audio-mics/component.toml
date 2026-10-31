@@ -3,7 +3,7 @@ name = "Microphone array: DMICs on the LPASS VA macro"
 phase = 3
 status = "designed"
 depends_on = ["dsp-subsystems"]
-updated = "2026-10-30"
+updated = "2026-10-31"
 
 [windows]
 hardware_ids = ["MMDEVAPI Microphone Array (Qualcomm Aqstic ACX Static Endpoint)", "QCASD\\StaticEndpointDevice0"]
@@ -13,7 +13,7 @@ packages = ["qcasd8380", "qcasd_apo8380", "surface_asdext8380", "surface_acsp838
 drivers = ["codecs/lpass-va-macro", "sound/soc/qcom/x1e80100.c (VA Capture)"]
 dt = ["x1-microsoft-denali.dtsi &lpass_vamacro (DMIC0/1, 2.4 MHz, vdd-micb l1b)"]
 native = "partial"
-gaps = ["number of microphones and their DMIC lines unconfirmed", "topology and UCM", "beamforming/noise suppression only in userspace"]
+gaps = ["number of microphones and their DMIC lines unconfirmed", "topology and UCM", "beamforming/noise suppression only in userspace", "DisplayPort audio needs dp0/dp1 dai links in the DT (UCM and policy ready, dormant)"]
 
 [firmware]
 needs = ["AudioReach topology (shared with audio-speakers)"]

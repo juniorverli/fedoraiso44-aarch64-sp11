@@ -60,9 +60,12 @@ The built-in microphone array, digital microphones on the LPASS VA macro, captur
 
 - kernel / image / firmware: as listed in `hardware/audio-speakers/README.md` section 8: DTB variant `m11-audio`, boot entry `SP11 audio, microphones`, topology install, microphone UCM overlay, late `snd_q6apm` reload in the collector.
 - audio-speakers: ask REA R8 (microphone count, DMIC lines, divider, channel order, voice-clarity APO) when REA is free.
+- image (2026-10-31, `evidence/2026-10-31-audio-routes.md`): install `userspace/overlay-audio-routes/` (UCM route layer, WirePlumber `52-sp11-audio-routes.conf`, dconf `91-sp11-audio-routes`, collector `audio-routes.sh`) and the changed `userspace/overlay-ucm-fix/` `x1e80100.conf` (one more `True.Include` line, `MICROSOFT-Surface-Pro-11.conf` still appears once); re-pin the `x1e80100.conf` hash and pin the seven new files in `check-m14-payload.py`; add package `alsa-ucm-utils` (provides `alsaucm`, absent today, so `audio.sh` cannot print the UCM verbs); L0: run `userspace/tests/ucm-routes-test.sh` and `mic-gain-check.sh` against the ISO files. Bluetooth audio packages are all present (pipewire-libs carries the SPA bluez5 plugin with SBC/AAC/LDAC/LC3 and HFP CVSD/mSBC/LC3); nothing to add.
+- kernel (DT): DisplayPort audio needs `dp0-dai-link` and `dp1-dai-link` in a DTB variant (shape in the evidence, I2; upstream `hamoa-iot-evk.dts:628-658`), and the DTB safety exception must allow DP links with no WSA link. Without them the DP UCM devices stay hidden by design. Optional: a kernel cap of `VA_DEC0/1 Volume` at 108 (+24 dB, the Windows maximum).
 - orchestrator: this component is not subject to S1 if the card has no WSA link and `swr0` stays off (check `kernel-dtb-safety.py` change requested in the speakers dossier).
 
 ## 9. Log
 
 - 2026-10-23: dossier created from the static survey.
 - 2026-10-30: stage A plan and test plan; status `designed`. Facts in `evidence/2026-10-30-mics-plan.md`.
+- 2026-10-31: audio routes beyond the speakers (`evidence/2026-10-31-audio-routes.md`): UCM route layer with USB-C DisplayPort devices (gated on the `DPn Jack` controls, which need DT links that the DTBs lack), capture gain default +14 dB (VA_DECn Volume 98, cap 108), WirePlumber selection priorities, dconf, read-only collector, offline tests (25 UCM checks, gain derivation, shellcheck). Speakers untouched (S1/D26).

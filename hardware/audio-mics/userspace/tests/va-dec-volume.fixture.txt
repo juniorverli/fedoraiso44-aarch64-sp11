@@ -1,0 +1,8 @@
+numid=1,iface=MIXER,name='VA_DEC0 Volume'
+  ; type=INTEGER,access=rw---R--,values=1,min=0,max=124,step=0
+  : values=100
+  | dBscale-min=-84.00dB,step=1.00dB,mute=1
+numid=2,iface=MIXER,name='VA_DEC1 Volume'
+  ; type=INTEGER,access=rw---R--,values=1,min=0,max=124,step=0
+  : values=100
+  | dBscale-min=-84.00dB,step=1.00dB,mute=1
