@@ -1,72 +1,96 @@
-From 8be9a6e0c868c9c057d318f8a4acc81dab086557 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Junior Mverli <25966843+juniorverli@users.noreply.github.com>
-Date: Fri, 30 Oct 2026 21:55:10 +0000
-Subject: [PATCH] remoteproc: qcom_q6v5_pas: add keep_proxy_pds diagnostic
- parameter
+Date: Sat, 31 Oct 2026 19:30:00 +0000
+Subject: [PATCH] remoteproc: qcom_q6v5_pas: keep the Surface Pro 11 CDSP
+ proxy votes after handover
 
 On the Surface Pro 11 the CDSP reads only the first eight bytes of what
 Apps writes to the GLINK SMEM FIFO and then stops, while the NSP and MXC
-power domains show off in genpd after the handover IRQ. Whether the
-Microsoft-signed firmware relies on the Apps proxy votes beyond the
-handover cannot be told from the logs.
+power domains show off in genpd after the handover IRQ. The Microsoft
+signed firmware (c1-00078) differs from the older build that works with
+the same Linux release path, and the Windows platform keeps the NSP
+device under power engine control, so it may rely on the Apps proxy
+votes beyond the handover. This is not established; it needs a device
+test.
 
-Add a module parameter, default off, that keeps the proxy power domain
-votes after the handover IRQ and releases them when the remote processor
-is stopped. Log the handover so its time can be compared with the GLINK
-log. No behaviour change unless the parameter is set.
+Add the keep_proxy_pds module parameter as a tri-state: 1 keeps the proxy
+power domain votes after the handover IRQ until the remote processor
+stops, 0 releases them at the handover as before, and the default of -1
+lets the driver decide. The driver default keeps the votes only for the
+x1e80100 CDSP on a machine compatible with "microsoft,denali"; every
+other remote processor and board keeps releasing at the handover, so
+nothing changes for them unless the parameter is set to 1.
 
-The parameter is writable at runtime (0644) so an experiment can set it
-between a stop and the next start of the remote processor without
-reloading the module. It is read once at each handover: setting it
-after the handover has no effect on the running instance, and clearing
-it while the votes are held does not drop them until the processor
-stops.
+Held votes are released when the remote processor stops, including a stop
+before the handover and a crash recovery, and a stop before the handover
+now releases the start votes without logging a keep. The parameter is
+writable at runtime (0644) so an experiment can set it between a stop and
+the next start without reloading the module. It is read once at each
+handover, so changing it later has no effect on the running instance.
+Log the handover decision so its time can be compared with the GLINK log.
+
+The votes are held at the performance level used for the start, so a
+kept NSP and MXC corner has a power cost on battery.
 
 Assisted-by: Claude Sonnet 5.5
 ---
- drivers/remoteproc/qcom_q6v5_pas.c | 21 +++++++++++++++++++++
- 1 file changed, 21 insertions(+)
+ drivers/remoteproc/qcom_q6v5_pas.c | 55 ++++++++++++++++++++++++++++++++++++++++++++++++++-----
+ 1 file changed, 50 insertions(+), 5 deletions(-)
 
 diff --git a/drivers/remoteproc/qcom_q6v5_pas.c b/drivers/remoteproc/qcom_q6v5_pas.c
-index a005546..384bf1d 100644
+index a005546c2..a064f096d 100644
 --- a/drivers/remoteproc/qcom_q6v5_pas.c
 +++ b/drivers/remoteproc/qcom_q6v5_pas.c
 @@ -34,6 +34,11 @@
  #include "qcom_q6v5.h"
  #include "remoteproc_internal.h"
  
-+static bool keep_proxy_pds;
-+module_param(keep_proxy_pds, bool, 0644);
++static int keep_proxy_pds = -1;
++module_param(keep_proxy_pds, int, 0644);
 +MODULE_PARM_DESC(keep_proxy_pds,
-+		 "Diagnostic: keep the proxy power domain votes after the handover IRQ until the remote processor stops. Read at each handover: change it between stop and start (default: off)");
++		 "Keep the proxy power domain votes after the handover IRQ until the remote processor stops: 1 keep, 0 release, -1 driver default (kept only for the Surface Pro 11 CDSP). Read at each handover: change it between stop and start (default: -1)");
 +
  #define QCOM_PAS_DECRYPT_SHUTDOWN_DELAY_MS	100
  
  #define MAX_ASSIGN_COUNT 3
-@@ -81,6 +86,7 @@ struct qcom_pas {
+@@ -64,6 +69,7 @@ struct qcom_pas_data {
+ 	int region_assign_vmid;
+ 	bool early_boot;
+ 	bool needs_tzmem;
++	bool keep_proxy_pds_denali;
+ };
+ 
+ struct qcom_pas {
+@@ -81,6 +87,8 @@ struct qcom_pas {
  	struct device *proxy_pds[3];
  
  	int proxy_pd_count;
 +	bool proxy_pds_held;
++	bool keep_proxy_pds_default;
  
  	const char *dtb_firmware_name;
  	int pas_id;
-@@ -391,6 +397,7 @@ disable_irqs:
- static void qcom_pas_handover(struct qcom_q6v5 *q6v5)
- {
- 	struct qcom_pas *pas = container_of(q6v5, struct qcom_pas, q6v5);
-+	bool keep;
+@@ -388,19 +396,48 @@ static int qcom_pas_start(struct rproc *rproc)
+ 	return ret;
+ }
  
+-static void qcom_pas_handover(struct qcom_q6v5 *q6v5)
++/*
++ * Release what the remote processor needed only until it took over its own
++ * resources. With @keep the proxy power domain votes stay and are dropped
++ * when the remote processor stops.
++ */
++static void qcom_pas_release_proxy(struct qcom_pas *pas, bool keep)
+ {
+-	struct qcom_pas *pas = container_of(q6v5, struct qcom_pas, q6v5);
+-
  	if (pas->px_supply)
  		regulator_disable(pas->px_supply);
-@@ -398,6 +405,15 @@ static void qcom_pas_handover(struct qcom_q6v5 *q6v5)
+ 	if (pas->cx_supply)
  		regulator_disable(pas->cx_supply);
  	clk_disable_unprepare(pas->aggre2_clk);
  	clk_disable_unprepare(pas->xo);
 +
-+	keep = READ_ONCE(keep_proxy_pds);
-+	dev_info(pas->dev, "handover: proxy power domains %s\n",
-+		 keep ? "kept" : "released");
 +	if (keep) {
 +		pas->proxy_pds_held = true;
 +		return;
@@ -75,18 +99,61 @@ index a005546..384bf1d 100644
  	qcom_pas_pds_disable(pas, pas->proxy_pds, pas->proxy_pd_count);
  }
  
-@@ -436,6 +452,11 @@ static int qcom_pas_stop(struct rproc *rproc)
- 	if (handover)
- 		qcom_pas_handover(&pas->q6v5);
++static void qcom_pas_handover(struct qcom_q6v5 *q6v5)
++{
++	struct qcom_pas *pas = container_of(q6v5, struct qcom_pas, q6v5);
++	int param = READ_ONCE(keep_proxy_pds);
++	bool keep;
++
++	if (param < 0)
++		keep = pas->keep_proxy_pds_default;
++	else
++		keep = param > 0;
++
++	keep = keep && pas->proxy_pd_count;
++
++	dev_info(pas->dev, "handover: proxy power domains %s\n",
++		 keep ? (param < 0 ? "kept (driver default)" : "kept (module parameter)") :
++		 "released");
++
++	qcom_pas_release_proxy(pas, keep);
++}
++
+ static int qcom_pas_stop(struct rproc *rproc)
+ {
+ 	struct qcom_pas *pas = rproc->priv;
+@@ -433,8 +470,13 @@ static int qcom_pas_stop(struct rproc *rproc)
+ 	qcom_pas_unmap_carveout(rproc, pas->mem_phys, pas->mem_size);
  
-+	if (pas->proxy_pds_held) {
+ 	handover = qcom_q6v5_unprepare(&pas->q6v5);
+-	if (handover)
+-		qcom_pas_handover(&pas->q6v5);
++	if (handover) {
++		/* No handover yet: the start votes are still held, drop them */
++		qcom_pas_release_proxy(pas, false);
++	} else if (pas->proxy_pds_held) {
 +		qcom_pas_pds_disable(pas, pas->proxy_pds, pas->proxy_pd_count);
 +		pas->proxy_pds_held = false;
 +	}
-+
+ 
  	if (pas->smem_host_id)
  		ret = qcom_smem_bust_hwspin_lock_by_host(pas->smem_host_id);
+@@ -907,6 +949,8 @@ static int qcom_pas_probe(struct platform_device *pdev)
+ 	if (ret < 0)
+ 		goto unassign_mem;
+ 	pas->proxy_pd_count = ret;
++	pas->keep_proxy_pds_default = desc->keep_proxy_pds_denali &&
++				      of_machine_is_compatible("microsoft,denali");
  
+ 	ret = qcom_q6v5_init(&pas->q6v5, pdev, rproc, desc->crash_reason_smem,
+ 			     desc->load_state, qcom_pas_handover);
+@@ -1280,6 +1324,7 @@ static const struct qcom_pas_data x1e80100_cdsp_resource = {
+ 	.ssr_name = "cdsp",
+ 	.sysmon_name = "cdsp",
+ 	.ssctl_id = 0x17,
++	.keep_proxy_pds_denali = true,
+ };
+ 
+ static const struct qcom_pas_data sm8350_cdsp_resource = {
 -- 
 2.43.0
-
