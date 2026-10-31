@@ -97,6 +97,7 @@ Two WSA8845 smart amplifiers on SoundWire, driven by the ADSP through AudioReach
 - 2026-10-30: audio plan (`evidence/2026-10-30-audio-plan.md`): M8/M10 state, DT, safety layers, topology/UCM, patches 0001 to 0003, REA questions; status `designed`.
 
 - 2026-10-31 (topology and RFC session): closed-loop topology generated locally (`userspace/build-topology/m4/`, `build-closedloop.sh` with `SP11_TOPOLOGY=1`) and loaded through the real kernel parser in a QEMU harness (`build-topology/harness/`, 16 checks pass); acdb_inspect module names corrected (0x0700101a is DATA_LOGGING, not MFC, so no host tap is needed); Qualcomm RFC fetched, pinned and evaluated; no kernel patches. See `evidence/2026-10-31-topology-rfc.md`.
+- 2026-10-31 (flash review, kernel part): independent review F-01..F-12 verified against the composed tree; the amplifier unmute (not the stream open) is now the gate; patches 0012 to 0015 amended in place; see `evidence/2026-10-31-flash-review-verdicts.md`.
 
 ## Requests (2026-10-30, orchestrator)
 
@@ -130,3 +131,8 @@ Full text in `evidence/2026-10-31-topology-rfc.md` section 7.
 - image (private mode only): run `SP11_TOPOLOGY=1 userspace/build-topology/build-closedloop.sh` before the build; install `out/firmware-private/audio/qcom/x1e80100/X1E80100-Microsoft-Surface-Pro-11-tplg.bin` OVER the public topology of the same name (the kernel requests only this name), plus `...-sp11cl.bin`; `...-sp11cal.bin` (`--nominal-cal`) and `sp11.allow_nominal=1` only on a dedicated first-test entry, never the default. The public ISO carries none of these. User-space supervisor: open the MultiMedia5 capture (PCM index 4) and keep it open, never read it, before any playback.
 - kernel: nothing for M14. For M15 only if the first run shows the closed-loop graph cannot start: port the RFC (evidence section 5 plan), plus the `audioreach_get_module_priv_data()` size fix and parser error propagation.
 - orchestrator: S1 stays. Decide whether the first-test entry with nominal calibration is allowed (recommendation in evidence section 6).
+
+## Requests (2026-10-31, flash review)
+
+- kernel: re-check `kernel/series` against the amended `patches/0012` to `0015` (file names unchanged, series order unchanged, `git apply --check` clean on v7.3 plus the full 69-entry series). Config: `CONFIG_SND_SOC_SP11_GUARD` is now selected by `SND_SOC_QDSP6_APM` and `SND_SOC_X1E80100`, and `SND_SOC_WSA884X` depends on it being built the same way; no `sp11.config` change is needed, but `scripts/kernel-check` and `scripts/kernel-m8-rpm-check.py` should also assert that `wsa884x.o` calls `sp11_guard_unmute_check` (the amplifier is where the gate is enforced) and that `x1e80100.o` still calls `sp11_guard_check` (it now only decides whether a stream may open).
+- image: the user-space order is unchanged (open the V/I capture first, keep it open, then play). A speaker stream now opens without the V/I capture and plays silently; the debugfs file shows `open_allowed` and `allowed` separately.

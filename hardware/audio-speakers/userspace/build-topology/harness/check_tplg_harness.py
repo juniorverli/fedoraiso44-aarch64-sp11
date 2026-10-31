@@ -4,7 +4,7 @@
   check_tplg_harness.py --log-dir DIR [--ids sp11-ids.m4]
 
 DIR holds q-hbase.log (public topology), q-hcl.log (closed-loop topology), q-hdup.log (duplicate
-instance id), q-htrunc.log (truncated file). Exit status 0 only if every expectation holds.
+instance id), q-htrunc.log (truncated file), q-hgate.log (speaker gate with the real wsa884x.c). Exit status 0 only if every expectation holds.
 The harness runs the real ASoC topology core and the real sound/soc/qcom/qdsp6/topology.c, then
 builds APM_CMD_GRAPH_OPEN with the real audioreach.c; this script decodes those packets.
 """
@@ -139,6 +139,13 @@ def main():
     print("INFO  duplicate id case: audioreach_tplg_init returned", dup["tplg"], "(the error is logged but not propagated)")
     tr = parse_log(args.log_dir / "q-htrunc.log", "htrunc")
     check(tr["tplg"] not in (0, None), "negative control: a truncated file is rejected")
+
+    gate = (args.log_dir / "q-hgate.log").read_text(errors="replace") if (args.log_dir / "q-hgate.log").exists() else ""
+    gl = re.findall(r"GATE (PASS|FAIL): (.*)", gate)
+    for verdict, what in gl:
+        check(verdict == "PASS", "gate: " + what)
+    check(len(gl) >= 25 and "HARNESS DONE" in gate, f"gate case ran to the end ({len(gl)} checks)")
+    check(not re.search(r"Oops|Kernel panic|BUG:|WARNING:", gate), "gate case: no oops, BUG or WARNING")
     sys.exit(0 if ok else 1)
 
 

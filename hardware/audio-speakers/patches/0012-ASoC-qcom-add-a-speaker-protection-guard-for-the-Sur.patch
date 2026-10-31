@@ -5,42 +5,61 @@ Subject: [PATCH 12/16] ASoC: qcom: add a speaker protection guard for the
  Surface Pro 11
 
 The Surface Pro 11 speakers are protected by a closed loop in the DSP
-(speaker protection module fed by voltage and current sense). Speaker
-playback must be refused unless that loop is up.
+(speaker protection module fed by voltage and current sense). The
+amplifier must not be enabled unless that loop is up.
 
-Add a small module, "sp11", that keeps the state of the loop: the graph
-with its control links, the sense capture streams, the R0/T0 calibration
-and a latched fault. The producers are in-kernel only; there is no sysfs,
-ioctl or mixer control that changes the state, and a fault stays latched
-until reboot. A boot parameter, sp11.nospk, disables speaker playback
-permanently, and sp11.allow_nominal accepts a calibration that was not
-measured. The module parameters are read-only. The state is readable in
-debugfs.
+Add a small module, "sp11", that keeps the state of the loop: the loaded
+closed-loop data, the graph with its control links, the sense capture
+streams, the R0/T0 calibration and a latched fault. The producers are
+in-kernel only; there is no sysfs, ioctl or mixer control that changes
+the state, and a fault stays latched until reboot. A boot parameter,
+sp11.nospk, disables speaker playback permanently, and
+sp11.allow_nominal accepts a calibration that was not measured. The
+module parameters are read-only. The state is readable in debugfs.
+
+There are two decisions. A speaker stream may be opened and prepared
+(sp11_guard_check()) when the data is loaded and no fault or kill
+switch is set; the amplifier stays muted, because the graph, the sense
+stream and the calibration only exist once the streams are prepared and
+started. The amplifier may be unmuted (sp11_guard_unmute_check()) only
+when those are in place too. When that stops holding while a stream
+runs, for example because the V/I stream was closed, the guard has the
+machine driver mute the amplifiers, unless it holds again by the time the
+worker runs. The calibration is forgotten when the V/I stream stops.
+
+The hooks use IS_ENABLED(): every user selects or depends on the module,
+so a built-in caller cannot get a modular guard and silently build no-ops.
 
 Assisted-by: Claude Sonnet 5.5
 ---
- include/sound/sp11-guard.h  |  53 ++++++++
- sound/soc/qcom/Kconfig      |   9 ++
+ include/sound/sp11-guard.h  |  70 ++++++++
+ sound/soc/qcom/Kconfig      |   9 +
  sound/soc/qcom/Makefile     |   2 +
- sound/soc/qcom/sp11-guard.c | 248 ++++++++++++++++++++++++++++++++++++
- 4 files changed, 312 insertions(+)
- create mode 100644 include/sound/sp11-guard.h
- create mode 100644 sound/soc/qcom/sp11-guard.c
+ sound/soc/qcom/sp11-guard.c | 327 ++++++++++++++++++++++++++++++++++++
+ 4 files changed, 408 insertions(+)
 
 diff --git a/include/sound/sp11-guard.h b/include/sound/sp11-guard.h
 new file mode 100644
-index 000000000..204172a4a
+index 000000000..d34551c22
 --- /dev/null
 +++ b/include/sound/sp11-guard.h
-@@ -0,0 +1,53 @@
+@@ -0,0 +1,70 @@
 +/* SPDX-License-Identifier: GPL-2.0 */
 +/*
 + * Speaker protection guard for the Surface Pro 11 (microsoft,denali).
 + *
 + * One kernel-side object decides whether the WSA884x speakers may play.
 + * The state is written only by in-kernel producers (the AudioReach core, the
-+ * WSA884x codec) and read by the machine driver. There is no sysfs, ioctl or
-+ * mixer path that sets it, and a fault latches until reboot.
++ * WSA884x codec) and read by the machine driver and the amplifier driver.
++ * There is no sysfs, ioctl or mixer path that sets it, and a fault latches
++ * until reboot.
++ *
++ * There are two decisions. A stream may be opened and prepared while the
++ * amplifier stays muted: that needs the closed-loop data, no fault and no
++ * kill switch (sp11_guard_check()). The amplifier may be unmuted only
++ * when the graph and the V/I sense run, the calibration is applied and no
++ * fault is latched (sp11_guard_unmute_check()). The amplifier driver asks on
++ * every unmute path, so trigger, pause release and resume cannot bypass it.
 + */
 +#ifndef __SOUND_SP11_GUARD_H
 +#define __SOUND_SP11_GUARD_H
@@ -59,8 +78,14 @@ index 000000000..204172a4a
 +/* Speaker channels that need a calibration (left and right) */
 +#define SP11_CAL_ALL_MASK	0x3
 +
-+#if IS_REACHABLE(CONFIG_SND_SOC_SP11_GUARD)
++/*
++ * IS_ENABLED(), not IS_REACHABLE(): every user of these hooks selects or
++ * depends on the guard so that it is never a module for a built-in caller.
++ * A broken combination fails to link instead of silently building no-ops.
++ */
++#if IS_ENABLED(CONFIG_SND_SOC_SP11_GUARD)
 +/* Producers */
++void sp11_guard_loaded(bool loaded);
 +void sp11_guard_graph(bool up, bool cps_required);
 +void sp11_guard_stream(enum sp11_guard_stream stream, bool start);
 +void sp11_guard_calibrated(unsigned int ch_mask, bool nominal);
@@ -70,9 +95,11 @@ index 000000000..204172a4a
 +
 +/* Consumers */
 +int sp11_guard_check(struct device *dev);
++int sp11_guard_unmute_check(struct device *dev);
 +bool sp11_guard_faulted(void);
 +bool sp11_guard_nospk(void);
 +#else
++static inline void sp11_guard_loaded(bool loaded) { }
 +static inline void sp11_guard_graph(bool up, bool cps_required) { }
 +static inline void sp11_guard_stream(enum sp11_guard_stream stream, bool start) { }
 +static inline void sp11_guard_calibrated(unsigned int ch_mask, bool nominal) { }
@@ -83,6 +110,7 @@ index 000000000..204172a4a
 +static inline bool sp11_guard_nospk(void) { return true; }
 +/* Without the guard the speakers are never allowed */
 +static inline int sp11_guard_check(struct device *dev) { return -EOPNOTSUPP; }
++static inline int sp11_guard_unmute_check(struct device *dev) { return -EOPNOTSUPP; }
 +#endif
 +
 +#endif /* __SOUND_SP11_GUARD_H */
@@ -132,22 +160,29 @@ index 985ce2ae2..7cbf13635 100644
  #DSP lib
 diff --git a/sound/soc/qcom/sp11-guard.c b/sound/soc/qcom/sp11-guard.c
 new file mode 100644
-index 000000000..ca7839eca
+index 000000000..827292aaf
 --- /dev/null
 +++ b/sound/soc/qcom/sp11-guard.c
-@@ -0,0 +1,248 @@
+@@ -0,0 +1,327 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Speaker protection guard for the Surface Pro 11.
 + *
-+ * Speaker playback is allowed only while all of this holds:
-+ *  - the closed-loop AudioReach graph (speaker protection module and its
-+ *    control links) was opened,
-+ *  - the V/I sense capture stream is running (and the CPS stream, when the
-+ *    topology asks for it),
-+ *  - a calibration (R0/T0) was applied to both speakers,
++ * A speaker stream may be opened and prepared while all of this holds:
++ *  - the closed-loop data (control links and calibration records) was loaded,
 + *  - no fault was latched, and "sp11.nospk" is not set on the kernel command
 + *    line.
++ * The amplifier may be UNMUTED (power amplifier enabled) only while, in
++ * addition:
++ *  - the closed-loop AudioReach graph (speaker protection module and its
++ *    control links) runs,
++ *  - the V/I sense capture stream is running (and the CPS stream, when the
++ *    topology asks for it),
++ *  - a calibration (R0/T0) was applied to both speakers.
++ * The first group lets user space start the V/I stream and the speaker graph
++ * with the amplifier muted; the second group is enforced by the amplifier
++ * driver on every unmute path. When the second group stops holding while a
++ * stream runs, the amplifiers are muted again.
 + * Every input is written from kernel code only. The module parameters are
 + * read-only (0444) so they can be set at boot, never at run time.
 + */
@@ -178,6 +213,7 @@ index 000000000..ca7839eca
 +	unsigned int streams[SP11_STREAM_MAX];
 +	unsigned int cal_mask;
 +	bool cal_nominal;
++	bool loaded;
 +	bool graph_up;
 +	bool cps_required;
 +	bool fault;
@@ -193,27 +229,91 @@ index 000000000..ca7839eca
 +	.lock = __SPIN_LOCK_UNLOCKED(guard.lock),
 +};
 +
++/* Reason a stream may not be opened, NULL when it may. Called with guard.lock held. */
++static const char *sp11_guard_open_reason(void)
++{
++	if (nospk)
++		return "sp11.nospk is set";
++	if (guard.fault)
++		return "a speaker fault is latched";
++	if (!guard.loaded)
++		return "the closed-loop data is not loaded";
++
++	return NULL;
++}
++
++/* Reason the amplifier may not be unmuted, NULL when it may. Called with guard.lock held. */
++static const char *sp11_guard_reason(void)
++{
++	const char *reason = sp11_guard_open_reason();
++
++	if (reason)
++		return reason;
++	if (!guard.graph_up)
++		return "the closed-loop graph is not up";
++	if (!guard.streams[SP11_STREAM_VI])
++		return "the V/I sense stream is not running";
++	if (guard.cps_required && !guard.streams[SP11_STREAM_CPS])
++		return "the CPS stream is not running";
++	if ((guard.cal_mask & SP11_CAL_ALL_MASK) != SP11_CAL_ALL_MASK)
++		return "no R0/T0 calibration was applied";
++	if (guard.cal_nominal && !allow_nominal)
++		return "only a nominal calibration exists and sp11.allow_nominal is not set";
++
++	return NULL;
++}
++
++/*
++ * Mute the amplifiers, unless the guard allows playback again by the time the
++ * worker runs (a stream that stops and restarts quickly must not be muted by
++ * the stop of its previous run).
++ */
 +static void sp11_guard_mute_work(struct work_struct *work)
 +{
 +	void (*mute)(void *data);
 +	void *data;
++	bool allowed;
 +
 +	spin_lock_irq(&guard.lock);
 +	mute = guard.mute;
 +	data = guard.mute_data;
++	allowed = !sp11_guard_reason();
 +	spin_unlock_irq(&guard.lock);
 +
-+	if (mute)
++	if (mute && !allowed)
 +		mute(data);
 +}
++
++/* Ask for a mute when a state change made the guard refuse. Called with guard.lock held. */
++static void sp11_guard_mute_if_refused(bool was_allowed)
++{
++	if (was_allowed && sp11_guard_reason())
++		schedule_work(&guard.mute_work);
++}
++
++void sp11_guard_loaded(bool loaded)
++{
++	unsigned long flags;
++	bool was_allowed;
++
++	spin_lock_irqsave(&guard.lock, flags);
++	was_allowed = !sp11_guard_reason();
++	guard.loaded = loaded;
++	sp11_guard_mute_if_refused(was_allowed);
++	spin_unlock_irqrestore(&guard.lock, flags);
++}
++EXPORT_SYMBOL_GPL(sp11_guard_loaded);
 +
 +void sp11_guard_graph(bool up, bool cps_required)
 +{
 +	unsigned long flags;
++	bool was_allowed;
 +
 +	spin_lock_irqsave(&guard.lock, flags);
++	was_allowed = !sp11_guard_reason();
 +	guard.graph_up = up;
 +	guard.cps_required = up && cps_required;
++	sp11_guard_mute_if_refused(was_allowed);
 +	spin_unlock_irqrestore(&guard.lock, flags);
 +}
 +EXPORT_SYMBOL_GPL(sp11_guard_graph);
@@ -221,15 +321,22 @@ index 000000000..ca7839eca
 +void sp11_guard_stream(enum sp11_guard_stream stream, bool start)
 +{
 +	unsigned long flags;
++	bool was_allowed;
 +
 +	if (stream >= SP11_STREAM_MAX)
 +		return;
 +
 +	spin_lock_irqsave(&guard.lock, flags);
-+	if (start)
++	was_allowed = !sp11_guard_reason();
++	if (start) {
 +		guard.streams[stream]++;
-+	else if (guard.streams[stream])
-+		guard.streams[stream]--;
++	} else if (guard.streams[stream] && !--guard.streams[stream] &&
++		   stream == SP11_STREAM_VI) {
++		/* The calibration lives in the V/I module of the graph that just stopped */
++		guard.cal_mask = 0;
++		guard.cal_nominal = false;
++	}
++	sp11_guard_mute_if_refused(was_allowed);
 +	spin_unlock_irqrestore(&guard.lock, flags);
 +}
 +EXPORT_SYMBOL_GPL(sp11_guard_stream);
@@ -305,34 +412,14 @@ index 000000000..ca7839eca
 +}
 +EXPORT_SYMBOL_GPL(sp11_guard_nospk);
 +
-+/* Returns the reason a speaker stream is refused, NULL when it is allowed */
-+static const char *sp11_guard_reason(void)
-+{
-+	if (nospk)
-+		return "sp11.nospk is set";
-+	if (guard.fault)
-+		return "a speaker fault is latched";
-+	if (!guard.graph_up)
-+		return "the closed-loop graph is not up";
-+	if (!guard.streams[SP11_STREAM_VI])
-+		return "the V/I sense stream is not running";
-+	if (guard.cps_required && !guard.streams[SP11_STREAM_CPS])
-+		return "the CPS stream is not running";
-+	if ((guard.cal_mask & SP11_CAL_ALL_MASK) != SP11_CAL_ALL_MASK)
-+		return "no R0/T0 calibration was applied";
-+	if (guard.cal_nominal && !allow_nominal)
-+		return "only a nominal calibration exists and sp11.allow_nominal is not set";
-+
-+	return NULL;
-+}
-+
++/* May a speaker stream be opened and prepared (the amplifier stays muted)? */
 +int sp11_guard_check(struct device *dev)
 +{
 +	const char *reason;
 +	unsigned long flags;
 +
 +	spin_lock_irqsave(&guard.lock, flags);
-+	reason = sp11_guard_reason();
++	reason = sp11_guard_open_reason();
 +	spin_unlock_irqrestore(&guard.lock, flags);
 +
 +	if (!reason)
@@ -344,16 +431,36 @@ index 000000000..ca7839eca
 +}
 +EXPORT_SYMBOL_GPL(sp11_guard_check);
 +
++/* May the amplifier be unmuted (power amplifier enabled)? */
++int sp11_guard_unmute_check(struct device *dev)
++{
++	const char *reason;
++	unsigned long flags;
++
++	spin_lock_irqsave(&guard.lock, flags);
++	reason = sp11_guard_reason();
++	spin_unlock_irqrestore(&guard.lock, flags);
++
++	if (!reason)
++		return 0;
++
++	dev_warn_ratelimited(dev, "speaker stays muted: %s\n", reason);
++
++	return -EOPNOTSUPP;
++}
++EXPORT_SYMBOL_GPL(sp11_guard_unmute_check);
++
 +static int sp11_guard_show(struct seq_file *s, void *unused)
 +{
 +	const char *reason;
 +
 +	spin_lock_irq(&guard.lock);
 +	reason = sp11_guard_reason();
++	seq_printf(s, "open_allowed: %s\n", sp11_guard_open_reason() ? "no" : "yes");
 +	seq_printf(s, "allowed: %s\n", reason ? "no" : "yes");
 +	seq_printf(s, "reason: %s\n", reason ?: "-");
-+	seq_printf(s, "graph_up: %d\nvi_streams: %u\ncps_streams: %u\ncps_required: %d\n",
-+		   guard.graph_up, guard.streams[SP11_STREAM_VI],
++	seq_printf(s, "loaded: %d\ngraph_up: %d\nvi_streams: %u\ncps_streams: %u\ncps_required: %d\n",
++		   guard.loaded, guard.graph_up, guard.streams[SP11_STREAM_VI],
 +		   guard.streams[SP11_STREAM_CPS], guard.cps_required);
 +	seq_printf(s, "cal_mask: 0x%x\ncal_nominal: %d\n", guard.cal_mask, guard.cal_nominal);
 +	seq_printf(s, "fault: %d (%s, 0x%08x)\nnospk: %d\nallow_nominal: %d\n",

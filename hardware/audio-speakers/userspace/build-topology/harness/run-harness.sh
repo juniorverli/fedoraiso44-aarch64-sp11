@@ -13,7 +13,9 @@
 #  3. boots it once per case in qemu-system-aarch64; the harness calls the real audioreach_tplg_init()
 #     (ASoC topology core + sound/soc/qcom/qdsp6/topology.c), registers a card, and builds
 #     APM_CMD_GRAPH_OPEN for every graph with the real audioreach.c;
-#  4. check_tplg_harness.py decodes the packets and checks them.
+#  4. check_tplg_harness.py decodes the packets and checks them. The fifth case (hgate) also compiles the real
+#     wsa884x.c with a RAM register file and runs the speaker gate checks (GATE PASS/FAIL lines;
+#     SND_SOC_MAX98363 is enabled only because it selects REGMAP_SOUNDWIRE).
 # Inputs expected in $SP11_PRIVATE_AUDIO (default out/firmware-private/audio): the closed-loop topology,
 # the sp11cl file and sp11-ids.m4 written by build-closedloop.sh. A nominal sp11cal is made in WORK_DIR only.
 set -euo pipefail
@@ -50,7 +52,8 @@ cat > "$work/build.sh" <<BUILD
 set -e
 cd $src && make O=$obj ARCH=arm64 tinyconfig >/dev/null && cd $obj
 for o in KUNIT SOUND SND SND_SOC SND_SOC_TOPOLOGY_BUILD PRINTK TTY SERIAL_AMBA_PL011 SERIAL_AMBA_PL011_CONSOLE \\
-         SERIAL_EARLYCON BLK_DEV_INITRD KALLSYMS DEBUG_KERNEL DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT FW_LOADER; do
+         SERIAL_EARLYCON BLK_DEV_INITRD KALLSYMS DEBUG_KERNEL DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT FW_LOADER \\
+         SYSFS PM SOUNDWIRE SND_SOC_MAX98363; do
   $src/scripts/config --file .config --enable \$o; done
 $src/scripts/config --file .config --disable FW_LOADER_USER_HELPER \\
   --set-str EXTRA_FIRMWARE "qcom/x1e80100/hbase-tplg.bin qcom/x1e80100/hcl-tplg.bin qcom/x1e80100/hcl-sp11cl.bin qcom/x1e80100/hcl-sp11cal.bin qcom/x1e80100/hdup-tplg.bin qcom/x1e80100/htrunc-tplg.bin" \\
@@ -63,7 +66,7 @@ docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp/home --tmpfs /tmp/home:e
 
 printf 'FROM registry.fedoraproject.org/fedora:44\nRUN dnf -q -y install qemu-system-aarch64-core && dnf clean all\n' > "$work/qimg/Dockerfile"
 docker build -q -t sp11-qemu-tplg "$work/qimg" >/dev/null
-for c in hbase hcl hdup htrunc; do
+for c in hbase hcl hdup htrunc hgate; do
   docker run --rm -v "$obj/arch/arm64/boot":/b:ro -v "$work":/l sp11-qemu-tplg bash -c \
     "timeout 300 qemu-system-aarch64 -machine virt -cpu max -m 512 -display none -monitor none -no-reboot \
      -chardev file,id=c,path=/l/q-$c.log -serial chardev:c -kernel /b/Image \
