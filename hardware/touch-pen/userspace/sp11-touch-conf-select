@@ -1,0 +1,30 @@
+#!/usr/bin/bash
+# Reference selector for the touch A/B test (image-owned once adopted). Install at /usr/libexec/sp11-touch-conf-select, 0755.
+# Run by a drop-in of iptsd@.service as ExecStartPre (10-sp11-touch-conf.conf). Reads the marker, writes
+# /etc/iptsd.d/50-sp11.conf (profile B only) and /run/sp11/touch-conf. The kernel command line is never involved, so GRUB stays static.
+#
+# Marker: GRUB environment variable sp11_touch_conf (A or B) in EFI/BOOT/grubenv on the boot medium's ESP, read through
+# the existing S4-guarded /usr/libexec/sp11-esp-env. Set it from any Linux shell, effective on the next boot:
+#     sudo /usr/libexec/sp11-esp-env set sp11_touch_conf=B
+# GRUB never reads this variable (Inference: its save_env rewrites the block and keeps unknown names; test with
+# image/tools/rotor-selftest.sh before relying on it). Missing, empty or any other value means A.
+# Test hook: SP11_TOUCH_CONF_MARKER=B overrides the lookup.
+set -u
+export LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin
+ESP=${SP11_ESP_ENV:-/usr/libexec/sp11-esp-env}
+CONF_B=${SP11_TOUCH_CONF_B:-/usr/share/sp11/touch/iptsd-sp11.conf}
+mkdir -p /run/sp11
+m=${SP11_TOUCH_CONF_MARKER:-$(timeout 20 "$ESP" get sp11_touch_conf 2>/dev/null | head -n1)}
+rm -f /etc/iptsd.d/50-sp11.conf
+case $m in
+B | b)
+	if [ -r "$CONF_B" ]; then
+		install -D -m 0644 "$CONF_B" /etc/iptsd.d/50-sp11.conf
+		echo "profile B (marker '$m'): $CONF_B installed as /etc/iptsd.d/50-sp11.conf" >/run/sp11/touch-conf
+	else
+		echo "profile A (marker B, but $CONF_B is missing)" >/run/sp11/touch-conf
+	fi
+	;;
+*) echo "profile A (marker '${m:-unset}'): iptsd compiled defaults" >/run/sp11/touch-conf ;;
+esac
+exit 0
