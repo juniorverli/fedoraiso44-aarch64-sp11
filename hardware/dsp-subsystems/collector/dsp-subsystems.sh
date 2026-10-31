@@ -159,7 +159,8 @@ if [ -r /sys/kernel/tracing/trace ]; then
 	echo "== qcom_smp2p (all edges; names carry the edge)"
 	timeout 8 grep -E " (smp2p_[a-z_]+):" /sys/kernel/tracing/trace 2>&1 | head -n 200
 	echo "== qcom_aoss (load_state and other QMP sends)"
-	timeout 8 grep -E " aoss_send(_done)?:" /sys/kernel/tracing/trace 2>&1 | head -n 100
+	timeout 8 grep -E " aoss_send(_done)?:" /sys/kernel/tracing/trace 2>&1 | grep -v "res: qdss" | head -n 100
+	echo "qdss clock sends (count only): $(timeout 8 grep -c 'res: qdss' /sys/kernel/tracing/trace 2>&1)"
 	echo "== genpd performance state (nsp, mxc, cx)"
 	timeout 8 grep -E " power_domain_target:.*(nsp|mxc|cx)" /sys/kernel/tracing/trace 2>&1 | head -n 100
 	echo "== rpmh sends (counts only, can be large)"
@@ -174,3 +175,13 @@ T dmesg | grep -E "handover: proxy power domains|remoteproc[0-9]+: (powering up|
 for d in nsp mxc cx; do
 	grep -E "^$d " /sys/kernel/debug/pm_genpd/pm_genpd_summary 2>/dev/null
 done
+
+echo
+echo "## DSP firmware build ids actually loaded (M14: compare with the denisix reference, c1-00046.1)"
+for f in /lib/firmware/qcom/x1e80100/microsoft/Denali/qccdsp8380.mbn /usr/lib/firmware/qcom/x1e80100/microsoft/Denali/qccdsp8380.mbn \
+	/lib/firmware/qcom/x1e80100/microsoft/Denali/qcadsp8380.mbn; do
+	[ -r "$f" ] || continue
+	echo "$f $(timeout 8 sha256sum "$f" | cut -c1-16) $(timeout 8 strings -n 8 "$f" | grep -m1 '^QC_IMAGE_VERSION_STRING=')"
+done
+echo "firmware_class.path: $(R /sys/module/firmware_class/parameters/path)"
+echo "cmdline firmware/pas args: $(tr ' ' '\n' </proc/cmdline | grep -E '^(firmware_class|qcom_q6v5_pas)\.' | tr '\n' ' ')"

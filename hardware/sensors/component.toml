@@ -3,7 +3,7 @@ name = "Sensors on the ADSP sensor core (SSC): accelerometer, gyroscope, magneto
 phase = 4
 status = "survey"
 depends_on = ["dsp-subsystems"]
-updated = "2026-10-23"
+updated = "2026-10-31"
 
 [windows]
 hardware_ids = ["ACPI\\VEN_MSHW&DEV_048A&SUBSYS_MSHW0487", "ACPI\\VEN_MSHW&DEV_048B&SUBSYS_MSHW0487", "Simple Device Orientation Sensor"]

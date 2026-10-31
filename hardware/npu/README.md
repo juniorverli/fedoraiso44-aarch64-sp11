@@ -60,9 +60,12 @@ The Hexagon NPU (HTP v73) inside the CDSP, shown by Windows as a compute acceler
 
 ## 8. Requests
 
-- none yet
+- **image**: [NPU integration plan](evidence/2026-10-31-npu-integration.md): public set `fastrpc fastrpc-services qrtr` (Fedora 44 has all three), no udev 0666, group `fastrpc`; ship `userspace/sp11-npu-install-private.sh` in the private mode only; QAIRT, Hexagon SDK pieces and the Hexagon-built ggml skel are never in an image or git.
+- **kernel**: confirm FastRPC and `CONFIG_DMABUF_HEAPS_SYSTEM` in the final config.
+- **dsp-subsystems**: blocked on the CDSP channel (E1/E2).
 
 ## 9. Log
 
 - 2026-10-23: dossier created from the static survey.
 - 2026-10-24: HTP V73, Windows package contents and versions, CDSP FastRPC DT node, absence of an accel driver verified.
+- 2026-10-31: stack and packaging plan from the denisix report and Fedora 44 repoquery; installer script for the operator's own QAIRT download; status stays `survey` (blocked by the CDSP).

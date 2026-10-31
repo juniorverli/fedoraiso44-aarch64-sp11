@@ -3,7 +3,7 @@ name = "Hexagon NPU (CDSP, HTP v73): compute accelerator"
 phase = 4
 status = "survey"
 depends_on = ["dsp-subsystems"]
-updated = "2026-10-24"
+updated = "2026-10-31"
 
 [windows]
 hardware_ids = ["ACPI\\VEN_QCOM&DEV_0D0A&REV_008A (ComputeAccelerator)", "ACPI\\VEN_QCOM&DEV_0CC3 (NSP0 CDSP SW thermal)", "ACPI\\VEN_QCOM&DEV_0CF8 (NSP limits)"]
