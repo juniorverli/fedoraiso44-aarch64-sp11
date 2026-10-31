@@ -1,6 +1,6 @@
-From 89d6a9ea614f05472a0d0985f38aa662e00adc81 Mon Sep 17 00:00:00 2001
+From 31cee6f0eeb5e38f420114f9591781300df9bb42 Mon Sep 17 00:00:00 2001
 From: cam <cam@x.invalid>
-Date: Fri, 30 Oct 2026 23:09:43 +0000
+Date: Sat, 31 Oct 2026 18:49:55 +0000
 Subject: [PATCH] media: i2c: ov13858: load additional modes from a register
  blob
 
@@ -18,22 +18,28 @@ blob share a link frequency, which becomes a third entry of the
 LINK_FREQ menu and must be offered by the endpoint. The pixel rate and
 the line length come from the blob.
 
-A blob mode is accepted only if it uses four lanes, the driver's
-SGRBG10 bus code or none, plain register writes and a frame length the
-VTS register can hold. A missing or unusable blob is not an error: the
+A blob mode is accepted only if it uses four lanes, a RAW10 Bayer bus
+code or none, plain register writes and a frame length the VTS register
+can hold. A missing or unusable blob is not an error: the
 sensor keeps working with the built-in modes. ACPI systems and
 devicetrees without the property are unchanged.
 
-The modes of the Windows data start their window on even columns and rows
-and keep the flip bits of the built-in full mode, so the SGRBG10 order is
-expected to hold; a RAW capture on the device confirms it. A blob with a
+The media bus code is a property of the mode. The built-in modes keep
+SGRBG10: their register lists program an odd vertical window origin. A
+mode loaded from the blob reports the code the blob states (the Windows
+modes start their window on an even row and are BGGR) and a blob mode
+without a code reports SGRBG10. Format enumeration, frame size
+enumeration, set_fmt, get_fmt and the try format all follow the selected
+mode: set_fmt prefers the mode of the requested code that is nearest in
+size and reports the code of the mode it selected.
+A blob with a
 delay or a poll operation is refused, the driver writes plain lists only.
 
 Assisted-by: Claude Sonnet 5.5
 ---
  drivers/media/i2c/Kconfig   |   1 +
- drivers/media/i2c/ov13858.c | 228 ++++++++++++++++++++++++++++++++----
- 2 files changed, 205 insertions(+), 24 deletions(-)
+ drivers/media/i2c/ov13858.c | 333 +++++++++++++++++++++++++++++++-----
+ 2 files changed, 291 insertions(+), 43 deletions(-)
 
 diff --git a/drivers/media/i2c/Kconfig b/drivers/media/i2c/Kconfig
 index 5c52007f9..fd8b14796 100644
@@ -48,7 +54,7 @@ index 5c52007f9..fd8b14796 100644
  	  This is a Video4Linux2 sensor driver for the OmniVision
  	  OV13858 camera.
 diff --git a/drivers/media/i2c/ov13858.c b/drivers/media/i2c/ov13858.c
-index 5a43c4b3d..2100f6e67 100644
+index 5a43c4b3d..d64c738ff 100644
 --- a/drivers/media/i2c/ov13858.c
 +++ b/drivers/media/i2c/ov13858.c
 @@ -4,6 +4,7 @@
@@ -68,16 +74,22 @@ index 5a43c4b3d..2100f6e67 100644
  #define OV13858_REG_VALUE_08BIT		1
  #define OV13858_REG_VALUE_16BIT		2
  #define OV13858_REG_VALUE_24BIT		3
-@@ -119,6 +122,8 @@ struct ov13858_mode {
+@@ -119,6 +122,14 @@ struct ov13858_mode {
  
  	/* Index of Link frequency config to be used */
  	u32 link_freq_index;
 +	/* Line length of a mode loaded from firmware, 0 for the built-in ones */
 +	u32 pixels_per_line;
++	/*
++	 * Media bus code of the mode, 0 for the built-in ones (they report
++	 * SGRBG10, their register lists program an odd vertical window origin).
++	 * A mode loaded from firmware carries the code of its blob.
++	 */
++	u32 code;
  	/* Default register values */
  	struct ov13858_reg_list reg_list;
  };
-@@ -942,6 +947,8 @@ static const char * const ov13858_test_pattern_menu[] = {
+@@ -942,6 +953,8 @@ static const char * const ov13858_test_pattern_menu[] = {
  
  /* Configurations for supported link frequencies */
  #define OV13858_NUM_OF_LINK_FREQS	2
@@ -86,7 +98,7 @@ index 5a43c4b3d..2100f6e67 100644
  #define OV13858_LINK_FREQ_540MHZ	540000000ULL
  #define OV13858_LINK_FREQ_270MHZ	270000000ULL
  #define OV13858_LINK_FREQ_INDEX_0	0
-@@ -1056,6 +1063,16 @@ struct ov13858 {
+@@ -1056,6 +1069,16 @@ struct ov13858 {
  	struct v4l2_ctrl *hblank;
  	struct v4l2_ctrl *exposure;
  
@@ -103,7 +115,7 @@ index 5a43c4b3d..2100f6e67 100644
  	/* Current mode */
  	const struct ov13858_mode *cur_mode;
  
-@@ -1065,6 +1082,12 @@ struct ov13858 {
+@@ -1065,6 +1088,12 @@ struct ov13858 {
  
  #define to_ov13858(_sd)	container_of(_sd, struct ov13858, sd)
  
@@ -116,38 +128,162 @@ index 5a43c4b3d..2100f6e67 100644
  /* Read registers up to 4 at a time */
  static int ov13858_read_reg(struct ov13858 *ov13858, u16 reg, u32 len,
  			    u32 *val)
-@@ -1303,15 +1326,17 @@ static int ov13858_enum_frame_size(struct v4l2_subdev *sd,
+@@ -1159,6 +1188,21 @@ static int ov13858_write_reg_list(struct ov13858 *ov13858,
+ 	return ov13858_write_regs(ov13858, r_list->regs, r_list->num_of_regs);
+ }
+ 
++/* Media bus code a mode outputs; the built-in modes are GRBG */
++static u32 ov13858_mode_code(const struct ov13858_mode *mode)
++{
++	return mode->code ?: MEDIA_BUS_FMT_SGRBG10_1X10;
++}
++
++/* The 10 bit Bayer codes a mode loaded from firmware may state */
++static bool ov13858_code_is_bayer10(u32 code)
++{
++	return code == MEDIA_BUS_FMT_SBGGR10_1X10 ||
++	       code == MEDIA_BUS_FMT_SGBRG10_1X10 ||
++	       code == MEDIA_BUS_FMT_SGRBG10_1X10 ||
++	       code == MEDIA_BUS_FMT_SRGGB10_1X10;
++}
++
+ /* Open sub-device */
+ static int ov13858_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
+ {
+@@ -1171,7 +1215,7 @@ static int ov13858_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
+ 	/* Initialize try_fmt */
+ 	try_fmt->width = ov13858->cur_mode->width;
+ 	try_fmt->height = ov13858->cur_mode->height;
+-	try_fmt->code = MEDIA_BUS_FMT_SGRBG10_1X10;
++	try_fmt->code = ov13858_mode_code(ov13858->cur_mode);
+ 	try_fmt->field = V4L2_FIELD_NONE;
+ 
+ 	/* No crop or compose */
+@@ -1290,31 +1334,79 @@ static int ov13858_enum_mbus_code(struct v4l2_subdev *sd,
+ 				  struct v4l2_subdev_state *sd_state,
+ 				  struct v4l2_subdev_mbus_code_enum *code)
+ {
+-	/* Only one bayer order(GRBG) is supported */
+-	if (code->index > 0)
+-		return -EINVAL;
++	struct ov13858 *ov13858 = to_ov13858(sd);
++	unsigned int i, j, n = 0;
+ 
+-	code->code = MEDIA_BUS_FMT_SGRBG10_1X10;
++	/* One entry per distinct code, in the order the modes list them */
++	for (i = 0; i < ov13858->num_modes; i++) {
++		u32 c = ov13858_mode_code(&ov13858->modes[i]);
+ 
+-	return 0;
++		for (j = 0; j < i; j++)
++			if (ov13858_mode_code(&ov13858->modes[j]) == c)
++				break;
++		if (j < i)
++			continue;
++		if (n++ == code->index) {
++			code->code = c;
++			return 0;
++		}
++	}
++
++	return -EINVAL;
++}
++
++/* The nearest mode that outputs @code; any code when none does */
++static const struct ov13858_mode *
++ov13858_find_mode(struct ov13858 *ov13858, u32 code, u32 w, u32 h)
++{
++	const struct ov13858_mode *best = NULL;
++	unsigned int i, pass;
++	u64 best_d = 0;
++
++	for (pass = 0; pass < 2 && !best; pass++) {
++		for (i = 0; i < ov13858->num_modes; i++) {
++			const struct ov13858_mode *m = &ov13858->modes[i];
++			s64 dw = (s64)m->width - w;
++			s64 dh = (s64)m->height - h;
++			u64 d = dw * dw + dh * dh;
++
++			if (!pass && ov13858_mode_code(m) != code)
++				continue;
++			if (!best || d < best_d) {
++				best = m;
++				best_d = d;
++			}
++		}
++	}
++
++	return best;
+ }
+ 
+ static int ov13858_enum_frame_size(struct v4l2_subdev *sd,
  				   struct v4l2_subdev_state *sd_state,
  				   struct v4l2_subdev_frame_size_enum *fse)
  {
 -	if (fse->index >= ARRAY_SIZE(supported_modes))
+-		return -EINVAL;
 +	struct ov13858 *ov13858 = to_ov13858(sd);
-+
-+	if (fse->index >= ov13858->num_modes)
- 		return -EINVAL;
++	unsigned int i, n = 0;
  
- 	if (fse->code != MEDIA_BUS_FMT_SGRBG10_1X10)
- 		return -EINVAL;
+-	if (fse->code != MEDIA_BUS_FMT_SGRBG10_1X10)
+-		return -EINVAL;
++	/* The index counts the modes that output the requested code */
++	for (i = 0; i < ov13858->num_modes; i++) {
++		const struct ov13858_mode *m = &ov13858->modes[i];
  
 -	fse->min_width = supported_modes[fse->index].width;
-+	fse->min_width = ov13858->modes[fse->index].width;
- 	fse->max_width = fse->min_width;
+-	fse->max_width = fse->min_width;
 -	fse->min_height = supported_modes[fse->index].height;
-+	fse->min_height = ov13858->modes[fse->index].height;
- 	fse->max_height = fse->min_height;
+-	fse->max_height = fse->min_height;
++		if (ov13858_mode_code(m) != fse->code)
++			continue;
++		if (n++ != fse->index)
++			continue;
  
- 	return 0;
-@@ -1376,8 +1401,7 @@ ov13858_set_pad_format(struct v4l2_subdev *sd,
- 	if (fmt->format.code != MEDIA_BUS_FMT_SGRBG10_1X10)
- 		fmt->format.code = MEDIA_BUS_FMT_SGRBG10_1X10;
+-	return 0;
++		fse->min_width = m->width;
++		fse->max_width = fse->min_width;
++		fse->min_height = m->height;
++		fse->max_height = fse->min_height;
++
++		return 0;
++	}
++
++	return -EINVAL;
+ }
  
+ static void ov13858_update_pad_format(const struct ov13858_mode *mode,
+@@ -1322,7 +1414,7 @@ static void ov13858_update_pad_format(const struct ov13858_mode *mode,
+ {
+ 	fmt->format.width = mode->width;
+ 	fmt->format.height = mode->height;
+-	fmt->format.code = MEDIA_BUS_FMT_SGRBG10_1X10;
++	fmt->format.code = ov13858_mode_code(mode);
+ 	fmt->format.field = V4L2_FIELD_NONE;
+ }
+ 
+@@ -1372,14 +1464,12 @@ ov13858_set_pad_format(struct v4l2_subdev *sd,
+ 
+ 	mutex_lock(&ov13858->mutex);
+ 
+-	/* Only one raw bayer(GRBG) order is supported */
+-	if (fmt->format.code != MEDIA_BUS_FMT_SGRBG10_1X10)
+-		fmt->format.code = MEDIA_BUS_FMT_SGRBG10_1X10;
+-
 -	mode = v4l2_find_nearest_size(supported_modes,
 -				      ARRAY_SIZE(supported_modes),
-+	mode = v4l2_find_nearest_size(ov13858->modes, ov13858->num_modes,
- 				      width, height,
- 				      fmt->format.width, fmt->format.height);
+-				      width, height,
+-				      fmt->format.width, fmt->format.height);
++	/*
++	 * The code follows the selected mode: prefer a mode that outputs the
++	 * requested code, report the code of the mode that was chosen.
++	 */
++	mode = ov13858_find_mode(ov13858, fmt->format.code,
++				 fmt->format.width, fmt->format.height);
  	ov13858_update_pad_format(mode, fmt);
-@@ -1387,7 +1411,7 @@ ov13858_set_pad_format(struct v4l2_subdev *sd,
+ 	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
+ 		framefmt = v4l2_subdev_state_get_format(sd_state, fmt->pad);
+@@ -1387,7 +1477,7 @@ ov13858_set_pad_format(struct v4l2_subdev *sd,
  	} else {
  		ov13858->cur_mode = mode;
  		__v4l2_ctrl_s_ctrl(ov13858->link_freq, mode->link_freq_index);
@@ -156,7 +292,7 @@ index 5a43c4b3d..2100f6e67 100644
  		pixel_rate = link_freq_to_pixel_rate(link_freq);
  		__v4l2_ctrl_s_ctrl_int64(ov13858->pixel_rate, pixel_rate);
  
-@@ -1401,9 +1425,7 @@ ov13858_set_pad_format(struct v4l2_subdev *sd,
+@@ -1401,9 +1491,7 @@ ov13858_set_pad_format(struct v4l2_subdev *sd,
  			OV13858_VTS_MAX - ov13858->cur_mode->height, 1,
  			vblank_def);
  		__v4l2_ctrl_s_ctrl(ov13858->vblank, vblank_def);
@@ -167,7 +303,7 @@ index 5a43c4b3d..2100f6e67 100644
  		__v4l2_ctrl_modify_range(ov13858->hblank, h_blank,
  					 h_blank, 1, h_blank);
  	}
-@@ -1435,13 +1457,16 @@ static int ov13858_start_streaming(struct ov13858 *ov13858)
+@@ -1435,13 +1523,16 @@ static int ov13858_start_streaming(struct ov13858 *ov13858)
  		return ret;
  	}
  
@@ -190,7 +326,7 @@ index 5a43c4b3d..2100f6e67 100644
  	}
  
  	/* Apply default values of current mode */
-@@ -1572,7 +1597,9 @@ static int ov13858_init_controls(struct ov13858 *ov13858)
+@@ -1572,7 +1663,9 @@ static int ov13858_init_controls(struct ov13858 *ov13858)
  	s64 hblank;
  	s64 pixel_rate_min;
  	s64 pixel_rate_max;
@@ -200,7 +336,7 @@ index 5a43c4b3d..2100f6e67 100644
  	int ret;
  
  	ctrl_hdlr = &ov13858->ctrl_handler;
-@@ -1585,19 +1612,27 @@ static int ov13858_init_controls(struct ov13858 *ov13858)
+@@ -1585,19 +1678,27 @@ static int ov13858_init_controls(struct ov13858 *ov13858)
  	ov13858->link_freq = v4l2_ctrl_new_int_menu(ctrl_hdlr,
  				&ov13858_ctrl_ops,
  				V4L2_CID_LINK_FREQ,
@@ -234,7 +370,7 @@ index 5a43c4b3d..2100f6e67 100644
  
  	mode = ov13858->cur_mode;
  	vblank_def = mode->vts_def - mode->height;
-@@ -1607,8 +1642,7 @@ static int ov13858_init_controls(struct ov13858 *ov13858)
+@@ -1607,8 +1708,7 @@ static int ov13858_init_controls(struct ov13858 *ov13858)
  				vblank_min, OV13858_VTS_MAX - mode->height, 1,
  				vblank_def);
  
@@ -244,7 +380,7 @@ index 5a43c4b3d..2100f6e67 100644
  	ov13858->hblank = v4l2_ctrl_new_std(
  				ctrl_hdlr, &ov13858_ctrl_ops, V4L2_CID_HBLANK,
  				hblank, hblank, 1, hblank);
-@@ -1747,6 +1781,12 @@ static int ov13858_get_of_resources(struct ov13858 *ov13858)
+@@ -1747,6 +1847,12 @@ static int ov13858_get_of_resources(struct ov13858 *ov13858)
  		goto free_endpoint;
  	}
  
@@ -257,7 +393,7 @@ index 5a43c4b3d..2100f6e67 100644
  	/* All existing modes remain advertised, so require both PLL rates. */
  	for (i = 0; i < ARRAY_SIZE(link_freq_menu_items); i++) {
  		for (j = 0; j < ep.nr_of_link_frequencies; j++)
-@@ -1779,6 +1819,142 @@ static int ov13858_get_of_resources(struct ov13858 *ov13858)
+@@ -1779,6 +1885,143 @@ static int ov13858_get_of_resources(struct ov13858 *ov13858)
  	return 0;
  }
  
@@ -302,7 +438,7 @@ index 5a43c4b3d..2100f6e67 100644
 +		srb_get_mode(srb, i, &m);
 +
 +		if (m.lanes != 4 ||
-+		    (m.mbus_code && m.mbus_code != MEDIA_BUS_FMT_SGRBG10_1X10) ||
++		    (m.mbus_code && !ov13858_code_is_bayer10(m.mbus_code)) ||
 +		    m.vts_min < m.height || m.vts > OV13858_VTS_MAX ||
 +		    (freq && freq != m.link_freq))
 +			return -EINVAL;
@@ -327,6 +463,7 @@ index 5a43c4b3d..2100f6e67 100644
 +		modes[n + i].vts_def = m.vts;
 +		modes[n + i].vts_min = m.vts_min;
 +		modes[n + i].pixels_per_line = m.hts;
++		modes[n + i].code = m.mbus_code;
 +		modes[n + i].reg_list.num_of_regs = m.ops.count;
 +		modes[n + i].reg_list.regs = regs;
 +	}
@@ -400,7 +537,7 @@ index 5a43c4b3d..2100f6e67 100644
  static const struct dev_pm_ops ov13858_pm_ops = {
  	SET_RUNTIME_PM_OPS(ov13858_power_off, ov13858_power_on, NULL)
  	SET_SYSTEM_SLEEP_PM_OPS(pm_runtime_force_suspend, pm_runtime_force_resume)
-@@ -1814,6 +1990,10 @@ static int ov13858_probe(struct i2c_client *client)
+@@ -1814,6 +2057,10 @@ static int ov13858_probe(struct i2c_client *client)
  	if (ret)
  		return ret;
  
@@ -411,7 +548,7 @@ index 5a43c4b3d..2100f6e67 100644
  	ret = ov13858_power_on(ov13858->dev);
  	if (ret)
  		return ret;
-@@ -1826,7 +2006,7 @@ static int ov13858_probe(struct i2c_client *client)
+@@ -1826,7 +2073,7 @@ static int ov13858_probe(struct i2c_client *client)
  	}
  
  	/* Set default mode to max resolution */
@@ -420,3 +557,6 @@ index 5a43c4b3d..2100f6e67 100644
  
  	ret = ov13858_init_controls(ov13858);
  	if (ret)
+-- 
+2.43.0
+

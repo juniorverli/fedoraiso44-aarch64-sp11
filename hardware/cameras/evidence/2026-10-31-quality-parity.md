@@ -11,7 +11,7 @@ Tools (all new files, `hardware/cameras/userspace/quality/`):
 | `build-libcamera-tuning.py` | Parses the tuned binaries as data, `--inventory` prints structure, otherwise emits `ov13858.yaml` and `imx681.yaml` (plus an LSC sidecar and a hash manifest) into `out/firmware-private/cameras/libcamera/`, mode 600; refuses a non-ignored directory inside git |
 | `validate-tuning.sh`, `validate-tuning.cpp` | Loads a tuning file with libcamera's own `YamlParser` and runs the reads of `BlackLevel::init` and `Ccm::init` (`Interpolator<Matrix<float,3,3>>::readYaml`) inside the Fedora 44 container; prints counts and OK/FAIL |
 | `libcamera-sp11.patch` | Two small libcamera changes (tuned default gamma, OV13858 black level); applies clean on v0.7.2 and the touched objects were rebuilt |
-| `libcamera-sp11-imx681-helper.patch.in` | Template for the IMX681 `CameraSensorHelper`, blocked on the gain law (question G1) |
+| `libcamera-sp11-imx681-helper.patch` | IMX681 `CameraSensorHelper` with the reciprocal gain law (2026-10-31; applies after `libcamera-sp11.patch` on v0.7.2) |
 
 ## What "original quality" can and cannot mean
 

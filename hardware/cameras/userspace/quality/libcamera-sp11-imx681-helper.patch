@@ -1,0 +1,45 @@
+Subject: [PATCH] ipa: libipa: camera_sensor_helper: add imx681
+
+Add a CameraSensorHelper for the Sony IMX681 (Surface Pro 11 front camera). The
+analogue gain is the Sony reciprocal law the Windows tuning data states
+(code = 512 - 512 / gain, codes 0 to 479, 1.0x to 15.5x), expressed in the
+existing AnalogueGainLinear model as (0 * code + 512) / (-1 * code + 512), the same
+form as the imx219 helper. The law is per Windows analysis, not measured on the
+device (hardware/cameras/evidence/2026-10-31-bayer-units-gain-crosscheck.md).
+
+No black level is set: its scale is not established (quality-parity U6), the tuning
+file carries it. Without the helper libcamera logs "Failed to create camera sensor
+helper for imx681" and uses the control value as the gain.
+
+Applies after libcamera-sp11.patch on libcamera v0.7.2 (and on a clean v0.7.2,
+the context is unrelated to that patch).
+
+Assisted-by: Claude Sonnet 5.5
+---
+diff --git a/src/ipa/libipa/camera_sensor_helper.cpp b/src/ipa/libipa/camera_sensor_helper.cpp
+index 413d7c8..3367f7f 100644
+--- a/src/ipa/libipa/camera_sensor_helper.cpp
++++ b/src/ipa/libipa/camera_sensor_helper.cpp
+@@ -654,6 +654,22 @@ public:
+ };
+ REGISTER_CAMERA_SENSOR_HELPER("imx678", CameraSensorHelperImx678)
+ 
++class CameraSensorHelperImx681 : public CameraSensorHelper
++{
++public:
++	CameraSensorHelperImx681()
++	{
++		/*
++		 * Sony reciprocal analogue gain, from the Windows tuning data:
++		 * code = 512 - 512 / gain, so gain = 512 / (512 - code), with
++		 * codes 0..479 (1.0x to 15.5x). No black level: its scale is
++		 * not established, the tuning file provides it.
++		 */
++		gain_ = AnalogueGainLinear{ 0, 512, -1, 512 };
++	}
++};
++REGISTER_CAMERA_SENSOR_HELPER("imx681", CameraSensorHelperImx681)
++
+ class CameraSensorHelperImx708 : public CameraSensorHelper
+ {
+ public:

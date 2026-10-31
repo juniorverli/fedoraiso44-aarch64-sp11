@@ -119,6 +119,8 @@ Why CAMSS cannot do the RGB stage on this SoC (Verified, 2026-10-24):
 - R4 (image): libcamera with the Software ISP and a per-sensor tuning file for OV13858 (RAW to RGB); the tuning values are derived on the device from the Windows data, not committed (S5).
 - R5 (orchestrator, REA slot later): the seven questions at the end of `evidence/2026-10-30-camera-driver-reference.md` (indicator GPIO resource per sensor and polarity, CSIPHY and pm8010 supply parents, PEP delay unit, CCI mapping and speed, IR address and lanes, IMX681 Bayer order and modes, IR emitter channel read-only).
 - R6 (firmware): none for the CAMSS path (CAMSS needs no firmware). `CAMERA_ICP.mbn` is only for the unusable Spectra stack and is not staged.
+- R8 (kernel, M15): patches 0013 (per-mode media bus code) and 0016 (gain law, digital gain, line-length clock) were amended in place on 2026-10-31; rebuild from the files, nothing else in `patches/` changed. The libcamera image patch set is `userspace/quality/libcamera-sp11.patch` then `libcamera-sp11-imx681-helper.patch`.
+- R9 (image): `test-plan.md` and the OV13858 tuning must expect SBGGR10 for blob modes and SGRBG10 for built-in modes.
 
 ## 9. Log
 
@@ -126,3 +128,4 @@ Why CAMSS cannot do the RGB stage on this SoC (Verified, 2026-10-24):
 - 2026-10-24: RAW-to-RGB requirement recorded; OV13858 Bayer order verified.
 - 2026-10-30: REA of the Windows camera stack: per-camera CCI, lanes, PHY, reset, clocks, supplies and power-up order recorded in `evidence/2026-10-30-rea-windows.md`; front is C-PHY (unsupported by CAMSS in 7.3).
 - 2026-10-30: Qualcomm camera-kernel reference cross-check (CSIPHY v2.1.2, CSID 680 layout, CCI v2, C-PHY register sequence, ICP firmware names, Spectra not usable); Sol patches reviewed and replaced by five checked patches (binding, ov13858 OF power, hamoa DT, Denali LED, Denali rear camera), diagnostic DTB variant, test plan; status `designed`.
+- 2026-10-31: patches 0013 and 0016 amended (per-mode bus code, verified IMX681 gain law, digital gain, line-length clock), IMX681 libcamera helper patch made real; see `evidence/2026-10-31-bayer-units-gain-crosscheck.md` section 7.

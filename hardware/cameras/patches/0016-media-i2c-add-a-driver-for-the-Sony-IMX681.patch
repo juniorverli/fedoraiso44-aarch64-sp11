@@ -1,4 +1,4 @@
-From db31f1e69c97840f15e9dec7d3e03e062f7727e4 Mon Sep 17 00:00:00 2001
+From 8dc17fc7e902fcc25c1cd0da89e5349fd5ea0fe6 Mon Sep 17 00:00:00 2001
 From: cam <cam@x.invalid>
 Date: Fri, 30 Oct 2026 23:15:05 +0000
 Subject: [PATCH] media: i2c: add a driver for the Sony IMX681
@@ -19,8 +19,8 @@ geometry, link frequency, pixel rate and register list.
 
 Frame sizes select the mode, so the blob must not hold two modes of the
 same size. The media bus code is a field of the blob and must be a RAW10
-Bayer code, because the Bayer order of this sensor is not known; a RAW
-capture on the device decides the right one. The sub-device reports C-PHY
+Bayer code; the Windows module data states RGGB and the blob generator
+writes it. The sub-device reports C-PHY
 with the trio count of the endpoint, which must equal the trio count of
 every mode, and the link frequency control follows the modes. The
 privacy LED is switched by the V4L2 core when the devicetree gives the
@@ -31,15 +31,22 @@ timeout); a poll that times out fails the stream start with an error
 message and the runtime PM reference is dropped.
 
 The native array size is not known and is reported as the largest mode.
-Nothing in this driver has run on hardware.
+The gain and frame rate follow the Windows analysis: the analogue gain
+is the Sony reciprocal law (code = 512 - 512 / gain, codes 0 to 479) and
+the digital gain is Q8 up to 4.0x in the CCS global digital gain
+register. The module's pixel clock is not the clock the line length
+counts in (ratio 0.762 for every mode), so the pixel rate control
+reports the line-length clock. Nothing in this driver has run on
+hardware, and neither the gain law nor the digital gain register is
+confirmed on it.
 
 Assisted-by: Claude Sonnet 5.5
 ---
  MAINTAINERS                |   1 +
  drivers/media/i2c/Kconfig  |  14 +
  drivers/media/i2c/Makefile |   1 +
- drivers/media/i2c/imx681.c | 892 +++++++++++++++++++++++++++++++++++++
- 4 files changed, 908 insertions(+)
+ drivers/media/i2c/imx681.c | 960 +++++++++++++++++++++++++++++++++++++
+ 4 files changed, 976 insertions(+)
  create mode 100644 drivers/media/i2c/imx681.c
 
 diff --git a/MAINTAINERS b/MAINTAINERS
@@ -93,10 +100,10 @@ index d04bd5724..82869c2e8 100644
  obj-$(CONFIG_VIDEO_ISL7998X) += isl7998x.o
 diff --git a/drivers/media/i2c/imx681.c b/drivers/media/i2c/imx681.c
 new file mode 100644
-index 000000000..135238536
+index 000000000..ebfc0125c
 --- /dev/null
 +++ b/drivers/media/i2c/imx681.c
-@@ -0,0 +1,892 @@
+@@ -0,0 +1,960 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Sony IMX681 image sensor driver.
@@ -110,8 +117,15 @@ index 000000000..135238536
 + * code. The blob is named by the "firmware-name" property and is generated
 + * locally from data the owner of the device already has.
 + *
-+ * The Bayer order of the sensor is not known. The media bus code is therefore
-+ * a field of the blob, and a RAW capture on the device decides the right one.
++ * The media bus code is a field of the blob. The Windows module data states
++ * the colour filter order of the sensor, RGGB, and the blob generator writes
++ * the matching SRGGB10 code; the driver has no default of its own and
++ * rejects a blob without a RAW10 Bayer code.
++ *
++ * Gain and frame rate follow what the Windows camera stack does (a reverse
++ * engineering result, not measured on this device, see the comments at the
++ * constants below): a Sony reciprocal analogue gain, a Q8 digital gain, and
++ * a module "pixel clock" that is not the clock the line length counts in.
 + */
 +
 +#include <linux/clk.h>
@@ -119,6 +133,7 @@ index 000000000..135238536
 +#include <linux/firmware.h>
 +#include <linux/gpio/consumer.h>
 +#include <linux/i2c.h>
++#include <linux/math64.h>
 +#include <linux/module.h>
 +#include <linux/pm_runtime.h>
 +#include <linux/property.h>
@@ -132,6 +147,44 @@ index 000000000..135238536
 +#include "sensor-regblob.h"
 +
 +#define IMX681_XCLK_FREQ	19200000
++
++/*
++ * Analogue gain, Sony reciprocal law: code = 512 - 512 / gain, that is
++ * gain = 512 / (512 - code), 1.0x at code 0. The Windows tuning data limits
++ * the codes to 0..479 (15.5x). Per Windows analysis, unconfirmed on hardware.
++ */
++#define IMX681_AGAIN_MIN	0
++#define IMX681_AGAIN_MAX	479
++#define IMX681_AGAIN_STEP	1
++#define IMX681_AGAIN_DEFAULT	0
++
++/*
++ * Digital gain, Q8 (256 = 1.0x), up to 4.0x, in the 16 bit register 0x020e
++ * (the MIPI CCS global digital gain address). Per Windows analysis (the
++ * "digitalGlobalGainAddr" of the tuning data), unconfirmed on hardware; the
++ * Windows mode sequences write the unity value 0x0100 to this pair.
++ */
++#define IMX681_REG_DIGITAL_GAIN	CCI_REG16(0x020e)
++#define IMX681_DGAIN_MIN	256
++#define IMX681_DGAIN_MAX	1024
++#define IMX681_DGAIN_STEP	1
++#define IMX681_DGAIN_DEFAULT	256
++
++/*
++ * The pixel clock of the Windows module data is not the clock the line
++ * length counts in. For every IMX681 mode the module data holds
++ * pixel_clock / (line_length * frame_length * frame_rate) = 0.7620 (constant
++ * across modes, hardware-independent arithmetic on the module values), so the
++ * line-length clock is pixel_clock / 0.7620. Line length and frame length stay
++ * in the units the blob gives (they equal the sensor registers); only the
++ * clock is converted: V4L2_CID_PIXEL_RATE reports the line-length clock, so
++ * that frame time = (width + hblank) * (height + vblank) / pixel rate is the
++ * real frame time. Taking the module clock as the pixel rate would give 0.762
++ * of the real frame rate. The link frequency comes from its own control.
++ * Per-sensor constant, not stored in the blob.
++ */
++#define IMX681_PIXCLK_RATIO_NUM	762
++#define IMX681_PIXCLK_RATIO_DEN	1000
 +
 +/* Same order as the Windows power sequence: I/O first, then analog. */
 +static const char * const imx681_supply_names[] = {
@@ -147,7 +200,7 @@ index 000000000..135238536
 +	u32 hts;
 +	u32 vts;
 +	u32 vts_min;
-+	u32 pixel_rate;
++	u32 line_clock;
 +	u32 link_freq_index;
 +	struct srb_ops ops;
 +};
@@ -186,6 +239,7 @@ index 000000000..135238536
 +	struct v4l2_ctrl *vblank;
 +	struct v4l2_ctrl *exposure;
 +	struct v4l2_ctrl *again;
++	struct v4l2_ctrl *dgain;
 +};
 +
 +static inline struct imx681 *to_imx681(struct v4l2_subdev *sd)
@@ -261,6 +315,10 @@ index 000000000..135238536
 +	case V4L2_CID_ANALOGUE_GAIN:
 +		ret = imx681_write_ctrl(imx681, SRB_CTRL_ANALOG_GAIN, ctrl->val);
 +		break;
++	case V4L2_CID_DIGITAL_GAIN:
++		ret = cci_write(imx681->regmap, IMX681_REG_DIGITAL_GAIN,
++				ctrl->val, NULL);
++		break;
 +	case V4L2_CID_VBLANK:
 +		ret = imx681_write_ctrl(imx681, SRB_CTRL_FRAME_LENGTH,
 +					fmt->height + ctrl->val);
@@ -300,7 +358,7 @@ index 000000000..135238536
 +
 +	imx681->pixel_rate = v4l2_ctrl_new_std(hdlr, &imx681_ctrl_ops,
 +					       V4L2_CID_PIXEL_RATE, 1,
-+					       U32_MAX, 1, mode->pixel_rate);
++					       U32_MAX, 1, mode->line_clock);
 +	if (imx681->pixel_rate)
 +		imx681->pixel_rate->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 +
@@ -338,11 +396,21 @@ index 000000000..135238536
 +							   mode->vts - 4),
 +						     c->step, c->def);
 +
-+	c = &imx681->ctrl_info[SRB_CTRL_ANALOG_GAIN];
-+	if (imx681->has_ctrl[SRB_CTRL_ANALOG_GAIN])
++	/* The register comes from the blob, the codes follow the gain law */
++	if (imx681->has_ctrl[SRB_CTRL_ANALOG_GAIN]) {
 +		imx681->again = v4l2_ctrl_new_std(hdlr, &imx681_ctrl_ops,
-+						  V4L2_CID_ANALOGUE_GAIN, c->min,
-+						  c->max, c->step, c->def);
++						  V4L2_CID_ANALOGUE_GAIN,
++						  IMX681_AGAIN_MIN,
++						  IMX681_AGAIN_MAX,
++						  IMX681_AGAIN_STEP,
++						  IMX681_AGAIN_DEFAULT);
++		imx681->dgain = v4l2_ctrl_new_std(hdlr, &imx681_ctrl_ops,
++						  V4L2_CID_DIGITAL_GAIN,
++						  IMX681_DGAIN_MIN,
++						  IMX681_DGAIN_MAX,
++						  IMX681_DGAIN_STEP,
++						  IMX681_DGAIN_DEFAULT);
++	}
 +
 +	if (hdlr->error) {
 +		ret = hdlr->error;
@@ -583,7 +651,7 @@ index 000000000..135238536
 +
 +		imx681->cur_mode = mode;
 +		__v4l2_ctrl_s_ctrl(imx681->link_freq, mode->link_freq_index);
-+		__v4l2_ctrl_s_ctrl_int64(imx681->pixel_rate, mode->pixel_rate);
++		__v4l2_ctrl_s_ctrl_int64(imx681->pixel_rate, mode->line_clock);
 +		__v4l2_ctrl_modify_range(imx681->hblank, mode->hts - mode->width,
 +					 mode->hts - mode->width, 1,
 +					 mode->hts - mode->width);
@@ -799,7 +867,14 @@ index 000000000..135238536
 +		mode->hts = m.hts;
 +		mode->vts = m.vts;
 +		mode->vts_min = m.vts_min;
-+		mode->pixel_rate = m.pixel_rate;
++		mode->line_clock = div_u64((u64)m.pixel_rate *
++					   IMX681_PIXCLK_RATIO_DEN,
++					   IMX681_PIXCLK_RATIO_NUM);
++		if (!m.pixel_rate || (u64)m.pixel_rate * IMX681_PIXCLK_RATIO_DEN >
++		    (u64)U32_MAX * IMX681_PIXCLK_RATIO_NUM)
++			return dev_err_probe(dev, -EINVAL,
++					     "mode %u: pixel rate %u out of range\n",
++					     i, m.pixel_rate);
 +		mode->link_freq_index = k;
 +		mode->ops = m.ops;
 +		imx681->num_modes++;
@@ -989,3 +1064,6 @@ index 000000000..135238536
 +
 +MODULE_DESCRIPTION("Sony IMX681 image sensor driver");
 +MODULE_LICENSE("GPL");
+-- 
+2.43.0
+
