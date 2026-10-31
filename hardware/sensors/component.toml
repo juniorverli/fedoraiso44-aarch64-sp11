@@ -1,7 +1,7 @@
 id = "sensors"
 name = "Sensors on the ADSP sensor core (SSC): accelerometer, gyroscope, magnetometer, ambient light, orientation"
 phase = 4
-status = "survey"
+status = "designed"
 depends_on = ["dsp-subsystems"]
 updated = "2026-10-31"
 
@@ -13,7 +13,7 @@ packages = ["qcsensors", "surfacepro_snscfgcrd8380", "sensorshidclassdriver", "s
 drivers = ["misc/fastrpc", "userspace: hexagonrpcd, libssc, iio-sensor-proxy"]
 dt = []
 native = "none"
-gaps = ["no kernel driver: SSC is reached over FastRPC/QMI from userspace", "physical sensor chips unidentified", "sensor registry/config files from the ADSP package"]
+gaps = ["SSC userspace stack (hexagonrpcd write patch, libssc, iio-sensor-proxy 3.9) built as local RPMs, never run on the device", "registry route unverified: seed (sscregistrygen, 293 files) or ADSP self-generation; 20 to 25 files of the reference registry unexplained", "tmd2755.json truncated in the Windows package (proximity)"]
 
 [firmware]
 needs = ["ADSP sensor registry and config (from surfacepro_ext_adsp8380 / surfacepro_snscfgcrd8380)"]

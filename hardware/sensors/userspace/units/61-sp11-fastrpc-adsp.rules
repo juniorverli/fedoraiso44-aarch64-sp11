@@ -1,0 +1,3 @@
+# SP11 sensors: let the fastrpc group open /dev/fastrpc-adsp read-write so hexagonrpcd does not run as root.
+# Fedora's 60-fastrpc.rules sets root:fastrpc 0640 (adsprpcd runs as root). 0660 for the group, never 0666.
+ACTION=="add", SUBSYSTEM=="misc", KERNEL=="fastrpc-adsp", GROUP="fastrpc", MODE="0660"
