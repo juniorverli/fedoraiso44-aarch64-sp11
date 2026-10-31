@@ -1,7 +1,7 @@
 [Unit]
-Description=SP11 first-boot cpufreq safety policy (schedutil, mid-range scaling_max_freq; only with the marker sp11/enable-cpufreq-cap on the boot medium)
+Description=SP11 first-boot cpufreq safety policy (schedutil, mid-range scaling_max_freq by default; lifted by the marker sp11/cpufreq-uncapped on the boot medium)
 # scmi_cpufreq comes from /etc/modules-load.d/sp11-cpufreq.conf (systemd-modules-load.service). The script waits for the policies, records them,
-# and caps only when the marker exists. Asynchronous: nothing is ordered after it.
+# and caps unless the marker sp11/cpufreq-uncapped exists. Asynchronous: nothing is ordered after it.
 After=systemd-modules-load.service local-fs.target systemd-udevd.service sp11-sam-mode-rotor.service
 Conflicts=shutdown.target
 Before=shutdown.target

@@ -1,6 +1,6 @@
 #!/usr/bin/bash
-# Re-arm the GPU self-healing test (kept for later; the GPU is skipped in M15 and the two-step service is installed disabled).
-# The state is a plain file on the boot medium (sp11-boot-state, sp11_gpu_state); GRUB is static in M15 and never reads it.
+# Clear the GPU marker (sp11_gpu_state) on the boot medium: a plain file written by sp11-boot-state; GRUB is static and never reads it.
+# The two-step runs on every boot of line 1; the owner's loop guard (a step that killed the previous boot is skipped) uses its own markers.
 set -eu
 /usr/libexec/sp11-boot-state unset sp11_gpu_state
-echo "sp11_gpu_state cleared: the next run of the GPU two-step (when enabled) starts again."
+echo "sp11_gpu_state cleared."

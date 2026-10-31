@@ -7,7 +7,7 @@
 #   sp11-boot-state set NAME=VALUE    store one value (one line); exit 0 on success
 #   sp11-boot-state unset NAME        remove it
 #   sp11-boot-state list              all values as NAME=VALUE
-#   sp11-boot-state marker NAME       exit 0 when the operator marker file sp11/NAME exists (for example enable-cpufreq-cap, identity-none)
+#   sp11-boot-state marker NAME       exit 0 when the operator marker file sp11/NAME exists (for example cpufreq-uncapped, identity-none)
 #   sp11-boot-state markers           names of all marker files
 #
 # Medium (risk S4): the partition labelled SP11LOGS of the disk the live system booted from; when it does not exist, the ESP (label BOOT)

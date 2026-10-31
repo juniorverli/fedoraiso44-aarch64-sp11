@@ -11,8 +11,9 @@
 #     static `safe` entry booted, so this file has NO function except load_video, NO grubenv, NO variable, NO submenu; every entry has a fixed DTB;
 #   - `set default=0` and timeout_style=menu with a fixed timeout: the menu is always shown;
 #   - every device entry has a `devicetree` line (GRUB 2 command, D9); the VM test entry has none;
-#     every device entry names an M15 DTB: m15 (microphones + rear/front/IR camera nodes, GPU off) on line 1, m15-safe (microphones only, the M13
-#     content) on line 2 as the always-booting fallback; speakers only in the `spk` entry (m15-spk, D26 profile); there is no GPU DTB in M15;
+#     every device entry names an M15 DTB: m15 (microphones + rear/front/IR camera nodes + GPU/GMU/zap, the content of the former m14.dtb) on line 1,
+#     m15-safe (microphones only, GPU and cameras off, the M13/M14-safe content) on line 2 as the always-booting fallback; speakers only in the `spk`
+#     entry (m15-spk, D26 profile); there is no separate GPU or camera entry;
 #   - every entry has sp11.entry=<id>; only the VM entry adds the serial console (D15);
 #   - the common kernel arguments are kiwi's boot options: its live options (root=live:CDLABEL, rd.live.image)
 #     plus the verbose kernelcmdline patched into components/liveinstall.xml (patch 0002).
@@ -40,17 +41,19 @@ set default=0
 
 search ${search_params}
 # M15 (kernel 7.3.0-65.sp11.12): flat static menu, M13 style. Every entry is fixed text; GRUB reads no state and writes none.
-# Line 1 is the COMPLETE diagnostic entry (m15: microphones, rear/front/IR camera nodes, GPU off); line 2 is the fallback with the same
-# kernel and arguments and no camera nodes (m15-safe = the M13/M14-safe content), so the operator always has a booting entry if line 1 fails.
+# Line 1 is the COMPLETE diagnostic entry (m15: microphones, rear/front/IR camera nodes, GPU) and is the ONLY line with the constant argument
+# sp11.gpu_diag=1 (it enables the GPU two-step unit, which runs before the display manager). The first DRM open loads the zap shader and the GMU and
+# MAY RESET THE MACHINE (M5 evidence); Linux userspace cannot prevent that. Line 2 is the fallback with the same kernel and the same arguments
+# except sp11.gpu_diag, and the m15-safe DTB (GPU and cameras off): the way to a stable session if line 1 fails or resets.
 # Experiments that used GRUB state in M14 (SAM shutdown rotor, CDSP firmware/proxy-vote rotor, GPU two-step) run in Linux userspace with
-# their state in plain files on the boot medium (image/README.md, "M15"). The GPU is skipped in M15: no GPU DTB, no GPU entry.
+# their state in plain files on the boot medium (image/README.md, "M15"). The GPU two-step markers are plain files too; GRUB has no GPU logic.
 # S1: the only DTB that enables the speaker sound card is m15-spk, only in the `spk` entry, checked against the d26 profile by L0.
 menuentry 'SP11 debug' --id sp11-debug --class fedora --class gnu-linux --class gnu --class os {
-	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr pmic_glink_altmode.dyndbg=+p ps883x.dyndbg=+p phy_qcom_qmp_combo.dyndbg=+p ucsi_glink.dyndbg=+p typec_ucsi.dyndbg=+p dwc3.dyndbg=+p dwc3_qcom.dyndbg=+p qcom_pd_mapper.dyndbg=+p pdr_interface.dyndbg=+p trace_event=:mod:qcom_glink,:mod:smp2p,:mod:qcom_aoss,rpmh:rpmh_send_msg trace_buf_size=16M sp11.entry=debug
+	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr pmic_glink_altmode.dyndbg=+p ps883x.dyndbg=+p phy_qcom_qmp_combo.dyndbg=+p ucsi_glink.dyndbg=+p typec_ucsi.dyndbg=+p dwc3.dyndbg=+p dwc3_qcom.dyndbg=+p qcom_pd_mapper.dyndbg=+p pdr_interface.dyndbg=+p trace_event=:mod:qcom_glink,:mod:smp2p,:mod:qcom_aoss,rpmh:rpmh_send_msg trace_buf_size=16M sp11.gpu_diag=1 sp11.entry=debug
 	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m15.dtb
 	initrd ($$root)${bootpath}/${initrd_file}
 }
-menuentry 'SP11 debug, safe (no cameras)' --id sp11-safe --class fedora --class gnu-linux --class gnu --class os {
+menuentry 'SP11 debug, safe (no GPU, no cameras)' --id sp11-safe --class fedora --class gnu-linux --class gnu --class os {
 	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr pmic_glink_altmode.dyndbg=+p ps883x.dyndbg=+p phy_qcom_qmp_combo.dyndbg=+p ucsi_glink.dyndbg=+p typec_ucsi.dyndbg=+p dwc3.dyndbg=+p dwc3_qcom.dyndbg=+p qcom_pd_mapper.dyndbg=+p pdr_interface.dyndbg=+p trace_event=:mod:qcom_glink,:mod:smp2p,:mod:qcom_aoss,rpmh:rpmh_send_msg trace_buf_size=16M sp11.entry=safe
 	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m15-safe.dtb
 	initrd ($$root)${bootpath}/${initrd_file}
