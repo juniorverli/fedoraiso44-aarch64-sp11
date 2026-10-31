@@ -1,0 +1,32 @@
+#!/usr/bin/bash
+# iptsd profile selector for the touch A/B (M15; image-owned adaptation of hardware/touch-pen/userspace/sp11-touch-conf-select, which read a GRUB
+# environment variable; M15 GRUB is static and holds no state). Run by the drop-in of iptsd@.service (10-sp11-touch-conf.conf) as ExecStartPre.
+#   profile B (DEFAULT in M15, reversible): /usr/share/sp11/touch/iptsd-sp11.conf installed as /etc/iptsd.d/50-sp11.conf
+#       (Activation 20, Deactivation 16, Neutral average, NeutralValue 10, scoped to 045E:0C80; values of the upstream Surface Laptop Studio 2 preset)
+#   profile A (iptsd 3.1.0 compiled defaults, Activation 40 / Deactivation 36): selected by the marker file sp11/touch-conf-A on the boot medium
+#       (SP11LOGS partition or ESP; sp11-boot-state marker, S4). Create or remove the file from any Linux shell, effective at the next boot:
+#           touch <SP11LOGS mount>/sp11/touch-conf-A      (profile A)       rm <...>/sp11/touch-conf-A      (back to B)
+# Result in /run/sp11/touch-conf (the collector prints it). The kernel command line is never involved. Test hooks: SP11_TOUCH_CONF_MARKER=A|B.
+set -u
+export LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin
+BS=${SP11_BOOT_STATE:-/usr/libexec/sp11-boot-state}
+CONF_B=${SP11_TOUCH_CONF_B:-/usr/share/sp11/touch/iptsd-sp11.conf}
+DEST=${SP11_TOUCH_DEST:-/etc/iptsd.d/50-sp11.conf}
+RUN=${SP11_RUN:-/run/sp11}
+mkdir -p "$RUN"
+if [ -n "${SP11_TOUCH_CONF_MARKER:-}" ]; then want=$SP11_TOUCH_CONF_MARKER
+elif timeout 20 "$BS" marker touch-conf-A 2>/dev/null; then want=A
+else want=B; fi
+rm -f "$DEST"
+case $want in
+A | a) echo "profile A (marker sp11/touch-conf-A found): iptsd compiled defaults" >"$RUN/touch-conf" ;;
+*)
+	if [ -r "$CONF_B" ]; then
+		install -D -m 0644 "$CONF_B" "$DEST"
+		echo "profile B (default; no marker sp11/touch-conf-A): $CONF_B installed as $DEST" >"$RUN/touch-conf"
+	else
+		echo "profile A (default B wanted, but $CONF_B is missing)" >"$RUN/touch-conf"
+	fi
+	;;
+esac
+exit 0

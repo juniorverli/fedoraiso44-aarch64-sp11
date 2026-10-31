@@ -1,8 +1,6 @@
 #!/usr/bin/bash
-# Re-arm the GPU self-healing test (M14). After a boot died during the GPU test, GRUB sets sp11_gpu_state=failed and boots m14-safe (GPU off)
-# on the main line for every later boot. This clears the state, so the next boot of the main line uses m14 and runs the GPU test again.
-# Same effect without Linux: on any machine, `grub2-editenv <ESP>/EFI/BOOT/grubenv unset sp11_gpu_state` (the ESP is the FAT partition
-# labelled BOOT of the stick). Also done by the kernel argument sp11.gpu_retry=1 on a boot (press e in GRUB), see sp11-gpu-two-step.
+# Re-arm the GPU self-healing test (kept for later; the GPU is skipped in M15 and the two-step service is installed disabled).
+# The state is a plain file on the boot medium (sp11-boot-state, sp11_gpu_state); GRUB is static in M15 and never reads it.
 set -eu
-/usr/libexec/sp11-esp-env unset sp11_gpu_state
-echo "sp11_gpu_state cleared: the next boot of the main line SP11 debug uses m14 and runs the GPU test again."
+/usr/libexec/sp11-boot-state unset sp11_gpu_state
+echo "sp11_gpu_state cleared: the next run of the GPU two-step (when enabled) starts again."

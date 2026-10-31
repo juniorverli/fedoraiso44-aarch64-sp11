@@ -1,0 +1,17 @@
+[Unit]
+Description=SP11 identity experiment switch (marker sp11/identity-none on the boot medium replaces the kernel argument sp11.identity=none)
+# Private ISO only (the marker of private mode, written by the builder; the unit is inert elsewhere). Before every consumer.
+ConditionPathExists=/usr/share/sp11/image-mode
+DefaultDependencies=no
+After=local-fs.target
+Before=systemd-udev-trigger.service sp11-wifi-identity.service sp11-identity-bt-pre.service sp11-bt-address.service NetworkManager.service network-pre.target sp11-log-collector.service
+Conflicts=shutdown.target
+Before=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/sp11/identity-switch
+
+[Install]
+WantedBy=sysinit.target

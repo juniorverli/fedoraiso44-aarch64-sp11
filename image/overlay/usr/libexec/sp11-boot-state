@@ -1,0 +1,84 @@
+#!/usr/bin/bash
+# SP11 boot-medium state (M15). Plain files on the boot medium, no GRUB environment block: the M15 menu is static and GRUB reads and writes
+# nothing (the GRUB-environment design failed on the device with EFI_LOAD_ERROR). Every experiment that needs a counter or a switch keeps
+# it here, written only by Linux userspace.
+#
+#   sp11-boot-state get NAME          print the counter/value stored in sp11/state/NAME (empty when unset); exit 0
+#   sp11-boot-state set NAME=VALUE    store one value (one line); exit 0 on success
+#   sp11-boot-state unset NAME        remove it
+#   sp11-boot-state list              all values as NAME=VALUE
+#   sp11-boot-state marker NAME       exit 0 when the operator marker file sp11/NAME exists (for example enable-cpufreq-cap, identity-none)
+#   sp11-boot-state markers           names of all marker files
+#
+# Medium (risk S4): the partition labelled SP11LOGS of the disk the live system booted from; when it does not exist, the ESP (label BOOT)
+# of that same disk. A disk that carries NTFS, BitLocker or a Microsoft reserved partition is refused, as is every other disk. The
+# partition is mounted read-only for get/list/marker and read-write only for set/unset, for the duration of one call, then synced and unmounted.
+# Test hook: SP11_STATE_ROOT=<dir> uses that directory as the medium and mounts nothing.
+# Layout: <medium>/sp11/state/NAME (one value per file, written atomically with rename), <medium>/sp11/NAME (marker files, never written here).
+# Names are [A-Za-z0-9_-]+, values are one line of printable characters.
+set -u
+export LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin
+MNT=/run/sp11-boot-state
+LOGS_LABEL=${SP11_LOGS_LABEL:-SP11LOGS}
+ESP_LABEL=${SP11_ESP_LABEL:-BOOT}
+SP11_MSR_GUID=e6d6d379-f507-44c2-a23c-238f2a3df928
+pkname() { local n=${1##*/}; if [ -e "/sys/class/block/$n/partition" ]; then basename "$(readlink -f "/sys/class/block/$n/..")"; else echo "$n"; fi; }
+find_boot_disk() {
+	local a label= dev src
+	for a in $(cat /proc/cmdline); do
+		case $a in root=live:CDLABEL=*) label=${a#root=live:CDLABEL=} ;; root=live:LABEL=*) label=${a#root=live:LABEL=} ;; esac
+	done
+	if [ -n "$label" ]; then dev=$(blkid -L "$label" 2>/dev/null | head -n1); [ -n "$dev" ] && { pkname "$dev"; return 0; }; fi
+	src=$(awk '$2=="/run/initramfs/live"{print $1}' /proc/mounts 2>/dev/null | head -n1)
+	[ -n "$src" ] && [ -b "$src" ] && { pkname "$src"; return 0; }
+	if [ -r /etc/sp11-boot-medium ]; then
+		. /etc/sp11-boot-medium
+		dev=$(blkid -L "$SP11_MEDIUM_LABEL" 2>/dev/null | head -n1); [ -n "$dev" ] && { pkname "$dev"; return 0; }
+	fi
+	return 1
+}
+disk_has_windows() {
+	local part t g
+	for part in /sys/class/block/$1/$1*; do
+		[ -e "$part/partition" ] || continue
+		t=$(blkid -p -o value -s TYPE "/dev/${part##*/}" 2>/dev/null | tr 'A-Z' 'a-z')
+		g=$(blkid -p -o value -s PART_ENTRY_TYPE "/dev/${part##*/}" 2>/dev/null | tr 'A-Z' 'a-z')
+		case $t in ntfs | bitlocker*) return 0 ;; esac
+		[ "$g" = "$SP11_MSR_GUID" ] && return 0
+	done
+	return 1
+}
+on_disk() { local cand; for cand in $(blkid -t "LABEL=$1" -o device 2>/dev/null); do [ "$(pkname "$cand")" = "$2" ] && { echo "$cand"; return 0; }; done; return 1; }
+mounted=0
+cleanup() { [ "$mounted" = 1 ] && { sync -f "$MNT" 2>/dev/null; umount "$MNT" 2>/dev/null; }; return 0; }
+trap cleanup EXIT
+cmd=${1:-}
+case $cmd in get | set | unset | list | marker | markers) ;; *) echo "usage: sp11-boot-state get NAME | set NAME=VALUE | unset NAME | list | marker NAME | markers" >&2; exit 2 ;; esac
+validname() { case $1 in '' | *[!A-Za-z0-9_-]*) echo "sp11-boot-state: bad name '$1'" >&2; return 1 ;; esac; }
+mode=ro; case $cmd in set | unset) mode=rw ;; esac
+if [ -n "${SP11_STATE_ROOT:-}" ]; then
+	R=$SP11_STATE_ROOT
+else
+	disk=$(find_boot_disk) || { echo "sp11-boot-state: boot medium unknown" >&2; exit 3; }
+	disk_has_windows "$disk" && { echo "sp11-boot-state: S4: $disk carries NTFS/BitLocker/MSR; refusing" >&2; exit 4; }
+	dev=$(on_disk "$LOGS_LABEL" "$disk") || dev=$(on_disk "$ESP_LABEL" "$disk") || { echo "sp11-boot-state: no $LOGS_LABEL or $ESP_LABEL partition on $disk" >&2; exit 3; }
+	exec 9>/run/sp11-boot-state.lock; flock 9
+	mkdir -p "$MNT"; modprobe vfat 2>/dev/null
+	mount -t vfat -o "$mode,noatime,nodev,nosuid,noexec,umask=0077,shortname=winnt" "$dev" "$MNT" 2>/dev/null || { echo "sp11-boot-state: cannot mount $dev ($mode)" >&2; exit 5; }
+	mounted=1
+	R=$MNT
+fi
+D=$R/sp11/state
+case $cmd in
+get) validname "${2:-}" || exit 2; head -n1 "$D/$2" 2>/dev/null | tr -d '\r' ;;
+set)
+	kv=${2:?NAME=VALUE}; n=${kv%%=*}; v=${kv#*=}
+	validname "$n" || exit 2
+	case $v in *[![:print:]]*) echo "sp11-boot-state: value must be printable" >&2; exit 2 ;; esac
+	mkdir -p "$D" && printf '%s\n' "$v" >"$D/.$n.new" && mv -f "$D/.$n.new" "$D/$n" || exit 7
+	;;
+unset) validname "${2:-}" || exit 2; rm -f "$D/$2" || exit 7 ;;
+list) for f in "$D"/*; do [ -f "$f" ] && echo "${f##*/}=$(head -n1 "$f" | tr -d '\r')"; done; true ;;
+marker) validname "${2:-}" || exit 2; [ -f "$R/sp11/$2" ] ;;
+markers) for f in "$R"/sp11/*; do [ -f "$f" ] && echo "${f##*/}"; done; true ;;
+esac

@@ -1,7 +1,7 @@
 #!/usr/bin/bash
-# SAM shutdown mode rotor (M14). Every boot takes the next mode of /usr/share/sp11/sam-mode-order (silent, clean, quiet, default, repeat),
-# writes it to /sys/module/surface_aggregator/parameters/shutdown_mode, records it and shows it to the operator. The counter lives in the
-# GRUB environment block of the boot medium (sp11-esp-env, S4: never the internal disk). The mode acts at the next poweroff, so the
+# SAM shutdown mode rotor (M14, state moved to plain files in M15). Every boot takes the next mode of /usr/share/sp11/sam-mode-order (silent, clean, quiet, default, repeat),
+# writes it to /sys/module/surface_aggregator/parameters/shutdown_mode, records it and shows it to the operator. The counter lives in a
+# plain file on the boot medium (sp11-boot-state, sp11/state/sp11_sam_counter on SP11LOGS or the ESP; S4: never the internal disk). GRUB is static. The mode acts at the next poweroff, so the
 # operator tests it with `systemctl poweroff` and then boots Windows (ec-sam evidence 2026-10-30-windows-transition.md section 6).
 # An explicit surface_aggregator.shutdown_mode= on the kernel line wins: it is recorded, nothing is changed, the counter does not advance.
 set -u
@@ -10,7 +10,7 @@ P=${SP11_SAM_PARAM:-/sys/module/surface_aggregator/parameters/shutdown_mode}
 ORDER=${SP11_SAM_ORDER:-/usr/share/sp11/sam-mode-order}
 STATE=${SP11_SAM_STATE:-/run/sp11/sam-mode}
 CMDLINE=${SP11_SAM_CMDLINE:-/proc/cmdline}
-ESP=${SP11_ESP_ENV:-/usr/libexec/sp11-esp-env}
+ESP=${SP11_BOOT_STATE:-/usr/libexec/sp11-boot-state}
 NOTICE=${SP11_NOTICE:-/usr/libexec/sp11/operator-notice}
 mkdir -p "$(dirname "$STATE")"
 modes=($(grep -v '^[[:space:]]*#' "$ORDER" | tr -s ' \t\n' ' '))
@@ -24,7 +24,7 @@ else
 	c=$("$ESP" get sp11_sam_counter 2>/dev/null)
 	case $c in '' | *[!0-9]*) c=0 ;; esac
 	mode=${modes[$((c % ${#modes[@]}))]}
-	"$ESP" set "sp11_sam_counter=$((c + 1))" 2>/dev/null || source="rotor (counter NOT saved: the boot medium environment block is not writable; the next boot repeats this mode)"
+	"$ESP" set "sp11_sam_counter=$((c + 1))" 2>/dev/null || source="rotor (counter NOT saved: the boot medium state file is not writable; the next boot repeats this mode)"
 	if [ ! -w "$P" ]; then source="$source; parameter not writable"; fi
 	[ -w "$P" ] && printf '%s' "$mode" >"$P" 2>/dev/null
 fi

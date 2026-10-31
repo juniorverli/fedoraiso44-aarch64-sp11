@@ -24,6 +24,8 @@ grep -qiE "$W|$B" "$t/stage/private-record.json" && no "stage record has no valu
 [ "$(cat "$t/stage/root/etc/sp11/bt-address")" = "$B" ] && ok "bt-address equals source, one line" || no "bt-address equals source"
 grep -qx "wifi.cloned-mac-address=$W" "$t/stage/root/etc/NetworkManager/conf.d/90-sp11-wifi-mac.conf" && ok "NM conf carries WIFI_MAC" || no "NM conf carries WIFI_MAC"
 grep -qx "MACAddress=$W" "$t/stage/root/etc/systemd/network/10-sp11-wifi.link" && ok ".link carries WIFI_MAC" || no ".link carries WIFI_MAC"
+grep -qx 'KernelCommandLine=!sp11.identity=none' "$t/stage/root/etc/systemd/network/10-sp11-wifi.link" && ok ".link skipped for sp11.identity=none" || no ".link skipped for sp11.identity=none"
+[ "$(cat "$t/stage/root/usr/share/sp11/image-mode")" = private ] && [ "$(stat -c %a "$t/stage/root/usr/share/sp11/identity-ref.sha256")" = 600 ] && [ "$(wc -l <"$t/stage/root/usr/share/sp11/identity-ref.sha256")" = 2 ] && ok "image-mode private and identity-ref.sha256 0600, two lines" || no "image-mode / identity-ref"
 [ ! -e "$t/stage/root/usr/lib/firmware/updates/ath12k/WCN7850/hw2.0/board-2.bin" ] && ok "no implicit board override (I9)" || no "implicit board override"
 
 # --- verify on the stage as if it were the ISO root (+ a fake Fedora firmware file)

@@ -6,12 +6,28 @@ set -euo pipefail
 export LC_ALL=C
 
 log() { printf 'sp11-bt-address: %s\n' "$*" >&2; }
+mode_file=/run/sp11/identity-bt-mode
 
 controller_matches() {
     # Do not change a USB dongle that happens to get index zero first.
     [[ -r /sys/class/bluetooth/$1/device/of_node/compatible ]] || return 1
     tr '\0' '\n' <"/sys/class/bluetooth/$1/device/of_node/compatible" 2>/dev/null |
         grep -qx 'qcom,wcn7850-bt'
+}
+
+identity_mode() {
+    # Kernel argument sp11.identity (D25): inject (default) or none. Anything else is inject.
+    case " $(read_cmdline) " in
+        *" sp11.identity=none "*) echo none ;;
+        *) echo inject ;;
+    esac
+}
+
+read_cmdline() { cat /proc/cmdline 2>/dev/null || true; }
+
+record_mode() {
+    # Best effort; the collector prints it next to the pre-injection snapshot.
+    if mkdir -p "${mode_file%/*}" 2>/dev/null; then printf '%s\n' "$1" >"$mode_file" 2>/dev/null || true; fi
 }
 
 valid_address() {
@@ -76,10 +92,17 @@ config_options() {
 }
 
 main() {
-    local hci=${1:-hci0} idx addr='' missing='' attempt info source
+    local hci=${1:-hci0} idx addr='' missing='' attempt info source mode
     [[ $# -le 2 && $hci == hci0 ]] || { log 'usage: sp11-bt-address [hci0] [local-address-file]'; return 1; }
     idx=${hci#hci}
     controller_matches "$hci" || { log 'WCN7850 controller not found; no change'; return 0; }
+    mode=$(identity_mode)
+    record_mode "$mode"
+    log "identity mode=$mode"
+    if [[ $mode == none ]]; then
+        log 'sp11.identity=none: no address injection this boot; controller left as the hardware presents it'
+        return 0
+    fi
 
     # Device creation precedes the end of firmware setup. Six bounded attempts.
     for attempt in {1..6}; do

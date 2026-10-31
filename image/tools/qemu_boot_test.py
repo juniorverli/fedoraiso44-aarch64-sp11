@@ -6,7 +6,7 @@ serial console on a pty, waits for the GRUB menu, selects "VM test (no devicetre
 the boot, waits until the collector has written logs to the SP11LOGS disk, shuts the VM down
 and reads the logs back with mtools. Exit status 0 = pass.
 
-Pass (image/README.md "L1 emulated boot"): GRUB menu lists the main entry and the submenu, and the submenu its seven entries (the VM test is inside it); GDM started;
+Pass (image/README.md "L1 emulated boot"): GRUB menu lists the eleven flat entries (the VM test is the last line); GDM started;
 /sys/kernel/btf/vmlinux exists; the collector wrote a complete <boot-id>/ to SP11LOGS;
 no unit failed except the allow-list (image/l1-allowed-failed-units.txt).
 """
@@ -21,21 +21,21 @@ import time
 
 import pexpect
 
-ENTRIES = [   # M14 menu: line 1 the main entry, line 2 the submenu "Recovery and tests"; the entries below the submenu title are INSIDE it
+ENTRIES = [   # M15: one flat static menu (M13 style); the VM entry is the LAST line, selected by counting Down keys
     "SP11 debug",
-    "Recovery and tests",
-    "SP11 debug, safe (no GPU, no cameras)",
+    "SP11 debug, safe (no cameras)",
     "SP11 debug, no sound",
     "SP11 debug, touch off",
     "SP11 debug, speakers (gated)",
-    "SP11 debug, nomodeset",
+    "SP11 debug, USB + DSP trace",
+    "SP11 debug, no early DSP",
+    "SP11 debug, Wi-Fi unblock probe",
+    "SP11 debug nomodeset",
     "SP11 debug, stop in initramfs",
     "VM test (no devicetree)",
 ]
-SUBMENU = "Recovery and tests"
-SUBMENU_ENTRIES = ENTRIES[ENTRIES.index(SUBMENU) + 1:]
-# the top-level screen shows the first two lines; the submenu shows its seven entries once opened
-VISIBLE_AT_START = 2
+# GRUB shows only the first entries of a long menu on a 24-row serial terminal; the rest appears while scrolling.
+VISIBLE_AT_START = 8
 LEGACY_ENTRIES = ["SP11 debug", "SP11 debug + DRM trace", "SP11 debug nomodeset", "SP11 debug, stop in initramfs", "VM test (no devicetree)"]
 FATAL = [
     (rb"Kernel panic - not syncing", "kernel panic"),
@@ -280,7 +280,7 @@ def main():
                 print("QEMU exited", flush=True)
                 break
             now = time.time()
-            first = ENTRIES[:VISIBLE_AT_START] if not a.legacy_menu else ENTRIES
+            first = ENTRIES[:VISIBLE_AT_START] if len(ENTRIES) > 12 or not a.legacy_menu else ENTRIES
             if not state["menu"] and all(e.encode() in buf_all for e in first):
                 state["menu"] = True
                 print(f"[{int(now - start)}s] GRUB menu with its first {len(first)} of {len(ENTRIES)} entries on the serial console", flush=True)
@@ -289,21 +289,8 @@ def main():
                 seen = {e for e in ENTRIES if e.encode() in buf_all}
                 if a.legacy_menu:
                     idx = ENTRIES.index(a.entry)
-                elif a.entry in SUBMENU_ENTRIES:
-                    # M14: Down once (the submenu line), Enter, wait for the submenu to draw, then Down to the entry
-                    child.send(b"\x1b[B")
-                    time.sleep(1)
-                    child.send(b"\r")
-                    t_sub = time.time()
-                    while time.time() - t_sub < 20 and not all(e.encode() in buf_all[-60000:] for e in SUBMENU_ENTRIES):
-                        try:
-                            buf_all += child.read_nonblocking(65536, timeout=1)
-                        except (pexpect.TIMEOUT, pexpect.EOF):
-                            pass
-                    seen |= {e for e in ENTRIES if e.encode() in buf_all}
-                    idx = SUBMENU_ENTRIES.index(a.entry)
                 else:
-                    idx = 0
+                    idx = ENTRIES.index(a.entry)   # flat menu: position = number of Down keys
                 for _ in range(idx):
                     child.send(b"\x1b[B")
                     time.sleep(0.5)
@@ -503,7 +490,7 @@ def main():
             check("D19 display files are in the log directory", not miss, ("missing: " + ", ".join(miss)) if miss else f"{len(need)} files")
             touch = read_log(a.logs, bd, "touch-pen.txt") or ""
             check("M8 touch helper captured kernel, DT, pinctrl and firmware sections",
-                  all(section in touch for section in ("7.3.0-65.sp11.11.fc44.aarch64",
+                  all(section in touch for section in ("7.3.0-65.sp11.12.fc44.aarch64",
                       "=== live DT and platform driver state ===",
                       "=== pinctrl ownership and configuration ===",
                       "=== installed firmware package and file")))

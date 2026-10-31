@@ -27,6 +27,8 @@ BOARD_MAGIC = b"QCA-ATH12K-BOARD\0"
 NM_CONF = "etc/NetworkManager/conf.d/90-sp11-wifi-mac.conf"
 LINK = "etc/systemd/network/10-sp11-wifi.link"
 BT = "etc/sp11/bt-address"
+IMAGE_MODE = "usr/share/sp11/image-mode"
+IDENT_REF = "usr/share/sp11/identity-ref.sha256"
 BOARD = "usr/lib/firmware/updates/ath12k/WCN7850/hw2.0/board-2.bin"
 # ath12k binds as ath12k_wifi7_pci on 7.3 (wifi README, section 4)
 DRIVER_GLOB = "ath12k*"
@@ -143,9 +145,16 @@ def cmd_stage(a):
         "# SP11 private build: operator device address. Do not share this image.\n"
         "[Match]\n"
         f"Driver={DRIVER_GLOB}\n"
-        "Type=wlan\n\n"
+        "Type=wlan\n"
+        "KernelCommandLine=!sp11.identity=none\n\n"
         "[Link]\n"
         f"MACAddress={wifi}\n").encode(), 0o600)
+    # identity experiment (hardware/wifi/image-request-identity.md sections 2.1, 2.2): mode marker, and reference hashes (first 16 hex of the
+    # SHA-256 of the lower-case colon form; hashes, not addresses; root 0600). The switch itself is the boot-medium marker sp11/identity-none
+    # (image/overlay/usr/libexec/sp11/identity-switch), since the M15 command line is static.
+    h16 = lambda addr: sha(addr.lower().encode())[:16]
+    write(root, IMAGE_MODE, b"private\n", 0o644)
+    write(root, IDENT_REF, f"wifi={h16(wifi)}\nbt={h16(bt)}\n".encode(), 0o600)
     if board is not None:
         write(root, BOARD, board, 0o644)
     rec = {"private": True,
@@ -154,7 +163,7 @@ def cmd_stage(a):
            "wifi_board2": ({"present": True, "size": len(board), "sha256": sha(board),
                             "install_path": "/" + BOARD, "structurally_verified": True}
                            if board is not None else {"present": False, "policy": "Fedora generic (I9)"}),
-           "installed": ["/" + BT, "/" + NM_CONF, "/" + LINK] + (["/" + BOARD] if board is not None else [])}
+           "installed": ["/" + BT, "/" + NM_CONF, "/" + LINK, "/" + IMAGE_MODE, "/" + IDENT_REF] + (["/" + BOARD] if board is not None else [])}
     Path(a.out, "private-record.json").write_text(json.dumps(rec, indent=1) + "\n")
     print("private stage ready: bt-address, NetworkManager conf, .link; board override " +
           ("verified" if board is not None else "omitted") + "; values withheld")
@@ -207,6 +216,12 @@ def cmd_verify(a):
     chk(".link: mode 0600, [Match] Driver=ath12k*, MACAddress equals WIFI_MAC (hash compare)",
         meta(LINK, 0o600) and b"[Match]" in lk and re.search(rb"^Driver=ath12k", lk, re.M) is not None
         and len(m) == 1 and sha(m[0]) == sha(macs["WIFI_MAC"].encode()))
+    chk(".link: [Match] KernelCommandLine=!sp11.identity=none", b"\nKernelCommandLine=!sp11.identity=none\n" in lk)
+    chk("image-mode: mode 0644, the single word private", meta(IMAGE_MODE, 0o644) and text(IMAGE_MODE) == b"private\n")
+    ref = text(IDENT_REF)
+    chk("identity-ref.sha256: mode 0600, two hash lines equal to the 16-hex hashes of the sources",
+        meta(IDENT_REF, 0o600) and ref == (f"wifi={sha(macs['WIFI_MAC'].lower().encode())[:16]}\n"
+                                           f"bt={sha(macs['BT_MAC'].lower().encode())[:16]}\n").encode())
     rec = json.loads(Path(a.record).read_bytes()) if a.record else {}
     policy = (rec.get("private") or {}).get("wifi_board2", {})
     board_present = policy.get("present") is True

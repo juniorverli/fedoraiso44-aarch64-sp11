@@ -1,0 +1,128 @@
+#!/usr/bin/bash
+# CDSP experiment at runtime (M15). Replaces the M14 GRUB rotor: the menu is static, so the variant is chosen here, after the ADSP and the
+# CDSP are up, by restarting the CDSP with another configuration (hardware/dsp-subsystems evidence 2026-10-31-denisix-comparison.md E1/E2/H-3,
+# README R-I6):
+#   variant 0  firmware c1-00078 (the shipped pair)                     keep_proxy_pds=0
+#   variant 1  firmware c1-00046.1 (/usr/lib/firmware-sp11-cdsp46)      keep_proxy_pds=0
+#   variant 2  firmware c1-00078                                        keep_proxy_pds=1
+#   variant 3  firmware c1-00046.1                                      keep_proxy_pds=1
+# The counter is a plain file on the boot medium (sp11-boot-state, name sp11_cdsp_counter; S4). One variant per boot, advanced BEFORE the
+# restart so a hang or reset does not repeat it. Mechanics: /sys/module/qcom_q6v5_pas/parameters/keep_proxy_pds, the remoteproc `firmware`
+# file of the cdsp (found by the name attribute) and `echo stop` / `echo start` on its `state`. The alternate pair is found by the loader
+# through /sys/module/firmware_class/parameters/path, set for the restart only and restored afterwards (the dtb pair needs the same directory).
+# Guards: runs only on the main entry (sp11.entry=debug), never twice per boot (mkdir lock in /run), not when the marker sp11/disable-cdsp-experiment
+# exists on the boot medium, not when the ADSP or the CDSP is not in a stable state, a timeout on every wait and on stop/start (each in a
+# background write: a hung write cannot hang this script), everything logged to /run/sp11/cdsp-experiment and the kernel log.
+# A variant that cannot be realised here (alternate pair absent on a public image, keep_proxy_pds read-only: it is 0444 in dsp-subsystems
+# patch 0003, a kernel request) is skipped and the counter moves on to the next realisable one.
+set -u
+export LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin
+SYS=${SP11_SYS:-/sys}
+CMDLINE=${SP11_CDSP_CMDLINE:-/proc/cmdline}
+RUN=${SP11_RUN:-/run/sp11}
+STATE=$RUN/cdsp-experiment
+FWDIR=${SP11_CDSP_FWDIR:-/usr/lib/firmware-sp11-cdsp46}
+FWREL=qcom/x1e80100/microsoft/Denali
+BS=${SP11_BOOT_STATE:-/usr/libexec/sp11-boot-state}
+NOTICE=${SP11_NOTICE:-/usr/libexec/sp11/operator-notice}
+KEEP=$SYS/module/qcom_q6v5_pas/parameters/keep_proxy_pds
+FWPATH=$SYS/module/firmware_class/parameters/path
+RPROC=$SYS/class/remoteproc
+WAIT_UP=${SP11_CDSP_WAIT_UP:-180}      # seconds to wait for ADSP and CDSP to be up
+WAIT_STATE=${SP11_CDSP_WAIT_STATE:-40} # seconds for each stop and each start
+SETTLE=${SP11_CDSP_SETTLE:-12}         # seconds after start before reading the GLINK lines
+KMSG=${SP11_KMSG:-/dev/kmsg}
+DMESG=${SP11_DMESG:-dmesg}
+mkdir -p "$RUN"
+log() { local t; t="$(date +%T) $*"; echo "$t" >>"$STATE"; echo "sp11-cdsp-experiment: $*" >&2; echo "sp11-cdsp-experiment: $*" >"$KMSG" 2>/dev/null; return 0; }
+arg() { tr ' ' '\n' <"$CMDLINE" | sed -n "s/^$1=//p" | tail -n1; }
+desc() { case $1 in 0) echo "fw=c1-00078 keep_proxy_pds=0" ;; 1) echo "fw=c1-00046.1 keep_proxy_pds=0" ;; 2) echo "fw=c1-00078 keep_proxy_pds=1" ;; 3) echo "fw=c1-00046.1 keep_proxy_pds=1" ;; esac; }
+notice() { "$NOTICE" add 20-cdsp "$*" || true; }
+rproc_by_name() { local d; for d in "$RPROC"/remoteproc*; do [ "$(cat "$d/name" 2>/dev/null)" = "$1" ] && { echo "$d"; return 0; }; done; return 1; }
+rstate() { cat "$1/state" 2>/dev/null || echo unreadable; }
+# timed write: the write runs in the background, the caller polls for the wanted state
+twrite() { # FILE VALUE
+	( printf '%s' "$2" >"$1" 2>/dev/null ) &
+	return 0
+}
+wait_state() { # DIR WANTED_REGEX SECONDS -> prints final state
+	local i s
+	for ((i = 0; i < $3; i++)); do s=$(rstate "$1"); [[ $s =~ $2 ]] && { echo "$s"; return 0; }; sleep 1; done
+	echo "$s"; return 1
+}
+
+# ---- guards
+if ! mkdir "$RUN/cdsp-experiment.lock" 2>/dev/null; then echo "second start on this boot: refused" >>"$STATE"; exit 0; fi
+: >"$STATE"
+entry=$(arg sp11.entry)
+if [ "$entry" != debug ]; then log "not run: entry '${entry:-none}' is not the main entry (sp11.entry=debug)"; exit 0; fi
+if "$BS" marker disable-cdsp-experiment 2>/dev/null; then
+	log "not run: marker sp11/disable-cdsp-experiment on the boot medium"; notice "CDSP experiment: disabled by the marker file sp11/disable-cdsp-experiment on the boot medium."; exit 0
+fi
+log "waiting up to ${WAIT_UP}s for the ADSP and the CDSP"
+cd_dir= ad_dir=
+for ((i = 0; i < WAIT_UP; i++)); do
+	cd_dir=$(rproc_by_name cdsp) ad_dir=$(rproc_by_name adsp)
+	if [ -n "$cd_dir" ] && [ -n "$ad_dir" ] && [ "$(rstate "$ad_dir")" = running ]; then break; fi
+	sleep 1
+done
+if [ -z "$cd_dir" ] || [ -z "$ad_dir" ]; then log "not run: remoteproc cdsp='${cd_dir##*/}' adsp='${ad_dir##*/}' not found"; notice "CDSP experiment: not run (no cdsp/adsp remoteproc)."; exit 0; fi
+as=$(rstate "$ad_dir"); cs=$(rstate "$cd_dir")
+if [ "$as" != running ]; then log "not run: ADSP state '$as' (needs running)"; notice "CDSP experiment: not run (ADSP state $as)."; exit 0; fi
+case $cs in running | offline) ;; *) log "not run: CDSP state '$cs' is not stable (running or offline)"; notice "CDSP experiment: not run (CDSP state $cs)."; exit 0 ;; esac
+sleep "${SP11_CDSP_PRESETTLE:-5}"   # let the first GLINK exchange finish; a state that changes during this time is not stable
+cs2=$(rstate "$cd_dir")
+if [ "$cs2" != "$cs" ]; then log "not run: CDSP state changed from $cs to $cs2 while settling"; notice "CDSP experiment: not run (CDSP state unstable: $cs to $cs2)."; exit 0; fi
+
+# ---- choose the variant: counter, advance first, skip what cannot be realised
+alt_ok=no; [ -s "$FWDIR/$FWREL/qccdsp8380.mbn" ] && [ -s "$FWDIR/$FWREL/cdsp_dtb.mbn" ] && alt_ok=yes
+keep_ok=no; [ -w "$KEEP" ] && keep_ok=yes
+fwp_ok=no; [ -w "$FWPATH" ] && fwp_ok=yes
+realisable() { # variant
+	case $1 in 0) return 0 ;; 1) [ "$alt_ok" = yes ] && [ "$fwp_ok" = yes ] ;; 2) [ "$keep_ok" = yes ] ;; 3) [ "$alt_ok" = yes ] && [ "$fwp_ok" = yes ] && [ "$keep_ok" = yes ] ;; esac
+}
+c=$("$BS" get sp11_cdsp_counter 2>/dev/null); case $c in '' | *[!0-9]*) c=0 ;; esac
+v=
+for ((k = 0; k < 4; k++)); do realisable $(((c + k) % 4)) && { v=$(((c + k) % 4)); used=$((c + k)); break; }; done
+next=$((used + 1))
+saved=yes; "$BS" set "sp11_cdsp_counter=$next" 2>/dev/null || saved=no
+log "counter $c, variant $v ($(desc "$v")); alternate pair present: $alt_ok; keep_proxy_pds writable: $keep_ok; firmware_class.path writable: $fwp_ok; counter saved: $saved"
+nextv=; for ((k = 0; k < 4; k++)); do realisable $(((next + k) % 4)) && { nextv=$(((next + k) % 4)); break; }; done
+needoff=
+case $nextv in 1 | 3) needoff=" The NEXT boot uses the ALTERNATE firmware: do a FULL POWER-OFF first (shut down, wait 10 s, power on), NOT a reboot." ;; esac
+case $v in 1 | 3) pre=" This boot uses the ALTERNATE firmware c1-00046.1; the result is clean only if the previous shutdown was a FULL power-off, not a reboot." ;; *) pre= ;; esac
+notice "CDSP experiment starting: variant $v ($(desc "$v")), CDSP restart in about a minute. Next boot: variant ${nextv:-none}.${pre}${needoff}$([ "$saved" = no ] && echo ' WARNING: the counter could not be saved on the boot medium; the next boot repeats this variant.')"
+
+# ---- run it
+n0=$($DMESG 2>/dev/null | wc -l)
+fw0=$(cat "$cd_dir/firmware" 2>/dev/null); fwp0=$(cat "$FWPATH" 2>/dev/null); keep0=$(cat "$KEEP" 2>/dev/null)
+log "before: cdsp state $cs, firmware '$fw0', firmware_class.path '$fwp0', keep_proxy_pds '$keep0'"
+twrite "$cd_dir/state" stop
+s=$(wait_state "$cd_dir" '^offline$' "$WAIT_STATE") || { log "stop did not reach offline within ${WAIT_STATE}s (state $s): nothing else touched"; notice "CDSP experiment: stop timed out (state $s). Nothing else changed."; exit 0; }
+log "stopped: $s"
+want_keep=0; case $v in 2 | 3) want_keep=1 ;; esac
+[ "$keep_ok" = yes ] && printf '%s' "$want_keep" >"$KEEP" 2>/dev/null
+[ -n "$fw0" ] && [ -w "$cd_dir/firmware" ] && printf '%s' "$fw0" >"$cd_dir/firmware" 2>/dev/null
+case $v in 1 | 3) printf '%s' "$FWDIR" >"$FWPATH" 2>/dev/null ;; esac
+log "set: keep_proxy_pds '$(cat "$KEEP" 2>/dev/null)', firmware '$(cat "$cd_dir/firmware" 2>/dev/null)', firmware_class.path '$(cat "$FWPATH" 2>/dev/null)'"
+twrite "$cd_dir/state" start
+s=$(wait_state "$cd_dir" '^(running|crashed|invalid)$' "$WAIT_STATE"); rc=$?
+# restore the loader path and the parameter at once: nothing else may load from the alternate directory
+printf '%s' "$fwp0" >"$FWPATH" 2>/dev/null
+[ "$keep_ok" = yes ] && [ -n "$keep0" ] && printf '%s' "$keep0" >"$KEEP" 2>/dev/null
+log "after start: state $s (wait rc $rc); firmware_class.path restored to '$(cat "$FWPATH" 2>/dev/null)', keep_proxy_pds restored to '$(cat "$KEEP" 2>/dev/null)'"
+sleep "$SETTLE"
+fin=$(rstate "$cd_dir")
+$DMESG 2>/dev/null | sed -n "$((n0 + 1)),\$p" | grep -E 'sp11-glink|cdsp|remoteproc.*(cdsp|32300000)|handover' | tail -n 40 >"$RUN/cdsp-experiment-dmesg.txt"
+ack=$(grep -c 'rx OPEN_ACK' "$RUN/cdsp-experiment-dmesg.txt" 2>/dev/null)
+fifo=$(grep 'FIFO' "$RUN/cdsp-experiment-dmesg.txt" 2>/dev/null | tail -n2 | cut -c1-200)
+{
+	echo "variant: $v ($(desc "$v"))"
+	echo "result state: $fin (right after start: $s)"
+	echo "sp11-glink rx OPEN_ACK lines after the restart: ${ack:-0}"
+	echo "sp11-glink FIFO lines after the restart (OPEN_ACK timeout): ${fifo:-none}"
+	echo "next boot: variant ${nextv:-none}$([ -n "$needoff" ] && echo ' (alternate firmware: full power-off first)')"
+} >>"$STATE"
+log "result: variant $v state $fin, rx OPEN_ACK after restart ${ack:-0}"
+notice "CDSP experiment done: variant $v ($(desc "$v")), CDSP state $fin, rx OPEN_ACK lines ${ack:-0} (log: cdsp-experiment). Next boot: variant ${nextv:-none}.${pre}${needoff}"
+exit 0

@@ -18,34 +18,28 @@ def out(s):
 
 out("UEFI firmware (fake)\r\n")
 time.sleep(1)
-TOP = ["SP11 debug", "Recovery and tests"]
-SUB = ["SP11 debug, safe (no GPU, no cameras)", "SP11 debug, no sound", "SP11 debug, touch off", "SP11 debug, speakers (gated)", "SP11 debug, nomodeset", "SP11 debug, stop in initramfs", "VM test (no devicetree)"]
-for e in TOP:   # M14: the top level has the main entry and one submenu line
+MENU = ["SP11 debug", "SP11 debug, safe (no cameras)", "SP11 debug, no sound", "SP11 debug, touch off", "SP11 debug, speakers (gated)", "SP11 debug, USB + DSP trace", "SP11 debug, no early DSP", "SP11 debug, Wi-Fi unblock probe", "SP11 debug nomodeset", "SP11 debug, stop in initramfs", "VM test (no devicetree)"]
+IDS = ["debug", "safe", "nosnd", "notouch", "spk", "usbdbg", "nodsp", "wifi-unblock", "nomodeset", "initramfs", "vmtest"]
+for e in MENU[:8]:   # M15: one flat menu; a 24-row terminal shows the first eight lines, the rest appears while scrolling
     out(f"\x1b[1;1H  {e}\r\n")
 tty.setraw(0)  # QEMU puts the terminal in raw mode for -serial stdio
 os.set_blocking(0, False)
 buf = b""
 choice = 0
-opened = False
 while True:
     try:
         d = os.read(0, 100)
     except BlockingIOError:
         d = b""
     buf += d
-    if not opened and b"\r" in buf:
-        if buf.count(b"\x1b[B") == 0:      # Enter on the main entry
-            choice = -1
-            break
-        opened = True                        # Enter on the submenu line: draw its entries, count Down keys from here
-        buf = b""
-        for e in SUB:
-            out(f"\x1b[1;1H  {e}\r\n")
-    elif opened and b"\r" in buf:
+    n = buf.count(b"\x1b[B")
+    if n and n < len(MENU):
+        out(f"\x1b[1;1H  {MENU[n]}\r\n")   # scrolling draws the entry that comes into view
+    if b"\r" in buf:
         choice = buf.split(b"\r")[0].count(b"\x1b[B")
         break
     time.sleep(0.2)
-entry = "debug" if choice < 0 else ["safe", "nosnd", "notouch", "spk", "nomodeset", "initramfs", "vmtest"][choice]
+entry = IDS[choice]
 out(f"Booting entry {choice}\r\n")
 out(f"[    0.000000] Kernel command line: root=live:CDLABEL=X debug sp11.entry={entry}\r\n")
 time.sleep(1)

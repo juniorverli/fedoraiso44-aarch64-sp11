@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""Verify the rendered M14 GRUB menu: structure, DTB per entry, arguments, S1 placement, GPU self-healing and CDSP rotor logic.
+"""Verify the rendered M15 GRUB menu: flat, static, M13 style (file name is historic).
 
-Usage: check-m8-menu.py grub.cfg   (the file name is historic; the policy is the M14 menu of image/README.md)
+Usage: check-m8-menu.py grub.cfg
 
-M14 structure (operator requirement: the first line is the only line used on the bench):
-  line 1  `SP11 debug`            main entry, DTB chosen by GRUB (m14 or m14-safe), all test arguments inline
-  line 2  submenu `Recovery and tests` with seven entries, the last one the VM test
+M15 policy (image/README.md, "M15 menu"):
+  * the file has NO function except load_video, NO load_env/save_env/grubenv, NO variable assignment except the standard header ones,
+    NO submenu, NO GRUB variable inside any entry except the template's own ($root); every entry has a fixed DTB (or none for the VM test);
+  * line 1 `SP11 debug` = m15 (microphones + camera nodes, GPU off), line 2 `safe (no cameras)` = m15-safe (always-booting fallback);
+  * no GPU DTB, no GPU entry; no per-variant SAM/CDSP entries (those are Linux-side rotors);
+  * the main-entry diagnostic arguments are the M13 ones with the corrected trace string; nothing variable; the command line never carries
+    rotor, SAM, GPU or firmware_class arguments.
 """
 import re
 import shlex
@@ -13,142 +17,101 @@ import sys
 
 USB = "pmic_glink_altmode.dyndbg=+p ps883x.dyndbg=+p phy_qcom_qmp_combo.dyndbg=+p ucsi_glink.dyndbg=+p typec_ucsi.dyndbg=+p dwc3.dyndbg=+p dwc3_qcom.dyndbg=+p".split()
 PDR = "qcom_pd_mapper.dyndbg=+p pdr_interface.dyndbg=+p".split()
-# dsp-subsystems R-I5, M14 addendum (b): power:power_domain_target removed (the kernel rejected it in M13 again)
 TRACE = ["trace_event=:mod:qcom_glink,:mod:smp2p,:mod:qcom_aoss,rpmh:rpmh_send_msg", "trace_buf_size=16M"]
 BASE = ["clk_ignore_unused", "pd_ignore_unused", "rootdelay=10", "modprobe.blacklist=qcom_battmgr", "rd.driver.blacklist=qcom_battmgr"]
 DEFAULT = set(BASE + USB + PDR + TRACE)
+USBDSP = set(BASE + USB + PDR + ["trace_event=:mod:qcom_glink", "trace_buf_size=8M"])
 
-MAIN_TITLE = "SP11 debug"
-SUBMENU_TITLE = "Recovery and tests"
-MAIN_EXTRA = {"sp11.gpu_diag=1", "sp11.gpu_dtb=$sp11_gpu_dtb", "$sp11_cdsp_args"}
-# ident: (title, DTB variant or None, set of special arguments)
-SUB = {
-    "safe": ("SP11 debug, safe (no GPU, no cameras)", "m14-safe", DEFAULT),
-    "nosnd": ("SP11 debug, no sound", "m14-nosnd", DEFAULT),
-    "notouch": ("SP11 debug, touch off", "m14-notouch", DEFAULT),
-    "spk": ("SP11 debug, speakers (gated)", "m14-spk", DEFAULT | {"sp11.allow_nominal=1"}),
-    "nomodeset": ("SP11 debug, nomodeset", "m14-safe", set(BASE) | {"nomodeset"}),
-    "initramfs": ("SP11 debug, stop in initramfs", "m14-safe", set(BASE) | {"rd.break=pre-mount"}),
+# ident: (title, DTB variant or None, set of special arguments); order is the menu order
+ENTRIES = {
+    "debug": ("SP11 debug", "m15", DEFAULT),
+    "safe": ("SP11 debug, safe (no cameras)", "m15-safe", DEFAULT),
+    "nosnd": ("SP11 debug, no sound", "m15-nosnd", DEFAULT),
+    "notouch": ("SP11 debug, touch off", "m15-notouch", DEFAULT),
+    "spk": ("SP11 debug, speakers (gated)", "m15-spk", DEFAULT | {"sp11.allow_nominal=1"}),
+    "usbdbg": ("SP11 debug, USB + DSP trace", "m15-safe", USBDSP),
+    "nodsp": ("SP11 debug, no early DSP", "m15-safe", set(BASE[:3] + ["modprobe.blacklist=qcom_battmgr", "rd.driver.blacklist=qcom_battmgr,qcom_q6v5_pas"])),
+    "wifi-unblock": ("SP11 debug, Wi-Fi unblock probe", "m15-safe", set(BASE) | {"sp11.wifi_unblock=1"}),
+    "nomodeset": ("SP11 debug nomodeset", "m15-safe", set(BASE) | {"nomodeset"}),
+    "initramfs": ("SP11 debug, stop in initramfs", "m15-safe", set(BASE) | {"rd.break=pre-mount"}),
     "vmtest": ("VM test (no devicetree)", None, {"console=ttyAMA0,115200"}),
 }
-MAIN = ("debug", MAIN_TITLE, DEFAULT | {"sp11.gpu_diag=1"})
-# arguments that kiwi puts into boot_options on every entry; they are not "special" here
 COMMON_KIWI = {"printk.devkmsg=on", "log_buf_len=16M"}
 FORBIDDEN_WORDS = {"quiet", "rhgb", "splash"}
+SPECIAL_PREFIX = ("modprobe.blacklist=", "rd.driver.blacklist=", "trace_", "drm.debug=", "sp11.allow_nominal", "sp11.nospk", "sp11.wifi_unblock",
+                  "systemd.unit=", "nomodeset", "rd.break=", "console=")
+NEVER_PREFIX = ("surface_aggregator.", "qcom_q6v5_pas.", "firmware_class.", "sp11.gpu_", "sp11.cdsp_", "sp11.ssam_", "sp11.identity", "sp11.cpufreq")
 DTB_RE = "($root)/boot/dtb/qcom/x1p64100-microsoft-denali-{}.dtb"
-MAIN_DTB = DTB_RE.format("${sp11_gpu_dtb}")
-ENTRY_RE = r"^[ \t]*menuentry '([^']*)'[^\n]*--id sp11-([a-z0-9-]+)[^\n]*\{(.*?)^[ \t]*\}"
+ENTRY_RE = r"^menuentry '([^']*)'[^\n]*--id sp11-([a-z0-9-]+)[^\n]*\{\n(.*?)^\}"
 
 
-def special_of(args, all_special):
-    out = set()
-    for a in args:
-        if a in all_special or a.startswith(("modprobe.blacklist=", "rd.driver.blacklist=", "trace_", "drm.debug=", "surface_aggregator.",
-                                              "qcom_q6v5_pas.", "sp11.gpu_diag", "sp11.allow_nominal", "sp11.nospk", "systemd.unit=", "firmware_class.")) or ".dyndbg=" in a:
-            out.add(a)
-    return out - COMMON_KIWI
+def code_of(cfg):
+    return "\n".join(l for l in cfg.splitlines() if not l.lstrip().startswith("#"))
 
 
-def check_entry(body, ident, variant, want, all_special, expect_dtb):
+def check_entry(body, ident, variant, want):
     linux = re.search(r"^\s*linux \S+ (.*)$", body, re.M)
     assert linux, f"{ident}: linux command missing"
     args = shlex.split(linux[1])
     assert not FORBIDDEN_WORDS & set(args), f"{ident}: quiet/rhgb/splash argument"
     assert "debug" in args and "loglevel=8" in args and "ignore_loglevel" in args, f"{ident}: not verbose"
-    assert special_of(args, all_special) == want, f"{ident}: diagnostic args differ: {sorted(special_of(args, all_special) ^ want)}"
+    spec = {a for a in args if a in want or a.startswith(SPECIAL_PREFIX) or ".dyndbg=" in a} - COMMON_KIWI
+    assert spec == want, f"{ident}: diagnostic args differ: {sorted(spec ^ want)}"
     assert args.count("sp11.entry=" + ident) == 1 and sum(a.startswith("sp11.entry=") for a in args) == 1, f"{ident}: wrong entry mark"
-    assert not any(a.startswith("sp11.ssam_") for a in args), f"{ident}: opt-in SAM unit argument in the menu"
-    assert not any(a.startswith("surface_aggregator.") for a in args), f"{ident}: SAM shutdown mode on the command line (the rotor service sets it)"
+    assert not any(a.startswith(NEVER_PREFIX) for a in args), f"{ident}: rotor/GPU/SAM/firmware argument on the command line (Linux side owns it)"
+    assert ("sp11.allow_nominal=1" in args) == (ident == "spk"), f"{ident}: sp11.allow_nominal must be on the speaker first-test entry only"
+    assert "sp11.nospk" not in args, f"{ident}: the kill switch is an operator edit, not a menu argument"
     dtbs = re.findall(r"^\s*devicetree (.*)$", body, re.M)
-    assert dtbs == ([] if variant is None else [expect_dtb]), f"{ident}: wrong DTB"
+    assert dtbs == ([] if variant is None else [DTB_RE.format(variant)]), f"{ident}: wrong DTB {dtbs}"
+    # the only dollar signs of an entry are the template's ($root); no variable, no expansion in the arguments
+    assert "$" not in re.sub(r"\(\$root\)", "", "\n".join(l for l in body.splitlines() if l.strip().startswith(("linux", "devicetree", "initrd")))), f"{ident}: GRUB variable in an entry"
     return args
 
 
-def check_logic(cfg):
-    """The grubenv logic of the main entry, as text. The behaviour itself is run in QEMU (image/tools/qemu_boot_test.py --grub-logic)."""
-    m = re.search(r"^function sp11_main_prepare \{\n(.*?)^\}", cfg, re.M | re.S)
-    assert m, "sp11_main_prepare is missing"
-    f = m[1]
-    need = [
-        "regexp --set=1:sp11_disk",                        # the boot medium's own disk, never a search by label across disks (S4)
-        '[ -f ($sp11_disk,gpt2)/EFI/BOOT/grubenv ]',
-        'load_env -f "$sp11_envfile"',
-        'if [ "$sp11_gpu_state" = testing ]; then',
-        "set sp11_gpu_state=failed",
-        'if [ "$sp11_gpu_state" = failed ]; then',
-        "set sp11_gpu_dtb=m14-safe",
-        "set sp11_gpu_dtb=m14\n",
-        "save_env -f \"$sp11_envfile\" sp11_gpu_state sp11_cdsp_variant",
-        "qcom_q6v5_pas.keep_proxy_pds=0",
-        "qcom_q6v5_pas.keep_proxy_pds=1",
-        "firmware_class.path=/usr/lib/firmware-sp11-cdsp46",
-        'sp11.cdsp_variant=$sp11_cdsp_used',
-    ]
-    for n in need:
-        assert n in f, f"grubenv logic lacks: {n.strip()}"
-    # the variants, in order: (78,0) (46.1,0) (78,1) (46.1,1), advancing 0->1->2->3->0
-    variants = {}
-    for k, nxt, desc in re.findall(r'sp11_cdsp_variant" = (\d) \]; then\n\t+set sp11_cdsp_used=\d\n\t+set sp11_cdsp_next=(\d)\n\t+set sp11_cdsp_desc="([^"]*)"', f):
-        variants[k] = (nxt, desc)
-    assert variants == {"1": ("2", "fw=c1-00046.1 keep_proxy_pds=0"), "2": ("3", "fw=c1-00078 keep_proxy_pds=1"),
-                        "3": ("0", "fw=c1-00046.1 keep_proxy_pds=1")}, f"CDSP rotor table differs: {variants}"
-    assert 'set sp11_cdsp_next=1\n' in f and 'set sp11_cdsp_desc="fw=c1-00078 keep_proxy_pds=0"' in f, "CDSP variant 0 is not the default"
-    # no loop and no stop in the whole file: nothing halts, reboots, waits for a key or chains back to the menu
-    code = "\n".join(l for l in cfg.splitlines() if not l.lstrip().startswith("#"))
-    for bad in (r"^\s*(halt|reboot)\b", r"^\s*read\b", r"^\s*configfile\b", r"\bunset sp11", r"^\s*while\b", r"^\s*(until|for)\b", r"^\s*(exit|return)\b"):
-        assert not re.search(bad, code, re.M), f"loop/stop risk: {bad}"
-    # the main entry is the only place that uses the state; a failed state never selects the GPU DTB
-    assert cfg.index("function sp11_main_prepare") < cfg.index("menuentry 'SP11 debug' "), "function after the entry"
+def check_static(cfg):
+    code = code_of(cfg)
+    funcs = re.findall(r"^\s*function\s+(\S+)", code, re.M)
+    assert funcs == ["load_video"], f"only load_video may be a function: {funcs}"
+    for bad in (r"\bload_env\b", r"\bsave_env\b", r"editenv", r"grubenv", r"\bsubmenu\b", r"\bregexp\b", r"\bsp11_", r"\bset sp11",
+                r"^\s*(halt|reboot|read|configfile|while|until|for|exit|return)\b", r"^\s*if\b", r">\s*\("):
+        assert not re.search(bad, code, re.M), f"M15 menu is static; found {bad}"
+    sets = re.findall(r"^\s*set (\w+)=", code, re.M)
+    assert sorted(sets) == ["default", "gfxpayload", "timeout", "timeout_style"], f"unexpected variables: {sets}"
+    assert "power:power_domain_target" not in code, "power_domain_target is back in a trace_event string"
+    assert not re.search(r"denali-m1[34]|-gpu\.dtb|gpu_diag|m15-gpu", code), "old (M13/M14) or GPU DTB/argument in the M15 menu"
 
 
 def check(cfg):
     assert re.search(r"^set default=0$", cfg, re.M), "default is not entry 0"
-    top = [m for m in re.finditer(r"^(menuentry|submenu) '([^']*)'", cfg, re.M)]
-    assert [(m[1], m[2]) for m in top] == [("menuentry", MAIN_TITLE), ("submenu", SUBMENU_TITLE)], \
-        f"top level must be exactly the main entry then one submenu: {[(m[1], m[2]) for m in top]}"
-    sub_at = top[1].start()
-    all_special = set().union(*(m[2] for m in SUB.values())) | MAIN[2]
-    entries = [(m[1], m[2], m[3], m.start()) for m in re.finditer(ENTRY_RE, cfg, re.M | re.S)]
-    ids = [i for _, i, _, _ in entries]
-    assert ids == ["debug"] + list(SUB), f"entry ids/order differ: {ids}"
-    # the main entry is before the submenu, the others inside it
-    assert entries[0][3] < sub_at and all(e[3] > sub_at for e in entries[1:]), "entries are not placed as main + submenu"
-    sub_body = cfg[sub_at:]
-    assert len(re.findall(r"^menuentry '", cfg, re.M)) == 1, "only the main entry is a top-level menuentry"
-    assert sub_body.count("menuentry '") == len(SUB), "submenu entry count"
-    # main entry
-    title, ident, body, _ = entries[0]
-    assert title == MAIN_TITLE
-    args = check_entry(body, "debug", "m14", MAIN[2], all_special, MAIN_DTB)
-    for a in ("sp11.gpu_dtb=$sp11_gpu_dtb", "$sp11_cdsp_args"):
-        assert a in args, f"main entry lacks {a}"
-    assert "sp11_main_prepare" in body.split("linux")[0], "main entry does not prepare the GRUB environment first"
-    assert not any(a.startswith("qcom_q6v5_pas.") for a in args), "keep_proxy_pds fixed on the main entry (the rotor replaces it)"
-    assert "allow_nominal" not in " ".join(args), "sp11.allow_nominal on the main line (speakers must stay off there)"
-    assert "power:power_domain_target" not in cfg.replace("# ", "#").split("function sp11_main_prepare")[1], "power_domain_target is back in a trace_event string"
-    # the main DTB expression is the only variable one
-    # submenu entries
-    default_args = None
-    for title, ident, body, _ in entries[1:]:
-        want_title, variant, want = SUB[ident]
+    assert re.search(r"^set timeout_style=menu$", cfg, re.M), "menu not always shown"
+    code = code_of(cfg)
+    tops = re.findall(r"^menuentry '([^']*)'", code, re.M)
+    assert tops == [v[0] for v in ENTRIES.values()], f"top-level entries/order differ: {tops}"
+    entries = [(m[1], m[2], m[3]) for m in re.finditer(ENTRY_RE, code, re.M | re.S)]
+    assert [e[1] for e in entries] == list(ENTRIES), f"entry ids/order differ: {[e[1] for e in entries]}"
+    assert entries[-1][1] == "vmtest", "VM entry must be last"
+    arglists = {}
+    for title, ident, body in entries:
+        want_title, variant, want = ENTRIES[ident]
         assert title == want_title, f"{ident}: title differs"
-        a = check_entry(body, ident, variant, want, all_special, DTB_RE.format(variant) if variant else None)
-        assert not any(x.startswith(("qcom_q6v5_pas.", "firmware_class.", "sp11.gpu_", "sp11.cdsp_")) for x in a), f"{ident}: rotor or GPU argument in the submenu"
-        if ident == "safe":
-            default_args = [x for x in a if not x.startswith("sp11.entry=")]
-        if ident in ("nosnd", "notouch"):
-            assert [x for x in a if not x.startswith("sp11.entry=")] == default_args, f"{ident}: arguments differ from safe"
-        if ident == "spk":   # the first-test entry: the safe arguments plus exactly sp11.allow_nominal=1, nothing else
-            assert [x for x in a if not x.startswith(("sp11.entry=", "sp11.allow_nominal="))] == default_args, "spk: arguments differ from safe beyond allow_nominal"
-        assert ("sp11.allow_nominal=1" in a) == (ident == "spk"), f"{ident}: sp11.allow_nominal must be on the speaker first-test entry only"
-        assert "sp11.nospk" not in a, f"{ident}: the kill switch is an operator edit, not a menu argument"
-        assert "GPU on" not in title
-    # S1/GPU/camera placement: speakers DTB only in `spk`; the GPU+camera DTB only through the main entry's variable
-    users = [i for _, i, b, _ in entries if DTB_RE.format("m14-spk") in b]
-    assert users == ["spk"], f"m14-spk used by {users}, only spk may"
-    assert not any(DTB_RE.format("m14") in b for _, i, b, _ in entries), "the combined m14 DTB is named literally in an entry (only the main entry's variable may select it)"
-    assert entries[-1][1] == "vmtest", "VM entry must be last of the submenu"
-    check_logic(cfg)
+        arglists[ident] = check_entry(body, ident, variant, want)
+    # line 1 and line 2 carry exactly the same arguments (only the entry mark differs)
+    strip = lambda ident: [a for a in arglists[ident] if not a.startswith("sp11.entry=")]
+    for i in ("safe", "nosnd", "notouch"):
+        assert strip(i) == strip("debug"), f"{i}: arguments differ from line 1"
+    assert [a for a in strip("spk") if a != "sp11.allow_nominal=1"] == strip("debug"), "spk: arguments differ beyond allow_nominal"
+    # DTB placement: speakers only in spk, cameras only in line 1 (m15); no other DTB names
+    used = {}
+    for _, ident, body in entries:
+        for d in re.findall(r"denali-(m[0-9a-z-]+)\.dtb", body):
+            used.setdefault(d, []).append(ident)
+    assert used["m15-spk"] == ["spk"], f"m15-spk used by {used['m15-spk']}"
+    assert used["m15"] == ["debug"], f"m15 (camera nodes) used by {used['m15']}: only line 1"
+    assert set(used) == {"m15", "m15-safe", "m15-nosnd", "m15-notouch", "m15-spk"}, f"DTB set differs: {sorted(used)}"
+    # the speaker entry keeps the first-test notice
+    spk = [b for _, i, b in entries if i == "spk"][0]
+    assert "kill switch" in spk.lower() and "sleep 3" in spk, "spk: first-test notice missing"
+    check_static(cfg)
 
 
 if __name__ == "__main__":
@@ -156,4 +119,4 @@ if __name__ == "__main__":
         check(open(sys.argv[1]).read())
     except (AssertionError, ValueError) as error:
         sys.exit(str(error))
-    print("PASS: M14 menu policy")
+    print("PASS: M15 flat static menu policy")

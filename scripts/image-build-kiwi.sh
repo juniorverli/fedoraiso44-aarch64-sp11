@@ -86,19 +86,19 @@ if [ "$(rpm --eval "%{lua:print(rpm.vercmp('$newest_vr', '$min'))}")" -le 0 ]; t
 fi
 log "kernel $kver_full (newer than $min, the only kernel NEVRA at the top level of out/rpms)"
 
-# M14 requires revision-11 RPMs and all five atomically published DTB/JSON pairs.
-[ "$kver_full" = 7.3.0-65.sp11.11.fc44.aarch64 ] || {
-	log "REFUSED: M14 requires kernel 7.3.0-65.sp11.11.fc44.aarch64, found $kver_full"; exit 6;
+# M15 requires revision-12 RPMs and all five atomically published DTB/JSON pairs (m15, m15-safe, m15-nosnd, m15-notouch, m15-spk).
+[ "$kver_full" = 7.3.0-65.sp11.12.fc44.aarch64 ] || {
+	log "REFUSED: M15 requires kernel 7.3.0-65.sp11.12.fc44.aarch64, found $kver_full"; exit 6;
 }
 patch_series_sha=$( . "$REPO/scripts/kernel-common.sh"; kernel_series_hash )
-for v in m14 m14-safe m14-nosnd m14-notouch m14-spk; do
+for v in m15 m15-safe m15-nosnd m15-notouch m15-spk; do
 	vsrc=$OUT/dtb-variants/$kver_full/qcom/x1p64100-microsoft-denali-$v
 	[ -s "$vsrc.dtb" ] && [ -s "$vsrc.json" ] || {
 		log "REFUSED: $v DTB and JSON not yet published by the kernel worker"; exit 6;
 	}
 	[ "$(sha256sum "$vsrc.dtb" | cut -d' ' -f1)" = "$(jq -r .sha256 "$vsrc.json")" ] &&
 	[ "$(jq -r .kver "$vsrc.json")" = "$kver_full" ] &&
-	[ "$(jq -r .series_rev "$vsrc.json")" = 11 ] &&
+	[ "$(jq -r .series_rev "$vsrc.json")" = 12 ] &&
 	[ "$(jq -r .series_hash_sha256 "$vsrc.json")" = "$patch_series_sha" ] || {
 		log "REFUSED: $v DTB hash/release/series differs from the kernel worker JSON"; exit 6;
 	}
@@ -135,6 +135,12 @@ cp "$REPO/hardware/display-lcd/tools/collect-dpcd.py" "$desc/root/usr/libexec/sp
 chmod 0755 "$desc/root/usr/libexec/sp11-collect-dpcd.py"
 # Touch owner section 8: stage the stdout-only helper unchanged.
 install -m 0755 "$REPO/hardware/touch-pen/collect-read-only.sh" "$desc/root/usr/libexec/sp11-touch-pen-collect"
+# M15 touch (hardware/touch-pen evidence 2026-10-31-missed-taps.md): iptsd profile B (lower thresholds, upstream Surface Laptop Studio 2 values, scoped to
+# 045E:0C80) is the DEFAULT, profile A (compiled defaults) is selected by the boot-medium marker sp11/touch-conf-A through the image-owned selector
+# (the owner's selector read a GRUB variable; M15 GRUB is static). The tap diagnostic is an on-demand tool, never run by the collector.
+install -D -m 0644 "$REPO/hardware/touch-pen/userspace/iptsd-sp11.conf" "$desc/root/usr/share/sp11/touch/iptsd-sp11.conf"
+install -D -m 0644 "$REPO/hardware/touch-pen/userspace/10-sp11-touch-conf.conf" "$desc/root/usr/lib/systemd/system/iptsd@.service.d/10-sp11-touch-conf.conf"
+install -m 0755 "$REPO/hardware/touch-pen/collector/sp11-touch-tap-diag" "$desc/root/usr/libexec/sp11-touch-tap-diag"
 # Component collector requests (R-I1 and Wi-Fi I1/I2), copied unchanged from the merged dossiers.
 mkdir -p "$desc/root/etc/sp11-log-collector.d"
 for c in dsp-subsystems wifi; do
@@ -177,9 +183,9 @@ for f in MICROSOFT-Surface-Pro-11.conf Surface11-HiFi.conf Surface11-SpeakerSeq.
 done
 mkdir -p "$desc/root/etc/systemd/system/sysinit.target.wants"
 ln -sf /usr/lib/systemd/system/sp11-speaker-ucm.service "$desc/root/etc/systemd/system/sysinit.target.wants/sp11-speaker-ucm.service"
-# M14: the gpu worker's two-step diagnostic (hardware/gpu/collector) runs on EVERY boot of the main entry (sp11.gpu_diag=1 is inline there), before GDM,
-# with the GPU self-healing state in the boot medium's GRUB environment block. Image-owned changes to the owner script, pinned in
-# image/component-inputs/m14.json and required exactly by L0 8.37: (1) the label list gains BOOT (this ISO's embedded ESP label);
+# M15: the gpu worker's two-step diagnostic (hardware/gpu/collector) is installed but DISABLED (no enable symlink, preset `disable`): the GPU is
+# skipped in M15 (no GPU DTB, no GPU entry; the menu is static). The files stay for the next GPU test; its state is a plain file on the boot medium.
+# Image-owned changes to the owner script, pinned in image/component-inputs/m15.json and required exactly by L0 8.37: (1) the label list gains BOOT (this ISO's embedded ESP label);
 # (2) the hook functions of image/component-inputs/gpu-state-hooks.sh are inserted before the main section; (3) four one-line calls to them.
 # The owner unit stays byte for byte; the image adds a drop-in with Before=gdm.service.
 gpu_src=$REPO/hardware/gpu/collector
@@ -191,15 +197,14 @@ awk -v hooks="$gpu_hooks" '
 /^	for lbl in SP11LOGS ANACONDA; do$/ { print "\tfor lbl in SP11LOGS ANACONDA BOOT; do"; next }
 /^# --------------------------------------------------------------- main -----$/ { while ((getline l < hooks) > 0) print l; print ""; print; next }
 /^cp "\$OUT\/previous-boot-report.txt" "\$RUN\/report.txt" 2>\/dev\/null$/ { print; print "sp11_gpu_hook_report"; next }
-/^start_follower$/ { print "if sp11_gpu_hook_skip; then sp11_gpu_note \"GPU test: not run on this boot (sp11.gpu_dtb=m14-safe: GRUB has the GPU off after a failed test; clear it with /usr/libexec/sp11/gpu-retry)\"; mark SKIP_GPU_TEST; mark DONE; flush; exit 0; fi"; print; next }
+/^start_follower$/ { print "if sp11_gpu_hook_skip; then sp11_gpu_note \"GPU test: not run on this boot (sp11.gpu_dtb=skip: the GPU test is off after a failed test; clear it with /usr/libexec/sp11/gpu-retry)\"; mark SKIP_GPU_TEST; mark DONE; flush; exit 0; fi"; print; next }
 /^\[ "\$limit" -ge 1 \] && \{ step1 \|\| true; \} \|\| mark "SKIP step 1 \(died there last time\)"$/ { print "[ \"$limit\" -ge 1 ] && sp11_gpu_hook_arm"; print; next }
 /^mark DONE$/ { print "[ \"$limit\" -ge 2 ] && sp11_gpu_hook_ok"; print; next }
 { print }' "$gpu_src/gpu-two-step.sh" >"$desc/root/usr/libexec/sp11-gpu-two-step"
 chmod 0755 "$desc/root/usr/libexec/sp11-gpu-two-step"
 bash -n "$desc/root/usr/libexec/sp11-gpu-two-step" || { log "REFUSED: the patched gpu-two-step.sh has a syntax error"; exit 6; }
 install -m 0644 "$gpu_src/sp11-gpu-two-step.service" "$desc/root/usr/lib/systemd/system/sp11-gpu-two-step.service"
-mkdir -p "$desc/root/etc/systemd/system/multi-user.target.wants"
-ln -sf /usr/lib/systemd/system/sp11-gpu-two-step.service "$desc/root/etc/systemd/system/multi-user.target.wants/sp11-gpu-two-step.service"
+# M15: no enable symlink for sp11-gpu-two-step.service (the preset says `disable`); L0 8.37 requires it to be inactive.
 # M14: power-thermal owner files (suspend ladder opt-in, default-on s2idle cpuidle guard, thermal sampler opt-in) and its read-only collector
 cp -a "$REPO/hardware/power-thermal/userspace/overlay/." "$desc/root/"
 install -m 0644 "$REPO/hardware/power-thermal/collector/power-thermal.sh" "$desc/root/etc/sp11-log-collector.d/power-thermal.sh"
@@ -209,12 +214,26 @@ for u in sp11-suspend-policy.service sp11-wakeup-policy.service sp11-suspend-dia
 	mkdir -p "$desc/root/etc/systemd/system/$w.target.wants"
 	ln -sf "/usr/lib/systemd/system/$u" "$desc/root/etc/systemd/system/$w.target.wants/$u"
 done
-# M14: rotors and operator notices (image-owned): the SAM shutdown mode and CDSP variant of every boot, shown through operator-notice
-mkdir -p "$desc/root/etc/systemd/system/sysinit.target.wants"
-for u in sp11-sam-mode-rotor.service sp11-cdsp-variant.service; do
+# M15: Linux-side experiments (image-owned; the GRUB menu is static, state is plain files on the boot medium via sp11-boot-state, S4): the SAM
+# shutdown mode rotor, the identity switch (marker sp11/identity-none) and the cpufreq cap (marker sp11/enable-cpufreq-cap) at sysinit/multi-user,
+# the CDSP experiment (main entry only), all shown through operator-notice.
+mkdir -p "$desc/root/etc/systemd/system/sysinit.target.wants" "$desc/root/etc/systemd/system/multi-user.target.wants"
+for u in sp11-sam-mode-rotor.service sp11-identity-switch.service sp11-wifi-identity.service; do
 	ln -sf "/usr/lib/systemd/system/$u" "$desc/root/etc/systemd/system/sysinit.target.wants/$u"
 done
-chmod 0755 "$desc/root/usr/libexec/sp11-esp-env" "$desc/root/usr/libexec/sp11/"{operator-notice,sam-mode-rotor,cdsp-variant,gpu-retry,speaker-supervisor,speaker-first-test}
+for u in sp11-cdsp-experiment.service sp11-cpufreq-cap.service; do
+	ln -sf "/usr/lib/systemd/system/$u" "$desc/root/etc/systemd/system/multi-user.target.wants/$u"
+done
+chmod 0755 "$desc/root/usr/libexec/sp11-touch-conf-select" "$desc/root/usr/libexec/sp11-boot-state" "$desc/root/usr/libexec/sp11/"{operator-notice,sam-mode-rotor,cdsp-experiment,cpufreq-cap,identity-switch,gpu-retry,speaker-supervisor,speaker-first-test}
+# M15: identity experiment of the wifi and bluetooth workers (hardware/wifi/image-request-identity.md, hardware/bluetooth/image-request.md), installed in every
+# ISO (inert without the private-mode marker /usr/share/sp11/image-mode). The switch sp11.identity=none is the boot-medium marker sp11/identity-none.
+install -m 0644 "$REPO/hardware/wifi/collector/identity.sh" "$desc/root/etc/sp11-log-collector.d/wifi-identity.sh"
+install -m 0755 "$REPO/hardware/wifi/userspace/sp11-wifi-identity" "$desc/root/usr/libexec/sp11-wifi-identity"
+install -m 0644 "$REPO/hardware/wifi/userspace/sp11-wifi-identity.service" "$desc/root/usr/lib/systemd/system/sp11-wifi-identity.service"
+install -m 0644 "$REPO/hardware/bluetooth/collector/identity.sh" "$desc/root/etc/sp11-log-collector.d/bluetooth-identity.sh"
+install -m 0755 "$REPO/hardware/bluetooth/collector/sp11-identity-bt" "$desc/root/usr/libexec/sp11-identity-bt"
+install -m 0644 "$REPO/hardware/bluetooth/collector/sp11-identity-bt-pre.service" "$desc/root/usr/lib/systemd/system/sp11-identity-bt-pre.service"
+ln -sf /usr/lib/systemd/system/sp11-identity-bt-pre.service "$desc/root/etc/systemd/system/sys-subsystem-bluetooth-devices-hci0.device.wants/sp11-identity-bt-pre.service"
 # M14 (d): the NPU installer for the operator's own QAIRT download is private-mode only (below); fastrpc, fastrpc-services and qrtr are packages (sp11.xml)
 chmod 0755 "$desc/root/usr/libexec/sp11/speaker-ucm-enable"
 ln -sf /usr/lib/systemd/system/sp11-bt-address.service "$desc/root/etc/systemd/system/sys-subsystem-bluetooth-devices-hci0.device.wants/sp11-bt-address.service"
@@ -277,7 +296,7 @@ rpm2cpio "$kcore" | cpio -i --quiet --to-stdout "./lib/modules/$kver/dtb/qcom/x1
 # M11: the kernel worker variants next to the packaged DTB. The build fails without
 # it; with --smoke a copy of the packaged DTB stands in (recorded, never for the device).
 variants_smoke_copy=0
-for v in m14 m14-safe m14-nosnd m14-notouch m14-spk; do
+for v in m15 m15-safe m15-nosnd m15-notouch m15-spk; do
 	vf=x1p64100-microsoft-denali-$v.dtb
 	vsrc=$OUT/dtb-variants/$kver/qcom/$vf
 	if [ -s "$vsrc" ]; then
@@ -360,14 +379,7 @@ cp "$(fnd grubaa64.efi)" "$efib/BOOTAA64.EFI"
 marker='echo "SP11: GRUB started (direct EFI boot, no shim)"'
 cfg=$(fnd grub.cfg)
 grep -qxF "$marker" "$cfg" || { { echo "$marker"; cat "$cfg"; } >"$cfg.new" && mv "$cfg.new" "$cfg"; }
-# M14: the GRUB environment block of the boot medium, EFI/BOOT/grubenv: exactly one 1024-byte block, empty. GRUB (save_env) and
-# sp11-esp-env (grub2-editenv) rewrite it in place; it holds sp11_gpu_state, sp11_cdsp_variant and sp11_sam_counter.
-python3 -I - "$efib/grubenv" <<'PY'
-import sys
-h = "# GRUB Environment Block\n"
-open(sys.argv[1], "wb").write((h + "#" * (1024 - len(h))).encode())
-PY
-grub2-editenv "$efib/grubenv" list >/dev/null || { log "FAIL: grub2-editenv cannot read the new environment block"; exit 1; }
+# M15: no GRUB environment block and no state file is created here: the menu is static and sp11-boot-state creates sp11/state/ on the boot medium at first use.
 mkfs.fat -C -F 32 -s 1 -S 512 -n BOOT "$esp/esp32.img" 65536 >/dev/null
 mcopy -s -i "$esp/esp32.img" "$esp/files/EFI" ::
 xorriso -indev "$iso" -outdev "$iso.fat32" -boot_image any replay -append_partition 2 0xef "$esp/esp32.img" -commit >"$esp/xorriso.txt" 2>&1 \
@@ -390,12 +402,11 @@ for f in "$chk"/_* "$chk/esp-grub.cfg"; do
 	# kernel arguments only: a menu title or a parameter value such as shutdown_mode=quiet is not the kernel argument `quiet`
 	if grep -E '^[[:space:]]*(linux|linuxefi)[[:space:]]' "$f" | tr -s ' \t' '\n\n' | grep -x -E 'quiet|rhgb|splash' >/dev/null; then log "FAIL: quiet/rhgb/splash argument in $f"; exit 1; fi
 done
-n=$(grep -c "^menuentry '" "$chk/_boot_grub2_grub.cfg"); [ "$n" = 1 ] || { log "FAIL: $n top-level menu entries, expected 1 (M14: the main entry; the rest is one submenu)"; exit 1; }
-[ "$(grep -c "^submenu '" "$chk/_boot_grub2_grub.cfg")" = 1 ] || { log "FAIL: expected exactly one submenu (M14)"; exit 1; }
-n=$(grep -c "^[[:space:]]\+menuentry '" "$chk/_boot_grub2_grub.cfg"); [ "$n" = 7 ] || { log "FAIL: $n submenu entries, expected 7 (M14)"; exit 1; }
-for e in debug safe nosnd notouch spk nomodeset initramfs vmtest; do grep -q "sp11.entry=$e\$" "$chk/_boot_grub2_grub.cfg" || { log "FAIL: no entry with sp11.entry=$e"; exit 1; }; done
+n=$(grep -c "^menuentry '" "$chk/_boot_grub2_grub.cfg"); [ "$n" = 11 ] || { log "FAIL: $n top-level menu entries, expected 11 (M15: flat static menu)"; exit 1; }
+[ "$(grep -c "submenu" "$chk/_boot_grub2_grub.cfg")" = 0 ] || { log "FAIL: submenu in the M15 menu"; exit 1; }
+for e in debug safe nosnd notouch spk usbdbg nodsp wifi-unblock nomodeset initramfs vmtest; do grep -q "sp11.entry=$e\$" "$chk/_boot_grub2_grub.cfg" || { log "FAIL: no entry with sp11.entry=$e"; exit 1; }; done
 python3 -I "$REPO/image/tools/check-m8-menu.py" "$chk/_boot_grub2_grub.cfg"
-for f in x1p64100-microsoft-denali-m14 x1p64100-microsoft-denali-m14-safe x1p64100-microsoft-denali-m14-nosnd x1p64100-microsoft-denali-m14-notouch x1p64100-microsoft-denali-m14-spk; do
+for f in x1p64100-microsoft-denali-m15 x1p64100-microsoft-denali-m15-safe x1p64100-microsoft-denali-m15-nosnd x1p64100-microsoft-denali-m15-notouch x1p64100-microsoft-denali-m15-spk; do
 	xorriso -indev "$iso" -find "/boot/dtb/qcom/$f.dtb" -type f 2>/dev/null | grep -q . || { log "FAIL: /boot/dtb/qcom/$f.dtb not on the ISO"; exit 1; }
 done
 
@@ -458,22 +469,27 @@ record = {
     "dtb_variant_records": {f: json.load(open(f"{work}/dtb-records/{f}")) for f in sorted(os.listdir(f"{work}/dtb-records"))} if os.path.isdir(f"{work}/dtb-records") else {},
     "kernel_cmdline_reasons": "image/README.md, GRUB 2 and the kernel command line",
     "grub_entries": entries,
-    "milestone": "M14",
+    "milestone": "M15",
     "kernel_release_record_sha256": sha256(kernel_record_path),
-    "kernel_touch_modules": json.load(open(kernel_record_path))["m14"]["touch_modules"],
+    "kernel_touch_modules": next(v["touch_modules"] for k in ("m15", "m14", "m13") for v in [json.load(open(kernel_record_path)).get(k)] if v and "touch_modules" in v),
     "module_policy": {"qcom_battmgr": "blacklist + install false + dracut omit_drivers (D23)",
-                      "ucsi_glink": "retained early", "ath12k.debug_mask": "0x70; CONFIG_ATH12K_DEBUG=y; output checked by L0"},
-    "menu": "line 1 main entry SP11 debug (m14 or m14-safe by GRUB, all test arguments inline); line 2 submenu 'Recovery and tests' (7 entries)",
-    "diagnostic_args_reason": {"debug": "M14 main line: m14 combined DTB (microphones, GPU, camera chains) unless the GPU self-healing state is testing/failed (then m14-safe), USB dynamic debug (usb-typec R-I1), PDR dynamic debug, DSP trace string without power:power_domain_target, sp11.gpu_diag=1 (two-step before GDM), CDSP rotor arguments from the GRUB environment block (keep_proxy_pds 0/1, alternate firmware path), sp11.gpu_dtb and sp11.cdsp_variant for the collector",
-                               "safe": "m14-safe: the M13 content (microphones only, GPU off, no camera node); same diagnostic arguments",
-                               "nosnd": "m14-nosnd: M12 behaviour, sound card off", "notouch": "touch-pen section 8: m14-notouch, touch child disabled",
-                               "spk": "speaker FIRST TEST (D26): m14-spk, speaker UCM overlay, sp11.allow_nominal=1 on this entry only; kill switch sp11.nospk (operator edit)",
-                               "nomodeset": "nomodeset on m14-safe", "initramfs": "rd.break=pre-mount on m14-safe", "vmtest": "L1 only, no devicetree"},
-    "rotors": {"sam_mode_order": "silent, clean, quiet, default (sp11-sam-mode-rotor.service, counter in the boot medium environment block)",
+                      "ucsi_glink": "retained early", "ath12k.debug_mask": "0x70; CONFIG_ATH12K_DEBUG=y; output checked by L0",
+                      "scmi_cpufreq": "modules-load.d/sp11-cpufreq.conf (soc-boot R-I2); cap only with the boot-medium marker sp11/enable-cpufreq-cap"},
+    "menu": "M15 flat static menu, 11 entries, no GRUB function except load_video, no grubenv, no variable: debug (m15), safe (m15-safe), nosnd, notouch, spk, usbdbg, nodsp, wifi-unblock, nomodeset, initramfs, vmtest",
+    "diagnostic_args_reason": {"debug": "M15 line 1: m15 DTB (microphones + rear/front/IR camera nodes, GPU off), USB dynamic debug (usb-typec R-I1), PDR dynamic debug, DSP trace string without power:power_domain_target; nothing variable",
+                               "safe": "m15-safe: microphones only, camera and GPU nodes off (the M13/M14-safe content); the always-booting fallback with the same arguments as line 1",
+                               "nosnd": "m15-nosnd: sound card off", "notouch": "touch-pen section 8: m15-notouch, touch child disabled",
+                               "spk": "speaker FIRST TEST (D26): m15-spk, speaker UCM overlay, sp11.allow_nominal=1 on this entry only; kill switch sp11.nospk (operator edit)",
+                               "usbdbg": "M13 USB + DSP trace (8M buffer) on m15-safe", "nodsp": "qcom_q6v5_pas blacklisted (no early DSP) on m15-safe",
+                               "wifi-unblock": "sp11.wifi_unblock=1 on m15-safe", "nomodeset": "nomodeset on m15-safe", "initramfs": "rd.break=pre-mount on m15-safe", "vmtest": "L1 only, no devicetree"},
+    "linux_side_experiments": {"sam_mode_order": "silent, clean, quiet, default (sp11-sam-mode-rotor.service; counter sp11_sam_counter in sp11/state/ on the boot medium)",
                "cdsp_variants": ["fw=c1-00078 keep=0", "fw=c1-00046.1 keep=0", "fw=c1-00078 keep=1", "fw=c1-00046.1 keep=1"],
-               "gpu_state": "sp11_gpu_state in EFI/BOOT/grubenv of the ESP: testing -> failed (GRUB) -> m14-safe; ok when both GPU steps survive"},
+               "cdsp_mechanism": "sp11-cdsp-experiment.service: main entry only, once per boot, restart of the cdsp remoteproc with keep_proxy_pds and the firmware directory; counter sp11_cdsp_counter",
+               "identity_switch": "marker sp11/identity-none on the boot medium (private ISO); sp11-identity-switch.service",
+               "cpufreq_cap": "marker sp11/enable-cpufreq-cap; sp11-cpufreq-cap.service",
+               "gpu_two_step": "installed disabled, never active in M15"},
     "collector_sources": {c: sha256(f"{repo}/hardware/{c}/collector/{c}.sh") for c in ("dsp-subsystems", "wifi")},
-    "m14_inputs": json.load(open(f"{repo}/image/component-inputs/m14.json")),
+    "m15_inputs": json.load(open(f"{repo}/image/component-inputs/m15.json")),
     "touch_collector_sha256": sha256(f"{repo}/hardware/touch-pen/collect-read-only.sh"),
     "touch_userspace_collector_sha256": sha256(f"{repo}/image/overlay/usr/libexec/sp11-touch-userspace-collect"),
     "iptsd": json.load(open(f"{out}/rpms/iptsd-3.1.0-1.fc44.aarch64.json")),

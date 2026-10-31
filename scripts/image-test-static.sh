@@ -18,6 +18,7 @@ if [ "${SP11_OUT:-}" = "" ] || [ ! -d /sp11 ]; then
 fi
 OUT=$SP11_OUT
 REPO=/sp11
+LREPO=$REPO   # repository the INSTALLED (squashfs) Linux side was built from; a patched test ISO names its own snapshot in the record
 
 arg=${1:-}
 if [ -z "$arg" ]; then
@@ -47,6 +48,8 @@ skip() { nskip=$((nskip + 1)); say "SKIP $1: $2"; }
 jq_() { jq -r "$1" "$rec"; }
 
 smoke=$(jq_ '.smoke')
+patched=$(jq_ '.menu2_patch.linux_side_repo // empty')
+if [ -n "$patched" ]; then LREPO=$patched; [ -d "$LREPO/image" ] || { echo "image-test-static: snapshot $LREPO of the installed Linux side missing" >&2; exit 2; }; fi
 # D16: the record says which builder made the ISO. kiwi and livemedia-creator lay the media out
 # differently; each difference below is marked "kiwi:" and listed in image/README.md ("L0 on kiwi").
 builder=$(jq_ '.builder // "lmc"')
@@ -186,18 +189,18 @@ else
 fi
 titles=$(grep -o -E "^[[:space:]]*(menuentry|submenu) '[^']*'" "$cfg_esp" | sed -E "s/^[[:space:]]*(menuentry|submenu) '//;s/'\$//")
 if [ "$builder" = kiwi ]; then
-	# M14: line 1 is the main entry, line 2 the one submenu, then its seven entries in order
-	expect=$'SP11 debug\nRecovery and tests\nSP11 debug, safe (no GPU, no cameras)\nSP11 debug, no sound\nSP11 debug, touch off\nSP11 debug, speakers (gated)\nSP11 debug, nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)'
-	nentries=8
+	# M15: one FLAT static menu (M13 style), eleven entries, no submenu
+	expect=$'SP11 debug\nSP11 debug, safe (no cameras)\nSP11 debug, no sound\nSP11 debug, touch off\nSP11 debug, speakers (gated)\nSP11 debug, USB + DSP trace\nSP11 debug, no early DSP\nSP11 debug, Wi-Fi unblock probe\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)'
+	nentries=11
 else
 	expect=$'SP11 debug\nSP11 debug + DRM trace\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)'
 	nentries=5
 fi
-[ "$titles" = "$expect" ] && pass 2.5 "exactly the M14 menu in order: main entry, submenu, seven submenu entries" || fail 2.5 "entries differ: $(echo "$titles" | tr '\n' '|')"
+[ "$titles" = "$expect" ] && pass 2.5 "exactly the M15 flat menu in order: debug, safe, no sound, touch off, speakers, USB + DSP trace, no early DSP, Wi-Fi unblock, nomodeset, stop in initramfs, VM test" || fail 2.5 "entries differ: $(echo "$titles" | tr '\n' '|')"
 [ "$(grep -c '^set default=0' "$cfg_esp")" = 1 ] && pass 2.6 "default entry is the first (SP11 debug, the main entry)" || fail 2.6 "default is not entry 0"
 bad=0
-# M14: the main entry's DTB name is a GRUB variable (m14 or m14-safe, chosen by the GPU self-healing state): both targets must exist
-awk '/^[ \t]*menuentry /{t=$0} /^[ \t]+devicetree /{p=$2; if (p ~ /sp11_gpu_dtb/) { q=p; sub(/\$\{sp11_gpu_dtb\}/, "m14", p); print p "\t" t; sub(/\$\{sp11_gpu_dtb\}/, "m14-safe", q); print q "\t" t } else print p "\t" t}' "$cfg_esp" >"$W/dt-lines.txt"
+# M15: every devicetree line is a fixed path (no GRUB variable anywhere); the file must exist on the ISO
+awk '/^[ \t]*menuentry /{t=$0} /^[ \t]+devicetree /{print $2 "\t" t}' "$cfg_esp" >"$W/dt-lines.txt"
 while IFS=$'\t' read -r path entry; do
 	path=${path#'($root)'}   # kiwi writes devicetree ($root)/boot/dtb/...
 	p=${path#/}
@@ -211,7 +214,7 @@ ids_ok=1
 awk '/^[ \t]*menuentry /{t=$0} /^[[:space:]]+linux /{print t "\t" $0}' "$cfg_esp" >"$W/linux-lines.txt"
 while IFS=$'\t' read -r t l; do
 	id=$(echo "$t" | sed -n "s/.*--id sp11-\([a-z0-9-]*\).*/\1/p")
-	case $id in debug | safe | nosnd | notouch | spk | nomodeset | initramfs | vmtest) ;; *) ids_ok=0; fail 2.12 "unknown entry id '$id' ($t)" ;; esac
+	case $id in debug | safe | nosnd | notouch | spk | usbdbg | nodsp | wifi-unblock | nomodeset | initramfs | vmtest) ;; *) ids_ok=0; fail 2.12 "unknown entry id '$id' ($t)" ;; esac
 	want=$id
 	case $l in *" sp11.entry=$want"*) ;; *) ids_ok=0; fail 2.12 "entry '$t' lacks sp11.entry=$want" ;; esac
 	case $l in *console=ttyAMA0*) [ "$id" = vmtest ] || { ids_ok=0; fail 2.12 "serial console on a device entry: $t"; } ;; *) [ "$id" != vmtest ] || { ids_ok=0; fail 2.12 "VM entry lacks the serial console"; } ;; esac
@@ -223,18 +226,24 @@ vm=$(awk '/^[ \t]*menuentry /{f=0} /^[ \t]*menuentry .VM test/{f=1} f&&/^[[:spac
 [ "$(grep -c -E "^[[:space:]]*menuentry '" "$cfg_esp")" = "$nentries" ] && [ "$(grep '^set default' "$cfg_esp")" = "set default=0" ] && pass 2.9 "VM test entry is not the default"
 if [ "$builder" = kiwi ]; then
 	if python3 -I "$REPO/image/tools/check-m8-menu.py" "$cfg_esp" >"$W/m8-menu.txt" 2>&1; then
-		pass 2.17 "M14 menu: main entry then one submenu, DTB per entry, exact diagnostic arguments (USB dyndbg, DSP trace without power_domain_target, gpu_diag inline), allow_nominal on spk only, no literal m14 DTB outside the main variable, grubenv logic (GPU state, CDSP rotor table, no halt/loop)"
+		pass 2.17 "M15 flat static menu: 11 entries, no function except load_video, no load_env/save_env/grubenv/variable/submenu, fixed DTB per entry (line 1 m15 with cameras, line 2 m15-safe fallback), exact diagnostic arguments, allow_nominal on spk only, no rotor/GPU/SAM/firmware_class argument on any line"
 	else
-		fail 2.17 "M14 menu: $(cat "$W/m8-menu.txt")"
+		fail 2.17 "M15 menu: $(cat "$W/m8-menu.txt")"
 	fi
 fi
 if [ "$builder" = kiwi ]; then
+	# M15: GRUB is static. No save_env, load_env or editenv in any executable line of any grub config of the ISO or its ESP.
+	wr=0
+	for c in "$cfg_main" "$cfg_iso" "$W/iso-tree/EFI/fedora-grub.cfg" "$cfg_esp"; do
+		[ -s "$c" ] && grep -v '^[[:space:]]*#' "$c" | grep -E -q '\b(save_env|load_env|grub2?-editenv)\b' && wr=1
+	done
+	[ "$wr" = 0 ] && pass 2.19 "no save_env, load_env or editenv in any grub config: GRUB reads and writes no state, Linux userspace owns it" || fail 2.19 "a grub config touches an environment block (save_env/load_env/editenv)"
 	# S1 (D21, D26): every DTB a devicetree line of a device entry points to is decompiled with dtc and judged by the kernel worker's
 	# scripts/kernel-dtb-safety.py (effective status: a node is enabled only if every ancestor is; watching the WSA8845 SoundWire ID,
 	# wsa884* and the x1e80100 sound card). Profile `default` for every entry; profile `d26` ONLY for the DTB m13-spk, which must be
 	# used by the entry `spk` and nowhere else, and which must FAIL the default profile (it enables the amplifiers on purpose).
 	s1ok=1 nsel=0
-	cp "$W/dt-lines.txt" "$W/s1-entries.txt"   # the main entry's variable already expanded to m14 and m14-safe
+	cp "$W/dt-lines.txt" "$W/s1-entries.txt"   
 	while IFS=$'\t' read -r dp t; do
 		dp=${dp#'($root)'}
 		id=$(echo "$t" | sed -n "s/.*--id sp11-\([a-z0-9-]*\).*/\1/p")
@@ -242,14 +251,14 @@ if [ "$builder" = kiwi ]; then
 		nsel=$((nsel + 1))
 		if [ ! -s "$df" ] || ! dtc -I dtb -O dts -o "$df.dts" "$df" 2>/dev/null; then s1ok=0; fail 2.18 "cannot decompile $dp for the sound check"; continue; fi
 		profile=default
-		case $dp in *denali-m14-spk.dtb) profile=d26; [ "$id" = spk ] || { s1ok=0; fail 2.18 "S1: speaker DTB $dp used by entry '$id', only 'spk' may use it"; } ;; esac
+		case $dp in *denali-m15-spk.dtb) profile=d26; [ "$id" = spk ] || { s1ok=0; fail 2.18 "S1: speaker DTB $dp used by entry '$id', only 'spk' may use it"; } ;; esac
 		python3 -I "$REPO/scripts/kernel-dtb-safety.py" "$df.dts" --profile "$profile" >"$df.s1.json" 2>&1 && res=OK || res="profile $profile failed: $(tr -d '\n ' <"$df.s1.json" | cut -c1-300)"
 		[ "$res" = OK ] || { s1ok=0; fail 2.18 "S1: $dp ($id): $res"; }
 		if [ "$profile" = d26 ]; then
 			if python3 -I "$REPO/scripts/kernel-dtb-safety.py" "$df.dts" --profile default >/dev/null 2>&1; then s1ok=0; fail 2.18 "S1: $dp passes the default profile (it must not: it enables the speakers)"; fi
 		fi
 	done <"$W/s1-entries.txt"
-	[ "$nsel" -ge 1 ] && [ "$s1ok" = 1 ] && pass 2.18 "S1: $nsel device entries judged: every DTB passes the default profile except m14-spk, which passes only d26, fails default and is used only by entry spk"
+	[ "$nsel" -ge 1 ] && [ "$s1ok" = 1 ] && pass 2.18 "S1: $nsel device entries judged: every DTB passes the default profile except m15-spk, which passes only d26, fails default and is used only by entry spk"
 fi
 free=$(mdir -i "$esp_img" ::/ 2>/dev/null | awk '/bytes free/{gsub(/[^0-9]/,""); print}')
 if [ -n "${free:-}" ] && [ "$free" -ge 8388608 ]; then pass 2.10 "embedded ESP has $((free / 1048576)) MiB free for /EFI/sp11-logs"; else fail 2.10 "embedded ESP free space too small (${free:-?} bytes)"; fi
@@ -336,9 +345,9 @@ fi
 if [ "$builder" = kiwi ]; then
 	# D19: DTB variants next to the packaged one. Same SoC and board (root compatible), different from the
 	# packaged DTB, hashes as in the build record and as in out/dtb-variants (the kernel worker's output).
-	m13v="m14 m14-safe m14-nosnd m14-notouch m14-spk"
+	m13v="m15 m15-safe m15-nosnd m15-notouch m15-spk"
 	for v in $m13v; do x "/boot/dtb/qcom/x1p64100-microsoft-denali-$v.dtb" "$W/x1p64100-microsoft-denali-$v.dtb"; done
-	m12dir=$OUT/dtb-variants/7.3.0-65.sp11.9.fc44.aarch64/qcom   # the M12 DTBs the M14 variants are compared with (scripts/kernel-dtb-m14.sh)
+	m12dir=$OUT/dtb-variants/7.3.0-65.sp11.9.fc44.aarch64/qcom   # the M12 DTBs the M15 variants are compared with (kernel worker scripts/kernel-dtb-m15.sh)
 	for v in $m13v; do
 		vf=x1p64100-microsoft-denali-$v.dtb
 		vd=$W/$vf
@@ -348,19 +357,15 @@ if [ "$builder" = kiwi ]; then
 		fi
 		dtc -I dtb -O dts -o "$vd.dts" "$vd" 2>"$vd.err" && pass 3.6 "variant $v decompiles with dtc" || fail 3.6 "variant $v: dtc failed: $(head -n2 "$vd.err")"
 		gpu_status=$(fdtget "$vd" /soc@0/gpu@3d00000 status 2>/dev/null)
-		if [ "$v" = m14 ]; then
-			[ "$gpu_status" = okay ] && pass 3.12 "D22/M14: the combined m14 enables the GPU node (only this variant; the main entry selects it only while the GPU self-healing state allows)" || fail 3.12 "D22: m14 GPU status '$gpu_status' (expected okay)"
-		else
-			[ "$gpu_status" = disabled ] && pass 3.12 "D22: $v GPU node disabled" || fail 3.12 "D22: $v GPU status '$gpu_status'"
-		fi
+		[ "$gpu_status" = disabled ] && pass 3.12 "M15: $v GPU node disabled (the GPU is skipped; no variant enables it)" || fail 3.12 "M15: $v GPU status '$gpu_status' (expected disabled)"
 		# the exact baselines and M12 comparison DTBs of scripts/kernel-dtb-m13.sh
 		base=$dtbf extra=()
 		case $v in
-		m14 | m14-notouch) base=$W/x1p64100-microsoft-denali-m14-safe.dtb ;;
+		m15 | m15-notouch) base=$W/x1p64100-microsoft-denali-m15-safe.dtb ;;
 		esac
 		case $v in
-		m14-nosnd) extra=(--previous-m12 "$m12dir/x1p64100-microsoft-denali-m12.dtb") ;;
-		m14-safe) extra=(--previous-m12 "$m12dir/x1p64100-microsoft-denali-m12-audio.dtb") ;;
+		m15-nosnd) extra=(--previous-m12 "$m12dir/x1p64100-microsoft-denali-m12.dtb") ;;
+		m15-safe) extra=(--previous-m12 "$m12dir/x1p64100-microsoft-denali-m12-audio.dtb") ;;
 		esac
 		if python3 -I "$REPO/scripts/kernel-m8-check.py" "$vd" --variant "$v" --cma-dma32 --parity-in-base --baseline "$base" "${extra[@]}" >"$W/$v-wiring.json" 2>"$W/$v-wiring.err"; then
 			pass 3.13 "$v: S1 profile, parity, wiring, QSPI touch, camera and GPU placement (kernel-m8-check)"
@@ -371,8 +376,8 @@ if [ "$builder" = kiwi ]; then
 		if [ "$(jq_ ".dtb_variants_smoke_copy // false")" = true ]; then
 			skip 3.8 "smoke build: variant $v is a copy of the packaged DTB, not a real variant"
 		else
-			if [ "$v" = m14-nosnd ]; then
-				cmp -s "$vd" "$dtbf" && pass 3.8 "m14-nosnd (M12 behaviour) equals the packaged DTB" || fail 3.8 "m14-nosnd differs from the packaged DTB"
+			if [ "$v" = m15-nosnd ]; then
+				cmp -s "$vd" "$dtbf" && pass 3.8 "m15-nosnd (M12 behaviour) equals the packaged DTB" || fail 3.8 "m15-nosnd differs from the packaged DTB"
 			else
 				cmp -s "$vd" "$dtbf" && fail 3.8 "variant $v is identical to the packaged DTB" || pass 3.8 "variant $v differs from the packaged DTB"
 			fi
@@ -382,7 +387,7 @@ if [ "$builder" = kiwi ]; then
 		if [ -n "$rsha" ]; then [ "$vsha" = "$rsha" ] && pass 3.11 "variant $v SHA-256 equals the kernel worker's JSON record" || fail 3.11 "variant $v SHA-256 differs from the kernel worker's JSON record ($rsha)"; else fail 3.11 "no JSON record of the kernel worker for variant $v in the build record"; fi
 		vr=$OUT/dtb-variants/$kver/qcom/${vf%.dtb}.json
 		if [ -f "$vr" ] && [ "$vsha" = "$(jq -r .sha256 "$vr")" ] &&
-		   [ "$(jq -r .kver "$vr")" = "$kver" ] && [ "$(jq -r .series_rev "$vr")" = 11 ] &&
+		   [ "$(jq -r .kver "$vr")" = "$kver" ] && [ "$(jq -r .series_rev "$vr")" = 12 ] &&
 		   [ "$(jq -r .series_hash_sha256 "$vr")" = "$(jq_ .kernel_patch_series_sha256)" ] &&
 		   jq -e --arg f "$vf.json" --slurpfile source "$vr" '.dtb_variant_records[$f] == $source[0]' "$rec" >/dev/null; then
 			pass 3.14 "variant $v matches published JSON hash/release/series and embedded record"
@@ -390,9 +395,9 @@ if [ "$builder" = kiwi ]; then
 		src=$(ls "$OUT"/dtb-variants/"$kver"/qcom/$vf 2>/dev/null | head -n1)
 		if [ -n "$src" ]; then cmp -s "$src" "$vd" && pass 3.10 "variant $v equals out/dtb-variants/$kver/qcom/$vf" || fail 3.10 "variant $v differs from $src"; else fail 3.10 "no out/dtb-variants/$kver/qcom/$vf to compare with"; fi
 		# D26/S1: the effective safety profile per DTB (default, or d26 for m13-spk only; m13-spk must fail default)
-		sp=default; [ "$v" = m14-spk ] && sp=d26
+		sp=default; [ "$v" = m15-spk ] && sp=d26
 		if python3 -I "$REPO/scripts/kernel-dtb-safety.py" "$vd.dts" --profile "$sp" >/dev/null 2>&1; then
-			if [ "$v" = m14-spk ] && python3 -I "$REPO/scripts/kernel-dtb-safety.py" "$vd.dts" --profile default >/dev/null 2>&1; then fail 3.15 "m14-spk passes the default profile"; else pass 3.15 "$v passes the $sp safety profile$([ "$v" = m14-spk ] && echo ' and fails default')"; fi
+			if [ "$v" = m15-spk ] && python3 -I "$REPO/scripts/kernel-dtb-safety.py" "$vd.dts" --profile default >/dev/null 2>&1; then fail 3.15 "m15-spk passes the default profile"; else pass 3.15 "$v passes the $sp safety profile$([ "$v" = m15-spk ] && echo ' and fails default')"; fi
 		else fail 3.15 "$v fails the $sp safety profile"; fi
 	done
 fi
@@ -404,9 +409,9 @@ if [ "$smoke" = false ]; then
 	ls "$OUT"/rpms/kernel-core-*.rpm >/dev/null 2>&1 && { rpm -qp --qf '%{name}-%{version}-%{release}.%{arch}\n' "$OUT"/rpms/kernel-core-*.rpm | grep -qx "$got_nevra" && pass 4.2 "kernel-core is the RPM of out/rpms" || fail 4.2 "kernel-core is not in out/rpms"; }
 fi
 if [ "$builder" = kiwi ] && [ "$smoke" = false ]; then
-	if [ "$kver" = 7.3.0-65.sp11.11.fc44.aarch64 ] && [ "$got_nevra" = kernel-core-7.3.0-65.sp11.11.fc44.aarch64 ] && [ "$(jq_ .milestone)" = M14 ]; then
-		pass 4.9 "M14: required revision-11 kernel release (7.3.0-65.sp11.11.fc44.aarch64) and milestone"
-	else fail 4.9 "M14 requires the revision-11 kernel and milestone (found $kver / $got_nevra)"; fi
+	if [ "$kver" = 7.3.0-65.sp11.12.fc44.aarch64 ] && [ "$got_nevra" = kernel-core-7.3.0-65.sp11.12.fc44.aarch64 ] && [ "$(jq_ .milestone)" = M15 ]; then
+		pass 4.9 "M15: required revision-12 kernel release (7.3.0-65.sp11.12.fc44.aarch64) and milestone"
+	else fail 4.9 "M15 requires the revision-12 kernel and milestone (found $kver / $got_nevra)"; fi
 fi
 cmp -s "$kimg" "$ROOT/lib/modules/$kver/vmlinuz" && pass 4.3 "ISO kernel image equals lib/modules/$kver/vmlinuz" || fail 4.3 "ISO kernel image differs from the package"
 kimg_ver=$(python3 -I - "$kimg" <<'PY'
@@ -485,44 +490,47 @@ root, record, release = map(pathlib.Path, sys.argv[1:])
 rec = json.loads(record.read_text())
 digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
 assert digest(release) == rec['kernel_release_record_sha256']
-modules = json.loads(release.read_text())['m14']['touch_modules']
+modules = next(v['touch_modules'] for k in ('m15', 'm14', 'm13') for v in [json.loads(release.read_text()).get(k)] if v and 'touch_modules' in v)
 assert modules == rec['kernel_touch_modules'] and len(modules) == 8
 for name, module in modules.items():
     assert digest(root / module['path'].lstrip('/')) == module['module_sha256'], name
 PY
-	then pass 4.12 "all eight M14 touch module payload hashes match the pinned kernel release JSON"
+	then pass 4.12 "all eight M15 touch module payload hashes match the pinned kernel release JSON"
 	else fail 4.12 "M11 touch module bytes or kernel release record differ"; fi
 fi
 
 # M11 integration and audio safety: check actual shipped bytes and activation policy.
 if [ "$builder" = kiwi ]; then
-	if python3 -I "$REPO/image/tools/check-m11-payload.py" "$ROOT" "$REPO" "$rec" "$OUT/rpms/kernel-$kver.json" >"$W/m11-payload.txt" 2>&1; then
+	if python3 -I "$REPO/image/tools/check-m11-payload.py" "$ROOT" "$LREPO" "$rec" "$OUT/rpms/kernel-$kver.json" >"$W/m11-payload.txt" 2>&1; then
 		pass 8.35 "M11/M13 microphones: no speaker UCM in the default path; topology, kernel volume caps, WirePlumber and locked dconf policy verified"
 	else fail 8.35 "M11 payload validation failed (m11-payload.txt)"; fi
 	if systemd-analyze --root="$ROOT" verify sp11-ssam-shutdown.service sp11-ssam-rebind.service sp11-rfkill-events.service >"$W/m11-units.txt" 2>&1; then
 		pass 8.36 "SAM shutdown, opt-in rebind and rfkill units validate without ordering cycles"
 	else fail 8.36 "M11 unit validation failed (m11-units.txt)"; fi
 	# M14: collectors, GPU two-step with the image hooks, rotors, speaker first-test tooling, UCM fix, power-thermal, FastRPC, libcamera
-	if python3 -I "$REPO/image/tools/check-m14-payload.py" "$ROOT" "$REPO" "$rec" >"$W/m14-payload.txt" 2>&1; then
-		pass 8.37 "M14 payload: owner collectors as built from source, GPU two-step = owner script plus the three recorded image changes and a Before=gdm drop-in, rotor units/scripts/order, speaker first-test tooling (manual, entry- and argument-gated), microphone UCM fix, power-thermal overlay, FastRPC (root:fastrpc 0640), libcamera"
-	else fail 8.37 "M14 payload validation failed ($(tail -n1 "$W/m14-payload.txt" | cut -c1-200))"; fi
-	if systemd-analyze --root="$ROOT" verify sp11-gpu-two-step.service sp11-speaker-ucm.service sp11-sam-mode-rotor.service sp11-cdsp-variant.service sp11-suspend-diag.service sp11-suspend-policy.service sp11-wakeup-policy.service sp11-thermal-sample.service >"$W/m14-units.txt" 2>&1; then
-		pass 8.38 "GPU two-step (with the gdm drop-in), speaker UCM, SAM and CDSP rotor, suspend and thermal units validate"
-	else fail 8.38 "M14 unit validation failed (m14-units.txt)"; fi
+	if python3 -I "$REPO/image/tools/check-m15-payload.py" "$ROOT" "$LREPO" "$rec" >"$W/m15-payload.txt" 2>&1; then
+		pass 8.37 "M15 payload: owner collectors as built from source, GPU two-step installed DISABLED (owner script plus the recorded image changes), SAM rotor/CDSP experiment/cpufreq cap/identity switch units and scripts, sp11-boot-state, touch profile B default and marker A, identity collectors, modules-load scmi_cpufreq, speaker first-test tooling (manual, entry- and argument-gated), microphone UCM fix, power-thermal overlay, FastRPC (root:fastrpc 0640), libcamera"
+	else fail 8.37 "M15 payload validation failed ($(tail -n1 "$W/m15-payload.txt" | cut -c1-200))"; fi
+	if systemd-analyze --root="$ROOT" verify sp11-gpu-two-step.service sp11-speaker-ucm.service sp11-sam-mode-rotor.service sp11-cdsp-experiment.service sp11-cpufreq-cap.service sp11-identity-switch.service sp11-wifi-identity.service sp11-identity-bt-pre.service sp11-suspend-diag.service sp11-suspend-policy.service sp11-wakeup-policy.service sp11-thermal-sample.service >"$W/m15-units.txt" 2>&1; then
+		pass 8.38 "GPU two-step (disabled, with the gdm drop-in), speaker UCM, SAM rotor, CDSP experiment, cpufreq cap, identity switch and identity units, suspend and thermal units validate"
+	else fail 8.38 "M15 unit validation failed (m15-units.txt)"; fi
 	# M14: the rotor and notice scripts run against a fake sysfs/boot medium: order, counter, wrap-around, command-line override, notices
-	if bash "$REPO/image/tools/rotor-selftest.sh" "$ROOT" >"$W/rotor-selftest.txt" 2>&1; then
-		pass 8.39 "rotor self-test on the installed scripts: SAM order silent-clean-quiet-default and wrap, command-line override, CDSP report and power-off text, GPU hooks report/arm/ok, esp-env refusals"
+	if bash "$LREPO/image/tools/rotor-selftest.sh" "$ROOT" >"$W/rotor-selftest.txt" 2>&1; then
+		pass 8.39 "Linux-side self-test on the installed scripts: boot-state files and markers and S4 refusal, SAM order silent-clean-quiet-default and wrap, CDSP experiment (variants, once per boot, guards, timeouts, restore, power-off text), cpufreq cap (marker, median, never performance), identity switch, touch profile B default / marker A, GPU hooks"
 	else fail 8.39 "rotor self-test failed ($(grep '^FAIL' "$W/rotor-selftest.txt" | head -n 3 | tr '\n' ';'))"; fi
+	if [ -n "$patched" ]; then
+		# patched test ISO: the squashfs still has an older Linux side; the repository's NEW Linux side (not in this ISO) is tested on image/overlay
+		if bash "$REPO/image/tools/rotor-selftest.sh" "$REPO/image/overlay" >"$W/rotor-selftest-new.txt" 2>&1; then
+			pass 8.43 "patched test ISO: the repository's new Linux side (experiment state kept in plain files by Linux only) passes the rotor self-test on image/overlay; it is NOT in this ISO's squashfs"
+		else fail 8.43 "new Linux side self-test failed ($(grep '^FAIL' "$W/rotor-selftest-new.txt" | head -n 3 | tr '\n' ';'))"; fi
+	fi
 	# M14: the microphone UCM lookup, run with alsaucm from Fedora against the ISO's own UCM files (audio-mics test: list only)
 	if bash "$REPO/image/tools/ucm-lookup-test.sh" "$ROOT" "$W/ucm-test" >"$W/ucm-lookup.txt" 2>&1; then
 		pass 8.40 "alsaucm with the shipped UCM files: the Surface Pro 11 DMI string selects the microphone profile (verb HiFi, device Mic, capture PCM), the 12in string does not"
 	else fail 8.40 "UCM lookup failed ($(tail -n 2 "$W/ucm-lookup.txt" | tr '\n' ';' | cut -c1-200))"; fi
-	# M14: the ESP carries the environment block; grub2-script-check accepts the rendered main configuration
-	rm -rf "$W/esp-env"; mkdir -p "$W/esp-env"
-	mcopy -n -i "$esp_img" ::EFI/BOOT/grubenv "$W/esp-env/grubenv" 2>/dev/null
-	if [ "$(stat -c %s "$W/esp-env/grubenv" 2>/dev/null)" = 1024 ] && head -c 24 "$W/esp-env/grubenv" | grep -q '^# GRUB Environment Block' && grub2-editenv "$W/esp-env/grubenv" list >/dev/null 2>&1; then
-		pass 8.41 "the ESP carries EFI/BOOT/grubenv: one valid 1024-byte GRUB environment block"
-	else fail 8.41 "EFI/BOOT/grubenv missing or not a 1024-byte environment block on the ESP"; fi
+	# M15: the ESP carries NO environment block (GRUB is static); grub2-script-check accepts the rendered main configuration
+	if [ -n "$patched" ]; then skip 8.41 "patched test ISO keeps the ESP of its base ISO"
+	elif mdir -i "$esp_img" ::EFI/BOOT 2>/dev/null | grep -qi grubenv; then fail 8.41 "EFI/BOOT/grubenv present on the ESP (M15: GRUB is static, no environment block)"; else pass 8.41 "the ESP carries no grubenv: GRUB reads and writes no state"; fi
 	if grub2-script-check "$cfg_main" >"$W/grub-script-check.txt" 2>&1; then pass 8.42 "grub2-script-check accepts the main grub.cfg"; else fail 8.42 "grub2-script-check: $(head -n 2 "$W/grub-script-check.txt")"; fi
 	# M14: private and public contents of the firmware that must never be public
 	lsinitrd "$initrd_img" >"$W/initrd-list.txt" 2>&1

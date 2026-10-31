@@ -1,0 +1,33 @@
+#!/usr/bin/bash
+# Identity experiment switch (M15, private ISO only). The wifi and bluetooth workers' units decide inject or none from the kernel argument
+# sp11.identity=none (hardware/wifi/image-request-identity.md section 3). The M15 command line is static, so the switch is a MARKER FILE
+# on the boot medium instead: sp11/identity-none (sp11-boot-state marker). When it exists this script, very early and before every consumer,
+# bind-mounts a copy of the command line with ` sp11.identity=none` appended over /proc/cmdline; the consumers (sp11-wifi-identity,
+# sp11-identity-bt, sp11-bt-address and the two collectors) read it unchanged. The real kernel command line is kept in /run/sp11/cmdline-kernel
+# and the journal. Without the marker nothing is mounted and the default (inject, D25) applies. Nothing on disk changes; the bind mount ends
+# with the boot. Never prints an address (S5).
+set -u
+export LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin
+RUN=${SP11_RUN:-/run/sp11}
+CMDLINE=${SP11_ID_CMDLINE:-/proc/cmdline}
+BS=${SP11_BOOT_STATE:-/usr/libexec/sp11-boot-state}
+NOTICE=${SP11_NOTICE:-/usr/libexec/sp11/operator-notice}
+MOUNT=${SP11_MOUNT:-mount}
+mkdir -p "$RUN"
+if tr ' ' '\n' <"$CMDLINE" | grep -q '^sp11\.identity='; then
+	echo "kernel command line already carries sp11.identity: nothing to do" >"$RUN/identity-switch"; exit 0
+fi
+if "$BS" marker identity-none 2>/dev/null; then
+	tr -d '\n' <"$CMDLINE" >"$RUN/cmdline-kernel"; echo >>"$RUN/cmdline-kernel"
+	{ tr -d '\n' <"$CMDLINE"; echo " sp11.identity=none"; } >"$RUN/cmdline-effective"
+	if $MOUNT --bind "$RUN/cmdline-effective" /proc/cmdline 2>/dev/null; then
+		echo "marker sp11/identity-none found: /proc/cmdline now ends with sp11.identity=none (real command line in $RUN/cmdline-kernel)" >"$RUN/identity-switch"
+		"$NOTICE" add 15-identity "Identity experiment: marker sp11/identity-none found on the boot medium, Wi-Fi and Bluetooth address copy is OFF for this boot (the hardware shows its own addresses). Remove the file to inject again." || true
+	else
+		echo "marker found but the bind mount over /proc/cmdline FAILED: the default (inject) applies" >"$RUN/identity-switch"
+		"$NOTICE" add 15-identity "Identity experiment: marker found but the switch FAILED; the address copy stays ON this boot." || true
+	fi
+else
+	echo "no marker sp11/identity-none: default (inject, D25)" >"$RUN/identity-switch"
+fi
+exit 0

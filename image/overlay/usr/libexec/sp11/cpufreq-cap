@@ -1,0 +1,52 @@
+#!/usr/bin/bash
+# First-boot cpufreq safety policy (M15, soc-boot request R-I2, evidence 2026-10-31-cpufreq.md "Safety (S6)"). scmi_cpufreq is loaded at every
+# boot by /etc/modules-load.d/sp11-cpufreq.conf; this script, run once per boot after it, applies the cap ONLY when the operator marker
+# file sp11/enable-cpufreq-cap exists on the boot medium (sp11-boot-state marker; the kernel command line is static and carries no switch):
+#   - governor schedutil on every policy (never performance, never ondemand);
+#   - scaling_max_freq = the middle entry of the sorted scaling_available_frequencies of that policy (median; a mid-range level, not the SCMI maximum);
+#   - everything recorded in /run/sp11/cpufreq-cap (the collector prints it) and shown to the operator.
+# It never raises a limit above what the kernel offers and never touches thermal trips (S6: no raise). Without the marker it only records.
+set -u
+export LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin
+CPU=${SP11_CPU_DIR:-/sys/devices/system/cpu/cpufreq}
+RUN=${SP11_RUN:-/run/sp11}
+OUT=$RUN/cpufreq-cap
+BS=${SP11_BOOT_STATE:-/usr/libexec/sp11-boot-state}
+NOTICE=${SP11_NOTICE:-/usr/libexec/sp11/operator-notice}
+WAIT=${SP11_CPUFREQ_WAIT:-60}
+mkdir -p "$RUN"; : >"$OUT"
+log() { echo "$*" >>"$OUT"; echo "sp11-cpufreq-cap: $*" >&2; }
+for ((i = 0; i < WAIT; i++)); do ls -d "$CPU"/policy* >/dev/null 2>&1 && break; sleep 1; done
+if ! ls -d "$CPU"/policy* >/dev/null 2>&1; then
+	log "no cpufreq policy after ${WAIT}s (scmi_cpufreq did not register; see the collector rotors file)"
+	"$NOTICE" add 40-cpufreq "cpufreq: no policy registered; nothing capped." || true; exit 0
+fi
+for p in "$CPU"/policy*; do
+	log "${p##*/}: cpus=[$(cat "$p/related_cpus" 2>/dev/null)] governor=$(cat "$p/scaling_governor" 2>/dev/null) min=$(cat "$p/cpuinfo_min_freq" 2>/dev/null) max=$(cat "$p/cpuinfo_max_freq" 2>/dev/null) scaling_max=$(cat "$p/scaling_max_freq" 2>/dev/null) available=[$(cat "$p/scaling_available_frequencies" 2>/dev/null)]"
+done
+if ! "$BS" marker enable-cpufreq-cap 2>/dev/null; then
+	log "cap NOT applied: marker sp11/enable-cpufreq-cap not found on the boot medium"
+	"$NOTICE" add 40-cpufreq "cpufreq: scmi_cpufreq registered $(ls -d "$CPU"/policy* | wc -l) policies, NO cap applied (create the empty file sp11/enable-cpufreq-cap on the SP11LOGS partition to cap at a mid-range frequency, governor schedutil)." || true
+	exit 0
+fi
+capped=0 failed=0
+for p in "$CPU"/policy*; do
+	n=${p##*/}
+	if grep -qw schedutil "$p/scaling_available_governors" 2>/dev/null; then
+		printf schedutil >"$p/scaling_governor" 2>/dev/null
+		[ "$(cat "$p/scaling_governor" 2>/dev/null)" = schedutil ] || { log "$n: could not set governor schedutil (now $(cat "$p/scaling_governor" 2>/dev/null))"; failed=$((failed + 1)); }
+	else
+		log "$n: schedutil not available ($(cat "$p/scaling_available_governors" 2>/dev/null)); governor left"
+	fi
+	case $(cat "$p/scaling_governor" 2>/dev/null) in performance) log "$n: governor is performance: refusing to cap upward, leaving the policy alone"; failed=$((failed + 1)); continue ;; esac
+	mapfile -t fr < <(tr ' ' '\n' <"$p/scaling_available_frequencies" 2>/dev/null | grep -E '^[0-9]+$' | sort -n)
+	if [ "${#fr[@]}" -lt 2 ]; then log "$n: fewer than 2 available frequencies: not capped"; failed=$((failed + 1)); continue; fi
+	cap=${fr[$((${#fr[@]} / 2))]}
+	cur=$(cat "$p/scaling_max_freq" 2>/dev/null)
+	if [ -n "$cur" ] && [ "$cap" -ge "$cur" ] 2>/dev/null; then log "$n: mid-range $cap is not below the current scaling_max $cur: unchanged"; continue; fi
+	printf '%s' "$cap" >"$p/scaling_max_freq" 2>/dev/null
+	got=$(cat "$p/scaling_max_freq" 2>/dev/null)
+	if [ "$got" = "$cap" ]; then log "$n: scaling_max_freq $cur -> $cap (index $((${#fr[@]} / 2)) of ${#fr[@]}), governor $(cat "$p/scaling_governor")"; capped=$((capped + 1)); else log "$n: write of scaling_max_freq $cap failed (reads $got)"; failed=$((failed + 1)); fi
+done
+"$NOTICE" add 40-cpufreq "cpufreq cap (marker sp11/enable-cpufreq-cap): $capped policies capped to a mid-range frequency, $failed problems; governor schedutil. Details: cpufreq-cap in the log set. Remove the marker file to stop capping." || true
+exit 0
