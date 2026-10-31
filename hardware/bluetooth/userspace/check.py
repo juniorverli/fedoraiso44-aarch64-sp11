@@ -60,14 +60,15 @@ class HelperTests(unittest.TestCase):
         # Isolate the installed-file lookup from any real host provisioning.
         self.helper = self.root / 'helper'
         self.helper.write_text((HERE/'sp11-bt-address').read_text().replace(
-            '/etc/sp11/bt-address', str(self.root/'installed-address')))
+            '/etc/sp11/bt-address', str(self.root/'installed-address')).replace(
+            '/run/sp11/identity-bt-mode', str(self.root/'mode')))
 
-    def run_helper(self, mode='ready', *, matching=True, boot_source=False):
+    def run_helper(self, mode='ready', *, matching=True, boot_source=False, cmdline='root=x'):
         env = dict(os.environ, BT_TEST_DIR=str(self.root), BT_TEST_MODE=mode,
                    PATH=str(self.bin) + ':' + os.environ['PATH'])
         # Stub hardware, boot-source absence and inter-poll sleep after sourcing.
         shell = ('. "$1"; controller_matches() { '+('true' if matching else 'false')+
-                 '; }; sleep() { :; }; read_boot_address() { return 1; }; main hci0'+
+                 '; }; read_cmdline() { echo "'+cmdline+'"; }; sleep() { :; }; read_boot_address() { return 1; }; main hci0'+
                  ('' if boot_source else ' "$2"'))
         result = subprocess.run(['bash', '-c', shell, 'check', str(self.helper), str(self.file)],
                                 env=env, text=True, capture_output=True, timeout=15)
@@ -129,6 +130,24 @@ class HelperTests(unittest.TestCase):
 
     def test_wrong_final_address_not_success(self):
         self.assertNotEqual(self.run_helper('wrong-info').returncode, 0)
+
+    def test_identity_none_makes_no_call_and_logs_mode(self):
+        result = self.run_helper(cmdline='root=x sp11.identity=none')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.calls(), [])
+        self.assertIn('identity mode=none', result.stderr)
+        self.assertEqual((self.root/'mode').read_text().strip(), 'none')
+
+    def test_identity_default_and_invalid_inject_and_log_mode(self):
+        for cmdline in ('root=x', 'sp11.identity=inject', 'sp11.identity=bogus'):
+            with self.subTest(cmdline=cmdline):
+                (self.root/'set').unlink(missing_ok=True)
+                (self.root/'calls').unlink(missing_ok=True)
+                result = self.run_helper(cmdline=cmdline)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn('identity mode=inject', result.stderr)
+                self.assertIn('public-addr', self.calls())
+                self.assertEqual((self.root/'mode').read_text().strip(), 'inject')
 
     def test_other_controller_not_changed(self):
         self.assertEqual(self.run_helper(matching=False).returncode, 0)
