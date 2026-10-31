@@ -1,0 +1,63 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: juniorverli <25966843+juniorverli@users.noreply.github.com>
+Date: Sat, 31 Oct 2026 19:10:48 +0000
+Subject: [PATCH] arm64: dts: qcom: x1p64100-microsoft-denali: drop the QMP PHY
+ orientation switches
+
+On the Surface Pro 11 both USB-C ports enumerate USB 2.0 devices, but the
+SuperSpeed root ports stay in RxDetect (portsc Link=RxDetect, LEC=0 RLC=0
+TLC=0), although the retimers are powered and configured with
+conn_status 0x23/00/00 and the QMP combo PHYs are in USB3-only mode.
+Every attach seen so far was reported as reverse by the ADSP.
+
+Each port has two orientation switches in series: the PS8830 retimer
+(orientation-switch on typec-mux@8) and, behind it, the QMP combo PHY
+(orientation-switch in hamoa.dtsi). ps883x_sw_set() looks up the PHY switch
+with typec_switch_get() and forwards every orientation change to it before
+setting CONN_STATUS_0_ORIENTATION_REVERSED, so a reverse attach flips both
+the retimer and the PHY lane mapping (SW_PORTSELECT_VAL).
+
+Whether that double flip is correct depends on how the retimer host side
+is wired, which the available data does not show: the X1E80100 CRD,
+ThinkPad T14s and Surface Laptop 7 keep both switches. Delete the property
+on both PHYs in the LCD board file so that they keep the normal lane
+mapping and only the retimers flip. The PHYs stay registered through their
+mode-switch property, so the USB3-only/DP mode selection from the retimer
+is unchanged.
+
+Normal-orientation attaches are unaffected. Reverse-orientation
+DisplayPort alt mode places its lanes through the same PHY orientation and
+may change; this is an experiment to be compared with the unmodified
+behaviour.
+
+Assisted-by: Claude Sonnet 5.5
+---
+ .../boot/dts/qcom/x1p64100-microsoft-denali.dts   | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/x1p64100-microsoft-denali.dts b/arch/arm64/boot/dts/qcom/x1p64100-microsoft-denali.dts
+index a96f3595b..f88f6115f 100644
+--- a/arch/arm64/boot/dts/qcom/x1p64100-microsoft-denali.dts
++++ b/arch/arm64/boot/dts/qcom/x1p64100-microsoft-denali.dts
+@@ -188,3 +188,18 @@ ts_reset_n: ts-reset-n-state {
+ 		bias-disable;
+ 	};
+ };
++
++/*
++ * The PS8830 retimers already carry the orientation switch of each port and,
++ * through ps883x_sw_set(), forward every orientation change to the QMP combo
++ * PHY behind them. Do not register the PHYs as orientation switches: they keep
++ * the fixed normal lane mapping and only the retimers flip. Experiment for
++ * reverse-orientation SuperSpeed; the PHYs stay registered as mode switches.
++ */
++&usb_1_ss0_qmpphy {
++	/delete-property/ orientation-switch;
++};
++
++&usb_1_ss1_qmpphy {
++	/delete-property/ orientation-switch;
++};
+-- 
+2.43.0
+
