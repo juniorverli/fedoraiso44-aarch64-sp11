@@ -843,6 +843,68 @@ One private ISO for the operator's device (D25/S5); never share it. Same nine-en
 
 Changes against M11: the builder, L0 and the L1 touch-helper check require kver `7.3.0-65.sp11.9.fc44.aarch64`, series revision 9, milestone `M12`, the `m12*` DTB/JSON pairs and the `m12` entries of the kernel release record (touch modules, new modules). The shutdown unit stays opt-in (`sp11.ssam_shutdown`, `Before=sp11-log-collector.service`) and `ssam-unbind.sh` is shipped; L0 8.35/8.36 check both. Private-stage trap and checks 7.6-7.10 unchanged; no value is printed or recorded. Not verified: anything on hardware (touch, microphones, SAM shutdown, Wi-Fi/Bluetooth). The pinned `m11.json` input record and `check-m11-payload.py` keep their M11 names.
 
+### M13 private ISO (2026-10-31)
+
+One private ISO for the operator's device (D25/S5); never share it. Kernel M13 (series revision 10) with six DTB variants and a sixteen-entry menu. The extracted L0 `root` and the private staging tree were removed after the checks. No disk cleanup was needed: the guard passed (headroom above 30 GiB).
+
+| Item | Value |
+|:--|:--|
+| ISO | `out/iso/sp11-fedora44-aarch64-kiwi-20261030T234013Z-private.iso` |
+| Record / checksum | `out/iso/sp11-fedora44-aarch64-kiwi-20261030T234013Z-private.json` / `.iso.sha256`; hashes only, distribution forbidden |
+| Size | 2,798,321,664 bytes |
+| SHA-256 | `0020e3843298a6ecccdcbea8d32d497252f41d1f4eafcd69aaaee520729b872d` |
+| Kernel | `kernel-core-7.3.0-65.sp11.10.fc44.aarch64`; series revision 10, both BTF settings enabled |
+| Build | One fresh kiwi compose, 1761 s, 1976 packages; build id `20261030T234013Z` |
+| Wi-Fi board | Fedora generic; no derived override (`SP11_WIFI_BOARD2` unset) |
+| libcamera | `libcamera`, `libcamera-tools` (with `libcamera-ipa`) 0.7.2-2.fc44 installed from Fedora; a dnf test transaction of the two packages completed before the compose and the compose installed them (cameras R4: RGB software ISP, no tuning file, no Windows data) |
+| L0 | **250 passed, 0 failed, 0 skipped** (`.l0.txt`), including private checks 7.6-7.10, 2.18, 3.15 (six variants), 4.9, 4.12, 5.11, 8.35-8.38 |
+| QEMU L1 | **21 PASS, 0 FAIL** with `--until-session --decoy` (`.l1.txt` / `.l1.json`, 2304 s to both session snapshots in the first run); menu 16 of 16 titles seen while scrolling to the VM entry, ESP clean, decoy disk byte-identical. A first run failed one check, the touch helper section, because the driver still named the sp11.9 kernel; fixed in `image/tools/qemu_boot_test.py` and rerun on the same ISO |
+
+Menu (checked in the built ISO by the builder, by `image/tools/check-m8-menu.py` and by L0 2.5/2.12/2.17). Every device entry keeps the verbose arguments, `clk_ignore_unused pd_ignore_unused rootdelay=10` and the `qcom_battmgr` blacklists. "Diagnostics" means: USB dynamic debug (`pmic_glink_altmode ps883x phy_qcom_qmp_combo ucsi_glink typec_ucsi dwc3 dwc3_qcom`), `qcom_pd_mapper`/`pdr_interface` dynamic debug and the corrected DSP trace string `trace_event=:mod:qcom_glink,:mod:smp2p,:mod:qcom_aoss,rpmh:rpmh_send_msg,power:power_domain_target trace_buf_size=16M`.
+
+| # | Title | `sp11.entry` | DTB | Arguments beyond the common ones |
+|--:|:--|:--|:--|:--|
+| 1 | `SP11 debug` (default) | `debug` | m13 (microphones) | Diagnostics |
+| 2 | `SP11 debug, no sound` | `nosnd` | m13-nosnd (M12 behaviour) | Diagnostics |
+| 3 | `SP11 debug, touch off` | `notouch` | m13-notouch | Diagnostics |
+| 4 | `SP11 debug, CDSP keep proxy votes` | `cdsp-keep` | m13 | Diagnostics + `qcom_q6v5_pas.keep_proxy_pds=1` (C4 test) |
+| 5 | `SP11 debug, SAM shutdown quiet` | `ssam-quiet` | m13 | Diagnostics + `surface_aggregator.shutdown_mode=quiet` |
+| 6 | `SP11 debug, SAM shutdown clean` | `ssam-clean` | m13 | Diagnostics + `surface_aggregator.shutdown_mode=clean` |
+| 7 | `SP11 debug, SAM shutdown silent` | `ssam-silent` | m13 | Diagnostics + `surface_aggregator.shutdown_mode=silent` |
+| 8 | `SP11 debug, speakers (gated; kernel gate still refuses playback)` | `spk` | m13-spk | Diagnostics; the speaker UCM overlay is installed at boot |
+| 9 | `SP11 debug, rear camera diagnostic` | `cam` | m13-cam | Diagnostics |
+| 10 | `SP11 debug, USB + DSP trace` | `usbdbg` | m13 | USB and PDR dynamic debug, `trace_event=:mod:qcom_glink trace_buf_size=8M` (as in M12) |
+| 11 | `SP11 debug, no early DSP` | `nodsp` | m13 | rd blacklist `qcom_battmgr,qcom_q6v5_pas` |
+| 12 | `SP11 debug, Wi-Fi unblock probe` | `wifi-unblock` | m13 | `sp11.wifi_unblock=1` |
+| 13 | `SP11 debug nomodeset` | `nomodeset` | m13 | `nomodeset` |
+| 14 | `SP11 debug, stop in initramfs` | `initramfs` | m13 | `rd.break=pre-mount` |
+| 15 | `VM test (no devicetree)` | `vmtest` | none | `console=ttyAMA0,115200` |
+| 16 | `SP11 debug, GPU diagnostic (WARNING: may reset the machine)` | `gpu-diag` | m13-gpu | `printk.devkmsg=on log_buf_len=16M systemd.unit=multi-user.target sp11.gpu_diag=1`, entry text of `hardware/gpu/collector/grub-entry.txt` |
+
+The old microphone entry (`audio`) is gone: the default is the microphone DTB. The forbidden-argument check now looks at kernel arguments only (a `linux` line word equal to `quiet`, `rhgb` or `splash`), because `SAM shutdown quiet` and `shutdown_mode=quiet` are legitimate text; this applies to the builder (step 7) and L0 2.1.
+
+S1 and D26. L0 2.18 judges the DTB of every entry with `scripts/kernel-dtb-safety.py`: profile `default` for all of them, profile `d26` only for `m13-spk`, which must be used by the entry `spk` and nowhere else and must fail the default profile. L0 3.15 repeats this per DTB on the ISO, 3.13 runs `kernel-m8-check.py` per variant with the baselines and `--previous-m12` DTBs of `scripts/kernel-dtb-m13.sh`, 3.12 requires the GPU node disabled everywhere except `m13-gpu`, and 3.8 requires `m13-nosnd` to equal the packaged DTB byte for byte. The microphone UCM profile stays the only one in the UCM search path; the speaker profile (`hardware/audio-speakers/userspace/overlay-speakers`, unchanged) is stored in `/usr/share/sp11/ucm-speakers/` and `sp11-speaker-ucm.service` (condition `sp11.entry=spk`) copies it over the microphone profile only on entry 8. The kernel gate (audio-speakers 0009) still refuses WSA playback, so nothing becomes audible; WirePlumber cap 0.05 and the locked GNOME setting apply on every entry.
+
+First speaker test (documented only, nothing here runs it; audio-speakers evidence `2026-10-30-d26-audio.md` section 7): boot entry 8 at no volume, desk quiet; read the automatic snapshot (`extra-audio.txt`: `amixer -c 0 contents`, `aplay -l`, `arecord -l`, dmesg of q6apm/wsa884x/swr0, no `CMD timeout for [1001021]`); then by hand `aplay -D hw:0,0 /dev/zero -d 1` must fail with `Operation not supported`; if playback starts, power off at once. Microphone check: `arecord -D hw:0,1 -f S32_LE -r 48000 -c 2 -d 5 /tmp/x.wav`. Never raise a control.
+
+Collectors (all read-only, installed byte for byte from the owner files unless noted, checked by L0 8.20 and 8.37):
+
+| Collector | Output | Notes |
+|:--|:--|:--|
+| ec-sam `collector/ec-sam.sh` (hash-pinned snapshot) | `extra-ec-sam.txt` | unchanged owner file |
+| image drop-in `ssam-shutdown-mode.sh` | `extra-ssam-shutdown-mode.txt` | cmdline `surface_aggregator.*`, `/sys/module/surface_aggregator/parameters/shutdown_mode`, dmesg `shutdown mode` (the owner collector does not record it) |
+| usb-typec R-I1 (`usb-typec.sh`) | `xhci-ports.txt` (portsc and portli), `usb-typec-dyndbg.txt`, `usb-typec-config.txt` (with `/proc/cmdline`), `usb-pd-partner.txt` | `portli` and `dynamic_debug/control` added to the debugfs allow-list; the matrix note is `/usr/share/sp11/usb-typec-m13-matrix.txt` (four rows, from test-plan G) |
+| dsp-subsystems (owner file plus the image append) | `extra-dsp-subsystems.txt` | owner file now has the SMP2P, AOSS, genpd and handover sections; L0 8.37 requires them |
+| image drop-in `cameras.sh` | `extra-cameras.txt` | commands of `hardware/cameras/test-plan.md`; no `i2cdetect`, no stream, no IR or flash; `cam -l` listing only |
+| image drop-in `audio.sh` | `extra-audio.txt` | `arecord -l`, `aplay -l`, `amixer -c 0 contents`, UCM hashes, `wpctl status` as the session user |
+| gpu two-step | on the boot medium, `EFI/sp11-logs/gpu-two-step/` | `/usr/libexec/sp11-gpu-two-step` plus `sp11-gpu-two-step.service` (condition `sp11.gpu_diag=1`, so only entry 16); image change: the label list gains `BOOT`, because this ISO's ESP is not labelled `SP11LOGS` or `ANACONDA` (owner request below) |
+| upower | `charge.txt` | queried only when `upower.service` is active; the M12 error was a D-Bus refusal at an early snapshot |
+| GPU speed bin | `gpu-speed-bin.txt` | already one aligned 4-byte read at `0x118` (L0 8.16); the cell is bytes 1-2 of the window |
+
+Other changes: builder, L0 and the QEMU driver require kver `7.3.0-65.sp11.10.fc44.aarch64`, series revision 10 and milestone `M13`; `check-m11-payload.py` reads the `m13` entries of the kernel release record; `m11.json` re-pins the audio owner's comment-only edit of the microphone UCM file; `image/component-inputs/m13.json` pins the M13 inputs; `check-charge-writes.py` re-pins the audited DSP drop-in hash (one read-only `charge_control_*` attribute list, no write); the QEMU driver now scrolls a menu longer than one screen. New L0 checks: 2.18 (per-entry profile), 3.15, 8.37, 8.38.
+
+Not verified here: everything on hardware (microphones, speakers, the CDSP proxy-vote and SAM shutdown tests, the rear camera, the GPU two-step, USB-C ports); that GRUB shows all sixteen entries on the Surface screen; that `:mod:smp2p` is accepted by the kernel (the next dmesg must be checked for `Failed to enable trace event`); that libcamera finds the sensor (no tuning file exists).
+
 ## Private build mode (operator device only)
 
 `scripts/image-build.sh --private` (or `SP11_PRIVATE=1`) builds an ISO for the operator's own Surface Pro 11 with device identities embedded, avoiding the post-write address provisioning of the M6 procedure. This does not establish radio functionality; the M10 board crash requires the I9 fallback below. Kiwi builder only. The default build stays public: no address, no derived blob, L0 checks 7.5 unchanged.
@@ -869,6 +931,9 @@ L0 for a private ISO (`scripts/image-test-static.sh`, which mounts the address f
 Rollback: rebuild without `--private`. Q3 of the wifi dossier (is the OTP address the factory one) is not decided by this mode; it only makes the userspace address persistent.
 
 ## Requests
+
+- gpu owner (M13): `collector/gpu-two-step.sh` searches only the labels `SP11LOGS` and `ANACONDA`; this ISO's embedded ESP is labelled `BOOT`. The image installs the file with one change (`for lbl in SP11LOGS ANACONDA BOOT`, pinned in `image/component-inputs/m13.json`; L0 8.37 requires exactly that difference). Please add `BOOT` to the owner file; the image then installs it unchanged.
+- orchestrator/operator (M13): review and commit the uncommitted image work. Operator tests per entry: 1 baseline (microphones, USB and DSP trace), 4 C4, 5-7 SAM shutdown modes (order `silent`, `quiet`, `clean`, `ec-sam/evidence/2026-10-30-windows-transition.md` section 6), 8 first speaker test (documented in "M13 private ISO"; playback must be refused), 9 camera, 16 GPU (last, may reset the machine).
 
 - orchestrator/operator (M11): review and commit the uncommitted image work after L0/L1 validation. The next already-planned boot can compare default `debug`, `touch off` and `microphones`; keep speakers/GPU off. Keyboard recovery remains an untested hypothesis: the first reboot test runs with no mitigation (baseline); the shutdown unbind needs `sp11.ssam_shutdown` and a boot rebind needs `sp11.ssam_rebind`, both added manually in GRUB (the rebind is known broken on DT until the platform-hub leak is fixed). No separate reboot is requested here. Exact read-only collectors for that planned boot:
 
@@ -915,6 +980,7 @@ Rollback: rebuild without `--private`. Q3 of the wifi dossier (is the OTP addres
 
 ## Log
 
+- 2026-10-31: built the M13 private ISO `sp11-fedora44-aarch64-kiwi-20261030T234013Z-private` (kiwi 1761 s, SHA-256 `0020e384...`): revision-10 kernel, six M13 DTBs, sixteen-entry menu (default m13 with USB dynamic debug and the corrected DSP trace; CDSP keep-proxy-votes, three SAM shutdown modes, gated speakers with an entry-switched UCM overlay, rear camera, GPU diagnostic last), new collectors (SAM shutdown mode, cameras, audio, USB-C R-I1, GPU two-step), libcamera from Fedora, upower collector error fixed. L0 250/250. No git writes; nothing left running.
 - 2026-10-30: built the M10 private ISO `sp11-fedora44-aarch64-kiwi-m10-private-20261030T084338Z` (kiwi 1927 s, SHA-256 `96825b56...`): revision-7 kernel with the `sp11-glink:` diagnostic, `m10`/`m10-notouch` DTBs, DSP collector with sp11-glink and remoteproc capture. L0 203/203, QEMU `--until-session --decoy` 21/21. No git writes; nothing left running.
 - 2026-10-30: built the M9 private ISO `sp11-fedora44-aarch64-kiwi-m9-private-20261030T034021Z` (kiwi 1664 s, SHA-256 `aef67909...`): revision-6 kernel, `m9`/`m9-notouch` DTBs, DSP trace arguments in the default entry, refreshed Bluetooth/DSP/Wi-Fi/USB-C collectors, device addresses and derived board file embedded. L0 202/202, QEMU `--until-session --decoy` 21/21. Disk: removed superseded M6/M7 ISOs, work directories and sp11.3/sp11.4 RPM archives. No git writes; nothing left running.
 - 2026-10-29: prepared M8 revision-5 release/DTB gates, touch-on default and touch-off fallback, early fixed/QSPI/HID/uinput modules, native iptsd spec/build path and masked userspace captures. Compiled DTB/menu/privacy/QEMU-driver preflight and index/syntax/whitespace checks pass. Fresh official Fedora query still finds no iptsd. Blocked before RPM/source consumption and the single ISO compose because the required central iptsd source pin is absent; exact source-owner patch recorded under Requests. No ISO/L0/L1 result claimed, no git writes, and no task process left running. Resume with the pin, native RPM, one compose, L0 and QEMU session/ESP/decoy checks.

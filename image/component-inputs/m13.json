@@ -1,0 +1,25 @@
+{
+  "note": "M13 inputs of the image layer; hashes of the owner files as installed (image/README.md, M13 private ISO)",
+  "speaker_ucm_overlay": {
+    "MICROSOFT-Surface-Pro-11.conf": "20672b687d2b43853d0b9b88baac3d2ce6c8cac44c840cea09065e4f859ea80f",
+    "Surface11-HiFi.conf": "488084256e15b00bdaf544401896cd710740fc7714802e0252ce5d270d2cd598",
+    "Surface11-SpeakerSeq.conf": "bbd0dc058041e780d4d33aa226c3c315eb6edbb7a0c5216238cd4693d9a6df88",
+    "Surface11-WsaInit.conf": "854cbef603b57d3b09fded0f98fa6b27f1907d3050fb466d81e41c78fcde4593"
+  },
+  "gpu_two_step": {
+    "owner_script_sha256": "e705df29564fd6d61add0f08a76ffcab0f21b79b93f69380cfee4bd14e19c6f6",
+    "installed_script_sha256": "3929b85083ac1ed7d3b8b99bcabef2c1da6f2490d63d2bb3574d2ad2b450027c",
+    "image_change": "label list SP11LOGS ANACONDA gains BOOT (this ISO's embedded ESP label)",
+    "unit_sha256": "5f4e927db1f0e6713346c1882239dbd0f7527f591adaf1fad2cce6ad96192d3a"
+  },
+  "dsp_collector_sha256": "803859901109e693d06582469b0ba818f15a8639de6c9a4d1e8378299b657441",
+  "ec_sam_collector_sha256": "b8e07f47967215748589dce498f1897b9e49350172820fd5237a6581be0582ef",
+  "libcamera": {
+    "packages": [
+      "libcamera",
+      "libcamera-tools"
+    ],
+    "fedora_release": "44",
+    "test_transaction": "dnf --setopt=tsflags=test install libcamera libcamera-tools: complete (9 packages, 12 MiB) on 2026-10-30; the compose is the real proof"
+  }
+}

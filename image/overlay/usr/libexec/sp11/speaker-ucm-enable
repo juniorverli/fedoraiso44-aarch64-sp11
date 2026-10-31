@@ -1,0 +1,16 @@
+#!/usr/bin/bash
+# SP11 D26 speaker UCM overlay switch. The image ships the microphone-only UCM profile everywhere (S1). The speaker profile
+# (hardware/audio-speakers/userspace/overlay-speakers, unchanged) is stored under /usr/share/sp11/ucm-speakers and is copied
+# over the microphone profile only when the boot entry is `spk` (DTB m13-spk). On any other boot this script does nothing.
+# The kernel gate (audio-speakers 0009) still refuses WSA playback; this profile cannot make the speakers audible today.
+set -eu
+tr ' ' '\n' </proc/cmdline | grep -qx 'sp11.entry=spk' || exit 0
+src=/usr/share/sp11/ucm-speakers/Qualcomm/x1e80100
+dst=/usr/share/alsa/ucm2/Qualcomm/x1e80100
+for f in MICROSOFT-Surface-Pro-11.conf Surface11-HiFi.conf Surface11-SpeakerSeq.conf Surface11-WsaInit.conf; do
+	install -m 0644 "$src/$f" "$dst/$f"
+done
+command -v restorecon >/dev/null 2>&1 && restorecon -F "$dst"/Surface11-*.conf "$dst"/MICROSOFT-Surface-Pro-11.conf 2>/dev/null || true
+mkdir -p /run/sp11-speaker-ucm
+echo "speaker UCM overlay installed for entry spk" >/run/sp11-speaker-ucm/installed
+echo "sp11-speaker-ucm: speaker UCM overlay installed (entry spk)" >/dev/kmsg 2>/dev/null || true

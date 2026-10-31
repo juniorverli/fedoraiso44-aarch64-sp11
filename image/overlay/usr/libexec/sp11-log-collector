@@ -179,7 +179,9 @@ debugfs_allowed() { # PATH: 0 if the debugfs file may be read
 	[[ $f =~ ^/sys/kernel/debug/pinctrl/[^/]+/(pins|pinmux-pins|pinmux-functions|pinconf-pins|pingroups|gpio-ranges)$ ]] && return 0
 	# name/clients print DRM bookkeeping only; atomic state invokes driver print hooks.
 	[[ $f =~ ^/sys/kernel/debug/dri/[0-9]+/(name|clients)$ ]] && return 0
-	[[ $f =~ ^/sys/kernel/debug/usb/(devices|xhci/[^/]+/ports/port[0-9]+/portsc)$ ]] && return 0
+	# M13: portli (usb-typec R-I1) and the dynamic-debug control table (read-only listing of enabled call sites)
+	[[ $f =~ ^/sys/kernel/debug/usb/(devices|xhci/[^/]+/ports/port[0-9]+/(portsc|portli))$ ]] && return 0
+	[[ $f == /sys/kernel/debug/dynamic_debug/control ]] && return 0
 	return 1
 }
 # dbgcat FILE: cat of an allowed debugfs file, else a note

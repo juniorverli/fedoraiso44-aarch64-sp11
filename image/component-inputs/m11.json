@@ -12,8 +12,8 @@
     "etc/dconf/db/distro.d/90-sp11-audio-safety": "f322831aefd849cbc5f2b03ce28d3897efd4ef01c5050a84321867176a1ebd85",
     "etc/dconf/db/distro.d/locks/90-sp11-audio-safety": "4e7ac5841797af780f9063f94b1c59ec47a804b81033b294a029245e6f8e98c5",
     "usr/share/wireplumber/wireplumber.conf.d/51-sp11-audio-safety.conf": "83c0e8a319bc0102c8856a03780612b3ca7b48228f44182c1b739ea468051594",
-    "usr/share/alsa/ucm2/conf.d/x1e80100/X1E80100-Microsoft-Surface-Pro-11.conf": "45e5da8a1d93788d49787eb2667a2df51679306a83f834ffc07119010c4bc34e",
-    "usr/share/alsa/ucm2/Qualcomm/x1e80100/MICROSOFT-Surface-Pro-11.conf": "45e5da8a1d93788d49787eb2667a2df51679306a83f834ffc07119010c4bc34e",
+    "usr/share/alsa/ucm2/conf.d/x1e80100/X1E80100-Microsoft-Surface-Pro-11.conf": "3713e1b6fee436f46ce8517845ca59a169f73a1494daa59969ccd6dcbfb14243",
+    "usr/share/alsa/ucm2/Qualcomm/x1e80100/MICROSOFT-Surface-Pro-11.conf": "3713e1b6fee436f46ce8517845ca59a169f73a1494daa59969ccd6dcbfb14243",
     "usr/share/alsa/ucm2/Qualcomm/x1e80100/Surface11-HiFi.conf": "336f8e95ce0d08590c186c84f4172dc4412d3e1a87d012cdb0c0e62b936c4562"
   }
 }

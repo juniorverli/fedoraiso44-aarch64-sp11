@@ -12,7 +12,9 @@ import re
 import sys
 
 # Audited DSP drop-in reads thresholds through R() -> timeout cat; never writes sysfs.
-DSP_SHA256 = "3619fa8c8e1e2c6ec64f643c771bef8c20bdfaacddb74ca81b0bb58b7d654d26"
+# M13: re-audited; the owner file (6a7d69f) plus the image append still has exactly one charge_control_ reference, the attribute
+# list of the power_supply read loop (R() = timeout cat), and no redirection into /sys.
+DSP_SHA256 = "ff7b9814a21a3b596589834b80f86e29ae8c3b8e6463a28e7301d984fc864a6a"
 
 def audit(root):
     failures = []
