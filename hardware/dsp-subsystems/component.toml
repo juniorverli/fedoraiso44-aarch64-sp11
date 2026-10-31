@@ -3,7 +3,7 @@ name = "ADSP and CDSP remote processors, GLINK, QRTR, protection domains, pmic-g
 phase = 1
 status = "blocked"
 depends_on = ["soc-boot"]
-updated = "2026-10-29"
+updated = "2026-10-31"
 
 [windows]
 hardware_ids = ["ACPI\\VEN_QCOM&DEV_0C1B&SUBSYS_MSHW0486&REV_000D", "ACPI\\VEN_QCOM&DEV_0CB0", "ACPI\\VEN_QCOM&DEV_06E0", "ACPI\\VEN_QCOM&DEV_06DF", "ACPI\\VEN_QCOM&DEV_0C0D", "ACPI\\VEN_QCOM&DEV_0C8E", "ACPI\\VEN_QCOM&DEV_0C5C", "ACPI\\VEN_QCOM&DEV_0C20"]

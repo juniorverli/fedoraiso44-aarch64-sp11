@@ -97,6 +97,9 @@ ADSP: consistently `running`, bound IPCRTR/PMIC channels, charger PDR UP and usa
 
 Earlier E1 advice to hide battmgr in UPower and O1 advice to choose a threshold policy are superseded by D23. R-I3 (optional no-early-DSP comparison) is not required for M9 and must not trigger another device reboot on its own.
 
+- **image** (R-I6, M14, from [denisix comparison](evidence/2026-10-31-denisix-comparison.md)): the only Verified difference to a working SP11 CDSP is the firmware build (ours `c1-00078`, theirs `c1-00046.1`). Add a private debug entry `cdsp46`: stage `out/firmware-private/dsp-subsystems/cdsp-c1-00046.1-woa-200.0.49.0/{qccdsp8380.mbn,cdsp_dtb.mbn}` (hashes in `SHA256SUMS` there) under `/usr/lib/firmware-sp11-cdsp46/qcom/x1e80100/microsoft/Denali/`, in the initramfs too, with `firmware_class.path=/usr/lib/firmware-sp11-cdsp46`; a second entry `cdspkeep` with `qcom_q6v5_pas.keep_proxy_pds=1` on the normal firmware. Drop `power:power_domain_target` from `trace_event=` (rejected in M13). Refresh the collector (it now excludes the `qdss` clock spam from the AOSS section and records the loaded firmware build ids). Operator powers off fully (not reboot) before the `cdsp46` boot. Unknown for the owner to confirm: that dracut and the loader accept the custom path early.
+- **firmware**: note the `c1-00046.1` pair as a private alternative; no change to the shipped pair until E1 has a result.
+
 ## 9. Log
 
 - 2026-10-23: dossier created from the static survey.
@@ -105,3 +108,4 @@ Earlier E1 advice to hide battmgr in UPower and O1 advice to choose a threshold 
 - 2026-10-30: diagnostic patch 0001 (`sp11-glink:` GLINK logging) written; kernel request R-K1 added. No behaviour change, not committed.
 - 2026-10-30: M10 evidence: CDSP acks VERSION and opens five channels but never acks our OPEN (ADSP edge fine); DT equals hamoa; Apps-to-CDSP doorbell worked for the first messages; no fix established; diagnostic patch 0002 (FIFO indices) written. See `evidence/2026-10-30-m10-cdsp.md`. Not committed.
 - 2026-10-30 (M12): CDSP FIFO result `tx tail=8 of 40/88`: the CDSP read only our VERSION and never again; M10 I1 corrected. Cause not Verified; hypothesis C4 (proxy votes dropped at handover while Windows holds NSP0 via PEP). Diagnostic patch 0003 and corrected trace names (`qcom_smp2p`, no remoteproc events) in [M12 CDSP](evidence/2026-10-30-m12-cdsp.md); collector extended. No fix claimed; uncommitted.
+- 2026-10-31: denisix comparison. Firmware build differs (ours `CDSP.HT.2.9.c1-00078`, theirs `c1-00046.1` = newest in the public WOA mirror); ADSP, CDSP DTB, DT, cmdline flags (`clk_ignore_unused pd_ignore_unused` on both) equal; 7.3 PAS source read found no suspect; M13 shows tail 16 (VERSION and VERSION_ACK read, OPEN_ACK 245 ms later never). Older pair staged privately, experiments E1 (firmware), E2 (keep_proxy_pds), E3 (cold start, order) defined, collector extended. No kernel patch (nothing established beyond 0003). Uncommitted.
