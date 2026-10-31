@@ -1,0 +1,23 @@
+# Release /dev/fastrpc-adsp across system sleep and bring the sensors daemon back on resume.
+# This is the suspend/resume hook of the reference with its condition corrected: the Debian hooks were guarded
+# by ConditionFirmware=device-tree-compatible(qcom,sdm670), which never matched this board, so they never
+# ran (hardware/power-thermal/evidence/2026-10-31-suspend-thermal.md V5, V14). Fedora has no such hooks, so
+# this unit carries the right condition itself: the DT compatible list of the SP11 contains qcom,x1e80100.
+# One unit does both directions: ExecStart runs before sleep, ExecStop after the wake-up
+# (StopWhenUnneeded drops it when sleep.target stops). Whether stopping the daemon helps is Unknown until a
+# real suspend is run on the device; leave it disabled (the default) if a suspend test fails with it.
+[Unit]
+Description=Stop the ADSP sensors daemon around system sleep (Surface Pro 11)
+Before=sleep.target
+StopWhenUnneeded=yes
+ConditionFirmware=device-tree-compatible(qcom,x1e80100)
+ConditionPathExists=/usr/share/qcom/x1e80100/Microsoft/Surface-Pro-11/sensors/sns_reg.conf
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=-/usr/bin/systemctl stop hexagonrpcd-sensors.service
+ExecStop=-/usr/bin/systemctl start --no-block hexagonrpcd-sensors.service
+
+[Install]
+WantedBy=sleep.target

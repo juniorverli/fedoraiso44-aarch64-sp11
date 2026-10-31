@@ -1,0 +1,4 @@
+enable hexagonrpcd-sensors.service
+# Stopping the daemon around sleep is unverified on the device; the unit is installed but the default is on only
+# because no suspend entry exists yet. Disable it first if a suspend test misbehaves.
+enable hexagonrpcd-sensors-sleep.service

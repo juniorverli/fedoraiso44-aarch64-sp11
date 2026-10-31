@@ -1,0 +1,3 @@
+# Unprivileged owner of the hexagonrpcd process. The group fastrpc is defined by fastrpc-services (60-fastrpc.rules, fastrpc.conf).
+u hexagonrpcd - "Hexagon RPC daemon" /var/lib/hexagonrpcd -
+m hexagonrpcd fastrpc

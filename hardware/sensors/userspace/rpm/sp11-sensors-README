@@ -1,0 +1,13 @@
+sp11-sensors: Surface Pro 11 sensors (ADSP SSC over hexagonrpcd + libssc + iio-sensor-proxy)
+
+Data path: ADSP sensors PD <-FastRPC-> hexagonrpcd -s (serves config, identity, registry)
+           SSC service <-QMI/QRTR-> libssc -> iio-sensor-proxy -> D-Bus (orientation, light, compass)
+           Type Cover tablet switch: SSAM input device, independent of all of the above.
+
+Needs the private tree (Windows-derived, never public): /usr/share/qcom/x1e80100/Microsoft/Surface-Pro-11/
+installed by sp11-sensors-install-private.sh from the output of sp11-sensors-stage.sh.
+
+Test (read-only, opt-in): /usr/libexec/sp11/sp11-sensors-test [SECONDS]
+Collector: /etc/sp11-log-collector.d/sensors.sh writes extra-sensors.txt.
+Reset the registry (never reset the ADSP; it crashes the SoC): stop the daemon, empty
+/var/lib/hexagonrpcd/registry, reboot.

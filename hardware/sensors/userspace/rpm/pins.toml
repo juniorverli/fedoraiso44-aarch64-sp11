@@ -1,0 +1,29 @@
+# Provisional source pins for the sensor RPMs (hardware/sensors). The sources worker is asked to copy these
+# tables into sources/sources.toml (README "Requests"); build-sensors-rpms.sh reads sources/sources.toml first and
+# falls back to this file with a warning. The archive hashes are verified before anything is built either way.
+# Each pin was checked against the upstream API on 2026-10-31 (GitHub, Codeberg/Forgejo, GitLab).
+
+[hexagonrpcd]
+# Source project name is hexagonrpc; the daemon package is hexagonrpcd.
+version = "0.5.0"
+archive_url = "https://github.com/linux-msm/hexagonrpc/archive/refs/tags/v0.5.0.tar.gz"
+archive_sha256 = "2173985932ab68d8ac593f9954357123bdbbbe9ba5f1b17a098d9cbcec22c5d5"
+upstream_commit = "435ed1cd68e20f8a9fe4871233ed1f8ce7ccf9e8"
+license = "GPL-3.0-or-later"
+provenance = "GitHub API repos/linux-msm/hexagonrpc/tags: v0.5.0 -> 435ed1cd. Tools/sscregistrygen.c and apps_std.def read from the tarball."
+
+[libssc]
+version = "0.4.4"
+archive_url = "https://codeberg.org/DylanVanAssche/libssc/archive/v0.4.4.tar.gz"
+archive_sha256 = "716d6bd6b34d2d753060c6b54c9a87e34fae75b724c763bf9ef487efa3621587"
+upstream_commit = "0cf77b93b55752da34dca2dcecc06fca8665184b"
+license = "GPL-3.0-or-later"
+provenance = "Codeberg API repos/DylanVanAssche/libssc/tags: v0.4.4 -> 0cf77b93 (annotated tag object b08bb050). Not the DakkesheshRC fork the Ubuntu reference clones."
+
+[iio-sensor-proxy]
+version = "3.9"
+archive_url = "https://gitlab.freedesktop.org/hadess/iio-sensor-proxy/-/archive/3.9/iio-sensor-proxy-3.9.tar.bz2"
+archive_sha256 = "19a4ae99b1b8af603fc789841025f9747bf445418d69ec7389e75adb6c8186bf"
+upstream_commit = "0085ddf8ecb173a1c5fcf2344aa40e561125354f"
+license = "GPL-3.0-or-later"
+provenance = "GitLab API: MR 381 'libssc support' state merged 2026-02-08; tag 3.9 (2026-03-02) -> 0085ddf8; meson.build 3.9 has libssc_dep and src/drv-ssc-*.c. Fedora rawhide builds 3.9 with ssc-support=disabled; Fedora 44 ships 3.8-2 (no SSC). The GitLab archive URL is the one Fedora's spec uses; GitLab does not promise stable archives, so the hash is the control."

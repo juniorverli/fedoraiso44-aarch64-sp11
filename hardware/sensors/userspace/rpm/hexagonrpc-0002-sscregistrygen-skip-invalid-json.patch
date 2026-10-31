@@ -1,0 +1,40 @@
+From: SP11 sensors worker
+Subject: [PATCH] sscregistrygen: skip a configuration file that is not valid JSON
+
+Vendor configuration packages can contain a truncated JSON file (the Surface
+Pro 11 package ships tmd2755.json with a missing closing brace).
+json_object_from_fd() returns NULL for it and the tool dereferenced the
+result. Report the file and continue; also release each parsed document.
+
+---
+diff -urN a/tools/sscregistrygen.c b/tools/sscregistrygen.c
+--- a/tools/sscregistrygen.c
++++ b/tools/sscregistrygen.c
+@@ -221,10 +221,17 @@
+ 
+ 	close(fd);
+ 
++	if (in == NULL) {
++		fprintf(stderr, "%s: not valid JSON, skipped\n", file);
++		return;
++	}
++
+ 	config = json_object_object_get(in, "config");
+ 	if (config != NULL) {
+-		if (!check_config_filter(filter, config))
++		if (!check_config_filter(filter, config)) {
++			json_object_put(in);
+ 			return;
++		}
+ 	}
+ 
+ 	iter = json_object_iter_begin(in);
+@@ -239,6 +246,8 @@
+ 
+ 		json_object_iter_next(&iter);
+ 	}
++
++	json_object_put(in);
+ }
+ 
+ int main(int argc, char **argv)

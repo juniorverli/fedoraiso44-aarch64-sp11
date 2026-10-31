@@ -1,0 +1,6 @@
+# SP11 sensors: iio-sensor-proxy 3.9 enables only the SSC light and compass drivers by default ("accelerometer
+# and proximity remain experimental, but can be enabled through udev rules", NEWS 3.9). Auto-rotation needs the
+# accelerometer. Proximity stays off (the reference found no SUID for it on this hardware).
+ACTION=="remove", GOTO="sp11_ssc_end"
+SUBSYSTEM=="misc", KERNEL=="fastrpc-adsp", ENV{IIO_SENSOR_PROXY_TYPE}+="ssc-accel", TAG+="systemd", ENV{SYSTEMD_WANTS}+="iio-sensor-proxy.service"
+LABEL="sp11_ssc_end"
