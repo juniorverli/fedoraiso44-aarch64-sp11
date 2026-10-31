@@ -1,0 +1,5 @@
+# SP11 audio defaults (audio-mics, 2026-10-31). Not locked: the user may change them. The above-100 % lock and the
+# 5 % starting volume are in the audio-speakers overlay (90-sp11-audio-safety, 51-sp11-audio-safety.conf).
+[org/gnome/settings-daemon/plugins/media-keys]
+# Finer volume keys (schema default 6): from a 5 % start, a key press changes the level by 3 points.
+volume-step=3
