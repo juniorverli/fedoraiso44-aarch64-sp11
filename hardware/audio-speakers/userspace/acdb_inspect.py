@@ -13,11 +13,15 @@ import struct
 from pathlib import Path
 
 EXPECTED_SHA256 = "a0a8635ba65127180a1caef46af61c00171c9a93cbf8b5f5650709b4638decde"
+# Module ids as Linux 7.3 names them (sound/soc/qcom/qdsp6/audioreach.h). An earlier version of this
+# table labelled 0x0700101a "MFC" and 0x07001013 "DATA_LOGGING"; Linux says 0x07001015 is the MFC and
+# 0x0700101a the DATA_LOGGING module. 0x07001011 and 0x07001013 have no Linux name: they are labelled
+# by id only (the old guess "SPLITTER" for 0x07001011 is unverified).
 MODULE_NAMES = {
-    0x07001010: "SAL", 0x07001011: "SPLITTER", 0x07001013: "DATA_LOGGING",
-    0x0700101A: "MFC", 0x07001023: "CODEC_DMA_SINK",
-    0x07001024: "CODEC_DMA_SOURCE", 0x070010E2: "SPEAKER_PROTECTION",
-    0x070010E3: "SPEAKER_PROTECTION_VI", 0x070010E4: "CPS_DATA_ROUTER",
+    0x07001010: "SAL", 0x07001015: "MFC", 0x0700101A: "DATA_LOGGING",
+    0x07001023: "CODEC_DMA_SINK", 0x07001024: "CODEC_DMA_SOURCE",
+    0x070010E2: "SPEAKER_PROTECTION", 0x070010E3: "SPEAKER_PROTECTION_VI",
+    0x070010E4: "CPS_DATA_ROUTER",
 }
 
 

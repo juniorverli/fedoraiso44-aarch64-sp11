@@ -2,13 +2,15 @@
 """Generate the closed-loop speaker protection files for the Surface Pro 11.
 
 Inputs (read only): the pinned REV_0D ACDB (Windows data, never in git) and,
-for the topology step, the conf text produced from the public audioreach-topology.
+for the topology step, the m4 overlay in m4/ on top of the public audioreach-topology.
 Outputs go to a private directory, normally out/firmware-private/audio/, and are
 installed only by the private image mode (D25, S5). Nothing here is public.
 
   sp11cl   <card>-sp11cl.bin    control links + calibration records of the model
   sp11cal  <card>-sp11cal.bin   R0/T0 of this unit (measured, or nominal on request)
-  tplg     <card>-tplg.bin      the public topology plus the speaker protection chains
+  tplg     <card>-tplg.bin      the public topology plus the speaker protection chains; built by
+                                build-closedloop-topology.sh from m4/ (this script only writes the
+                                instance ids it needs, see --emit-ids)
 
 File formats are defined by sound/soc/qcom/qdsp6/audioreach-sp11.c
 (audio-speakers patch 0014). Offline verification only: nothing here has been
@@ -56,6 +58,56 @@ def find_graph(acdb):
             if {SP, VI, CPS} <= modules and links:
                 return modules, links
     raise ValueError("no closed-loop speaker subgraph found in the ACDB")
+
+
+MID_SP, MID_VI, MID_CPS = 0x070010E2, 0x070010E3, 0x070010E4
+MID_LOGGER, MID_DMA_SRC = 0x0700101A, 0x07001024
+
+
+def find_roles(acdb):
+    """Instance ids of the topology roles, found by module id and by the graph's own connections.
+
+    Returns {role: instance id}. The checks tie every id to the Windows graph: the sense chain
+    must be CODEC_DMA_SOURCE -> DATA_LOGGING -> SPEAKER_PROTECTION_VI, and SP_VI must have no
+    consumer. The CPS chain is optional and only reported when it has the expected shape.
+    """
+    for cand in acdb.graphs():
+        for sg in cand["subgraphs"]:
+            if sg["subgraph"] != SUBGRAPH:
+                continue
+            mods, conns = {}, []
+            for par in sg["parameters"]:
+                for m in par.get("modules", []):
+                    mods[int(m["instance"], 16)] = int(m["module"], 16)
+                conns += par.get("connections", [])
+            by_mid = {}
+            for iid, mid in mods.items():
+                by_mid.setdefault(mid, []).append(iid)
+            pred = {int(c["destination"], 16): int(c["source"], 16) for c in conns}
+            succ = {int(c["source"], 16) for c in conns}
+            roles = {}
+            for role, mid in (("sp", MID_SP), ("vi", MID_VI), ("cps", MID_CPS)):
+                if len(by_mid.get(mid, [])) != 1:
+                    raise ValueError(f"expected one module 0x{mid:08x}, found {by_mid.get(mid)}")
+                roles[role] = by_mid[mid][0]
+            if roles["vi"] in succ:
+                raise ValueError("SP_VI has a consumer: the sense chain is not a dead end")
+            log = pred.get(roles["vi"])
+            dma = pred.get(log)
+            if mods.get(log) != MID_LOGGER or mods.get(dma) != MID_DMA_SRC:
+                raise ValueError("the sense chain is not CODEC_DMA_SOURCE -> DATA_LOGGING -> VI")
+            roles["vi_log"], roles["vi_dma"] = log, dma
+            return roles
+    raise ValueError("no closed-loop speaker subgraph found in the ACDB")
+
+
+def write_ids_m4(roles, path):
+    """The private m4 include of the topology generator (module instance ids of the Windows graph)."""
+    names = {"sp": "SP11_SP_IID", "vi": "SP11_VI_IID", "vi_log": "SP11_VILOG_IID",
+             "vi_dma": "SP11_VIDMA_IID"}
+    lines = ["dnl Generated from the Windows ACDB: private, never commit."]
+    lines += [f"define(`{names[k]}', `0x{roles[k]:08x}') dnl" for k in names]
+    write_private(path, ("\n".join(lines) + "\n").encode())
 
 
 def build_links(modules, links, with_cps):
@@ -140,10 +192,17 @@ def main():
     cal.add_argument("--measured", nargs=4, type=float,
                      metavar=("R0_LEFT", "R0_RIGHT", "T0_LEFT", "T0_RIGHT"),
                      help="write a measured unit calibration (ohm, degC)")
+    ap.add_argument("--emit-ids", type=Path, metavar="FILE",
+                    help="write the private m4 include with the instance ids for the topology and exit")
     ap.add_argument("--self-test", action="store_true", help="decode what was written")
     args = ap.parse_args()
 
     acdb = acdb_inspect.Acdb(args.acdb.read_bytes())
+    if args.emit_ids:
+        roles = find_roles(acdb)
+        write_ids_m4(roles, args.emit_ids)
+        print(json.dumps({k: f"0x{v:08x}" for k, v in roles.items()}))
+        return
     modules, links = find_graph(acdb)
     records = acdb.calibration_payloads(CAL_INSTANCES)
     if not records:

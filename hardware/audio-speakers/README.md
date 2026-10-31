@@ -96,6 +96,8 @@ Two WSA8845 smart amplifiers on SoundWire, driven by the ADSP through AudioReach
 - 2026-10-30: flash review follow-up patches 0004, 0005 (latent safety, speakers still off everywhere)
 - 2026-10-30: audio plan (`evidence/2026-10-30-audio-plan.md`): M8/M10 state, DT, safety layers, topology/UCM, patches 0001 to 0003, REA questions; status `designed`.
 
+- 2026-10-31 (topology and RFC session): closed-loop topology generated locally (`userspace/build-topology/m4/`, `build-closedloop.sh` with `SP11_TOPOLOGY=1`) and loaded through the real kernel parser in a QEMU harness (`build-topology/harness/`, 16 checks pass); acdb_inspect module names corrected (0x0700101a is DATA_LOGGING, not MFC, so no host tap is needed); Qualcomm RFC fetched, pinned and evaluated; no kernel patches. See `evidence/2026-10-31-topology-rfc.md`.
+
 ## Requests (2026-10-30, orchestrator)
 
 - **S1 evidence, Path P:** the Argon REA report (`evidence/2026-10-30-argon-rea-report.md`, spot-checked) shows Windows protects the two 4 ohm speakers with a closed-loop SPv5 speaker-protection module in the ADSP (V/I and CPS feedback, thermal model, 110 C hard limit, 180 s cooldown) plus ACDB calibration, not with a static volume cap. Linux 7.3 has none of that (no V/I sense ports, no IMCL links, no SPv5 calibration). Speakers therefore stay OFF in every DTB and image. Microphones are safe and may proceed (`m11-audio`).
@@ -120,3 +122,11 @@ Full text and grades in `evidence/2026-10-30-closed-loop.md`.
 ## Test plan additions
 
 See `test-plan.md` section T4 and evidence section 8.
+
+## Requests (2026-10-31, topology session)
+
+Full text in `evidence/2026-10-31-topology-rfc.md` section 7.
+
+- image (private mode only): run `SP11_TOPOLOGY=1 userspace/build-topology/build-closedloop.sh` before the build; install `out/firmware-private/audio/qcom/x1e80100/X1E80100-Microsoft-Surface-Pro-11-tplg.bin` OVER the public topology of the same name (the kernel requests only this name), plus `...-sp11cl.bin`; `...-sp11cal.bin` (`--nominal-cal`) and `sp11.allow_nominal=1` only on a dedicated first-test entry, never the default. The public ISO carries none of these. User-space supervisor: open the MultiMedia5 capture (PCM index 4) and keep it open, never read it, before any playback.
+- kernel: nothing for M14. For M15 only if the first run shows the closed-loop graph cannot start: port the RFC (evidence section 5 plan), plus the `audioreach_get_module_priv_data()` size fix and parser error propagation.
+- orchestrator: S1 stays. Decide whether the first-test entry with nominal calibration is allowed (recommendation in evidence section 6).
