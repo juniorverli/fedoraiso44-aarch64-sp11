@@ -1,0 +1,31 @@
+SP11 M13 USB-C test matrix (hardware/usb-typec, test-plan G; M12 ran `debug`, so patch 0002 printed nothing)
+
+Boot entry: "SP11 debug" (the default) now carries the USB dynamic-debug arguments; "SP11 debug, USB + DSP trace"
+(sp11.entry=usbdbg) is the lower-volume variant. First verify that the trace is live (read-only):
+
+  tr ' ' '\n' < /proc/cmdline | grep -E 'dyndbg|sp11.entry'
+  grep -E 'ps883x|pmic_glink_altmode|phy_qcom_qmp_combo|dwc3' /sys/kernel/debug/dynamic_debug/control | grep -c '=p'
+  dmesg | grep -E 'notify: port=|apply: port=|configure: conn_status|set: mode=|request: cmd'
+
+The last command must print lines. No lines: the module in the initramfs lacks patch 0002; stop and report.
+
+Same SS-proven cable and stick for every row (proven at 5/10 Gbit/s on Windows with that cable first):
+
+  Row 1  boot stick in port 0 (as M12), no other device; test port 1, normal, then reversed (unplug 5 s, flip, collect)
+  Row 2  same boot; port 0, already reverse; compare with row 1 reversed
+  Row 3  second boot with the boot stick in port 1; port 0, normal, then reversed
+  Row 4  optional: normal orientation with the stick's own cable replaced by a known SS cable
+
+After about 10 s per insertion (the automatic snapshot also records these; all read-only, output private):
+
+  date --iso-8601=seconds
+  for p in /sys/class/typec/port?; do echo "== $p"; grep -H . $p/{orientation,data_role,power_role,usb_capability,power_operation_mode}; done
+  lsusb -t
+  for f in /sys/kernel/debug/usb/xhci/*/ports/port*/portsc /sys/kernel/debug/usb/xhci/*/ports/port*/portli; do echo "$f: $(cat $f)"; done
+  grep -E 'gpio(121|123|176) ' /sys/kernel/debug/gpio
+  grep -E 'RTMR' /sys/kernel/debug/regulator/regulator_summary
+
+A 10000M root hub is not SS; only a child of the SS bus at 5000M or 10000M counts. Do not read dwc3 link_state or any test_*
+debugfs file. Files the collector writes per snapshot: xhci-ports.txt (portsc and portli), usb-typec-dyndbg.txt,
+usb-typec-config.txt (with /proc/cmdline), usb-pd-partner.txt, usb-typec-partner.txt, usb-dmesg.txt, typec.txt, usb-speed.txt.
+Decision table: hardware/usb-typec/test-plan.md section G. Keep logs private.

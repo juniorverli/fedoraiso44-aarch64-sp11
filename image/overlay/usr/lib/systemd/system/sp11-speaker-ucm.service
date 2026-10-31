@@ -1,0 +1,14 @@
+[Unit]
+Description=SP11 D26 speaker UCM overlay (runs only on the speakers boot entry, sp11.entry=spk)
+# Opt-in by boot entry. Every other entry keeps the microphone-only UCM profile (S1).
+ConditionKernelCommandLine=sp11.entry=spk
+DefaultDependencies=no
+After=local-fs.target
+Before=sysinit.target sound.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/sp11/speaker-ucm-enable
+
+[Install]
+WantedBy=sysinit.target

@@ -49,7 +49,7 @@ def check(root, repo, record, release):
     assert 'for f in trace0 resource_table' in dsp and 'timeout 5 head -c 262144' in dsp, 'remoteproc bounded reads absent'
     # Kernel worker checked the compiled ceilings/reset values. Require those same
     # module bytes in this root, tied to the release record hash checked by L0 4.12.
-    modules = release['m12']['new_modules']
+    modules = release['m13']['new_modules']
     assert modules['snd-soc-x1e80100']['mix_volume_controls'] == 4, 'MIX caps evidence'
     assert modules['snd-soc-wsa884x']['pa_mixer_value'] == 6, 'PA reset evidence'
     for name, module in modules.items():

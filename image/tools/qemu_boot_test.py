@@ -21,17 +21,26 @@ import time
 
 import pexpect
 
-ENTRIES = [   # M8 menu order; VM entry last (selected by counting Down keys)
+ENTRIES = [   # M13 menu order; the VM entry is second to last (selected by counting Down keys), the GPU diagnostic is last
     "SP11 debug",
+    "SP11 debug, no sound",
+    "SP11 debug, touch off",
+    "SP11 debug, CDSP keep proxy votes",
+    "SP11 debug, SAM shutdown quiet",
+    "SP11 debug, SAM shutdown clean",
+    "SP11 debug, SAM shutdown silent",
+    "SP11 debug, speakers (gated; kernel gate still refuses playback)",
+    "SP11 debug, rear camera diagnostic",
     "SP11 debug, USB + DSP trace",
     "SP11 debug, no early DSP",
     "SP11 debug, Wi-Fi unblock probe",
     "SP11 debug nomodeset",
     "SP11 debug, stop in initramfs",
-    "SP11 debug, touch off",
-    "SP11 debug, microphones",
     "VM test (no devicetree)",
+    "SP11 debug, GPU diagnostic (WARNING: may reset the machine)",
 ]
+# GRUB shows only the first entries of a long menu on a 24-row serial terminal; the rest appears while scrolling.
+VISIBLE_AT_START = 8
 LEGACY_ENTRIES = ["SP11 debug", "SP11 debug + DRM trace", "SP11 debug nomodeset", "SP11 debug, stop in initramfs", "VM test (no devicetree)"]
 FATAL = [
     (rb"Kernel panic - not syncing", "kernel panic"),
@@ -276,15 +285,24 @@ def main():
                 print("QEMU exited", flush=True)
                 break
             now = time.time()
-            if not state["menu"] and all(e.encode() in buf_all for e in ENTRIES):
+            first = ENTRIES[:VISIBLE_AT_START] if len(ENTRIES) > 12 else ENTRIES
+            if not state["menu"] and all(e.encode() in buf_all for e in first):
                 state["menu"] = True
-                print(f"[{int(now - start)}s] GRUB menu with all {len(ENTRIES)} entries on the serial console", flush=True)
-            if state["menu"] and not state["selected"] and a.entry.encode() in buf_all:
+                print(f"[{int(now - start)}s] GRUB menu with its first {len(first)} of {len(ENTRIES)} entries on the serial console", flush=True)
+            if state["menu"] and not state["selected"]:
                 time.sleep(2)
                 idx = ENTRIES.index(a.entry)
+                seen = {e for e in ENTRIES if e.encode() in buf_all}
                 for _ in range(idx):
                     child.send(b"\x1b[B")
                     time.sleep(0.5)
+                    try:
+                        chunk = child.read_nonblocking(65536, timeout=1)
+                        buf_all += chunk
+                        seen |= {e for e in ENTRIES if e.encode() in buf_all}
+                    except (pexpect.TIMEOUT, pexpect.EOF):
+                        pass
+                state["entries_seen"] = len(seen)
                 time.sleep(1)
                 if a.initrd_fail:
                     # GRUB editor: e, to the end of the linux line (Ctrl-E), a wrong root label last (the last root= wins),
@@ -413,7 +431,8 @@ def main():
         check("the ESP of the stick is clean after the run (fsck.fat -n: no dirty bit)", r.returncode == 0 and "irty" not in txt, txt[:300])
         os.unlink(out)
 
-    check("GRUB menu shows all entries", state["menu"])
+    check("GRUB menu shows its entries (the first screen, then the rest while scrolling to the selected entry)", state["menu"] and state.get("entries_seen", 0) >= min(len(ENTRIES) - 1, 14),
+          f"{state.get('entries_seen', 0)} of {len(ENTRIES)} titles seen on the serial console")
     if a.initrd_fail:
         serial = open(serial_log, "rb").read()
         check("the edited entry booted with a wrong root label (SP11-NO-SUCH-LABEL on the kernel command line)", b"SP11-NO-SUCH-LABEL" in serial)
@@ -473,7 +492,7 @@ def main():
             check("D19 display files are in the log directory", not miss, ("missing: " + ", ".join(miss)) if miss else f"{len(need)} files")
             touch = read_log(a.logs, bd, "touch-pen.txt") or ""
             check("M8 touch helper captured kernel, DT, pinctrl and firmware sections",
-                  all(section in touch for section in ("7.3.0-65.sp11.9.fc44.aarch64",
+                  all(section in touch for section in ("7.3.0-65.sp11.10.fc44.aarch64",
                       "=== live DT and platform driver state ===",
                       "=== pinctrl ownership and configuration ===",
                       "=== installed firmware package and file")))

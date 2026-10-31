@@ -83,19 +83,19 @@ if [ "$(rpm --eval "%{lua:print(rpm.vercmp('$newest_vr', '$min'))}")" -le 0 ]; t
 fi
 log "kernel $kver_full (newer than $min, the only kernel NEVRA at the top level of out/rpms)"
 
-# M11 requires revision-9 RPMs and all three atomically published DTB/JSON pairs.
-[ "$kver_full" = 7.3.0-65.sp11.9.fc44.aarch64 ] || {
-	log "REFUSED: M12 requires kernel 7.3.0-65.sp11.9.fc44.aarch64, found $kver_full"; exit 6;
+# M13 requires revision-10 RPMs and all six atomically published DTB/JSON pairs.
+[ "$kver_full" = 7.3.0-65.sp11.10.fc44.aarch64 ] || {
+	log "REFUSED: M13 requires kernel 7.3.0-65.sp11.10.fc44.aarch64, found $kver_full"; exit 6;
 }
 patch_series_sha=$( . "$REPO/scripts/kernel-common.sh"; kernel_series_hash )
-for v in m12 m12-notouch m12-audio; do
+for v in m13 m13-nosnd m13-notouch m13-spk m13-gpu m13-cam; do
 	vsrc=$OUT/dtb-variants/$kver_full/qcom/x1p64100-microsoft-denali-$v
 	[ -s "$vsrc.dtb" ] && [ -s "$vsrc.json" ] || {
 		log "REFUSED: $v DTB and JSON not yet published by the kernel worker"; exit 6;
 	}
 	[ "$(sha256sum "$vsrc.dtb" | cut -d' ' -f1)" = "$(jq -r .sha256 "$vsrc.json")" ] &&
 	[ "$(jq -r .kver "$vsrc.json")" = "$kver_full" ] &&
-	[ "$(jq -r .series_rev "$vsrc.json")" = 9 ] &&
+	[ "$(jq -r .series_rev "$vsrc.json")" = 10 ] &&
 	[ "$(jq -r .series_hash_sha256 "$vsrc.json")" = "$patch_series_sha" ] || {
 		log "REFUSED: $v DTB hash/release/series differs from the kernel worker JSON"; exit 6;
 	}
@@ -162,6 +162,26 @@ install -D -m 0644 "$OUT/image-inputs/audio/$topology" "$desc/root/usr/lib/firmw
 # Compile the locked distro dconf database after kiwi has installed dconf,
 # before Fedora's config.sh exits.
 sed -i '$i # SP11 M11: compile the locked GNOME volume policy.\ndconf update' "$desc/config.sh"
+# M13: the D26 speaker UCM profile is stored OUTSIDE the UCM search path (S1: the microphone-only profile stays in effect everywhere).
+# sp11-speaker-ucm.service copies it over the microphone profile only on the `spk` entry (sp11.entry=spk, DTB m13-spk).
+spk_src=$REPO/hardware/audio-speakers/userspace/overlay-speakers/usr/share/alsa/ucm2/Qualcomm/x1e80100
+mkdir -p "$desc/root/usr/share/sp11/ucm-speakers/Qualcomm/x1e80100"
+for f in MICROSOFT-Surface-Pro-11.conf Surface11-HiFi.conf Surface11-SpeakerSeq.conf Surface11-WsaInit.conf; do
+	install -m 0644 "$spk_src/$f" "$desc/root/usr/share/sp11/ucm-speakers/Qualcomm/x1e80100/$f"
+done
+mkdir -p "$desc/root/etc/systemd/system/sysinit.target.wants"
+ln -sf /usr/lib/systemd/system/sp11-speaker-ucm.service "$desc/root/etc/systemd/system/sysinit.target.wants/sp11-speaker-ucm.service"
+# M13: the gpu worker's two-step diagnostic (hardware/gpu/collector), active only with sp11.gpu_diag=1 (the last menu entry).
+# One image-owned change: the owner's medium search knows the labels SP11LOGS and ANACONDA; this ISO's embedded ESP is labelled BOOT, so
+# BOOT is added to that list (the ESP branch of the owner's code, EFI/sp11-logs/gpu-two-step, already serves a non-SP11LOGS label).
+gpu_src=$REPO/hardware/gpu/collector
+grep -q '^	for lbl in SP11LOGS ANACONDA; do$' "$gpu_src/gpu-two-step.sh" || { log "REFUSED: gpu-two-step.sh no longer has the expected label loop"; exit 6; }
+sed 's/^\tfor lbl in SP11LOGS ANACONDA; do$/\tfor lbl in SP11LOGS ANACONDA BOOT; do/' "$gpu_src/gpu-two-step.sh" >"$desc/root/usr/libexec/sp11-gpu-two-step"
+chmod 0755 "$desc/root/usr/libexec/sp11-gpu-two-step"
+install -m 0644 "$gpu_src/sp11-gpu-two-step.service" "$desc/root/usr/lib/systemd/system/sp11-gpu-two-step.service"
+mkdir -p "$desc/root/etc/systemd/system/multi-user.target.wants"
+ln -sf /usr/lib/systemd/system/sp11-gpu-two-step.service "$desc/root/etc/systemd/system/multi-user.target.wants/sp11-gpu-two-step.service"
+chmod 0755 "$desc/root/usr/libexec/sp11/speaker-ucm-enable"
 ln -sf /usr/lib/systemd/system/sp11-bt-address.service "$desc/root/etc/systemd/system/sys-subsystem-bluetooth-devices-hci0.device.wants/sp11-bt-address.service"
 mkdir -p "$desc/root/etc/systemd/system/multi-user.target.wants"
 # Plymouth is installed (required by Fedora's package groups) but switched off: units masked
@@ -217,7 +237,7 @@ rpm2cpio "$kcore" | cpio -i --quiet --to-stdout "./lib/modules/$kver/dtb/qcom/x1
 # M11: the kernel worker variants next to the packaged DTB. The build fails without
 # it; with --smoke a copy of the packaged DTB stands in (recorded, never for the device).
 variants_smoke_copy=0
-for v in m12 m12-notouch m12-audio; do
+for v in m13 m13-nosnd m13-notouch m13-spk m13-gpu m13-cam; do
 	vf=x1p64100-microsoft-denali-$v.dtb
 	vsrc=$OUT/dtb-variants/$kver/qcom/$vf
 	if [ -s "$vsrc" ]; then
@@ -319,12 +339,13 @@ done
 xorriso -osirrox on -indev "$iso" -extract_boot_images "$chk/bi/" >/dev/null 2>&1
 mcopy -i "$chk/bi/eltorito_img1_uefi.img" ::EFI/BOOT/grub.cfg "$chk/esp-grub.cfg"
 for f in "$chk"/_* "$chk/esp-grub.cfg"; do
-	if grep -v '^[[:space:]]*#' "$f" | grep -w -E 'quiet|rhgb|splash' >/dev/null; then log "FAIL: quiet/rhgb/splash in $f"; exit 1; fi
+	# kernel arguments only: a menu title or a parameter value such as shutdown_mode=quiet is not the kernel argument `quiet`
+	if grep -E '^[[:space:]]*(linux|linuxefi)[[:space:]]' "$f" | tr -s ' \t' '\n\n' | grep -x -E 'quiet|rhgb|splash' >/dev/null; then log "FAIL: quiet/rhgb/splash argument in $f"; exit 1; fi
 done
-n=$(grep -c "^menuentry '" "$chk/_boot_grub2_grub.cfg"); [ "$n" = 9 ] || { log "FAIL: $n menu entries, expected 9 (M12)"; exit 1; }
-for e in debug usbdbg nodsp wifi-unblock nomodeset initramfs notouch audio vmtest; do grep -q "sp11.entry=$e\$" "$chk/_boot_grub2_grub.cfg" || { log "FAIL: no entry with sp11.entry=$e"; exit 1; }; done
+n=$(grep -c "^menuentry '" "$chk/_boot_grub2_grub.cfg"); [ "$n" = 16 ] || { log "FAIL: $n menu entries, expected 16 (M13)"; exit 1; }
+for e in debug nosnd notouch cdsp-keep ssam-quiet ssam-clean ssam-silent spk cam usbdbg nodsp wifi-unblock nomodeset initramfs vmtest gpu-diag; do grep -q "sp11.entry=$e\$" "$chk/_boot_grub2_grub.cfg" || { log "FAIL: no entry with sp11.entry=$e"; exit 1; }; done
 python3 -I "$REPO/image/tools/check-m8-menu.py" "$chk/_boot_grub2_grub.cfg"
-for f in x1p64100-microsoft-denali-m12 x1p64100-microsoft-denali-m12-notouch x1p64100-microsoft-denali-m12-audio; do
+for f in x1p64100-microsoft-denali-m13 x1p64100-microsoft-denali-m13-nosnd x1p64100-microsoft-denali-m13-notouch x1p64100-microsoft-denali-m13-spk x1p64100-microsoft-denali-m13-gpu x1p64100-microsoft-denali-m13-cam; do
 	xorriso -indev "$iso" -find "/boot/dtb/qcom/$f.dtb" -type f 2>/dev/null | grep -q . || { log "FAIL: /boot/dtb/qcom/$f.dtb not on the ISO"; exit 1; }
 done
 
@@ -387,16 +408,22 @@ record = {
     "dtb_variant_records": {f: json.load(open(f"{work}/dtb-records/{f}")) for f in sorted(os.listdir(f"{work}/dtb-records"))} if os.path.isdir(f"{work}/dtb-records") else {},
     "kernel_cmdline_reasons": "image/README.md, GRUB 2 and the kernel command line",
     "grub_entries": entries,
-    "milestone": "M12",
+    "milestone": "M13",
     "kernel_release_record_sha256": sha256(kernel_record_path),
-    "kernel_touch_modules": json.load(open(kernel_record_path))["m12"]["touch_modules"],
+    "kernel_touch_modules": json.load(open(kernel_record_path))["m13"]["touch_modules"],
     "module_policy": {"qcom_battmgr": "blacklist + install false + dracut omit_drivers (D23)",
                       "ucsi_glink": "retained early", "ath12k.debug_mask": "0x70; CONFIG_ATH12K_DEBUG=y; output checked by L0"},
-    "diagnostic_args_reason": {"usbdbg": "USB-C test-plan C + DSP R-I2, combined to contain trace volume",
-                               "notouch": "touch-pen section 8: touch child disabled; debug arguments",
+    "diagnostic_args_reason": {"debug": "M13 default: m13 DTB (microphones), USB dynamic debug (usb-typec R-I1), PDR dynamic debug, corrected DSP trace string (dsp-subsystems R-I5)",
+                               "usbdbg": "USB-C test-plan C + DSP R-I2, lower trace volume than the default (qcom_glink only, 8M buffer)",
+                               "nosnd": "m13-nosnd: M12 behaviour, sound card off", "notouch": "touch-pen section 8: touch child disabled; debug arguments",
+                               "cdsp-keep": "dsp-subsystems C4/R-K4: qcom_q6v5_pas.keep_proxy_pds=1, one test boot",
+                               "ssam-quiet|clean|silent": "ec-sam R12: surface_aggregator.shutdown_mode",
+                               "spk": "D26 gated speakers: m13-spk, speaker UCM overlay; the kernel gate still refuses WSA playback",
+                               "cam": "cameras: m13-cam rear OV13858 diagnostic", "gpu-diag": "gpu: m13-gpu, sp11.gpu_diag=1, two-step collector",
                                "nodsp": "DSP R-I3: PAS deferred until switch-root",
                                "wifi-unblock": "Wi-Fi I2: opt-in transient rfkill/NM probe"},
     "collector_sources": {c: sha256(f"{repo}/hardware/{c}/collector/{c}.sh") for c in ("dsp-subsystems", "wifi")},
+    "m13_inputs": json.load(open(f"{repo}/image/component-inputs/m13.json")),
     "touch_collector_sha256": sha256(f"{repo}/hardware/touch-pen/collect-read-only.sh"),
     "touch_userspace_collector_sha256": sha256(f"{repo}/image/overlay/usr/libexec/sp11-touch-userspace-collect"),
     "iptsd": json.load(open(f"{out}/rpms/iptsd-3.1.0-1.fc44.aarch64.json")),

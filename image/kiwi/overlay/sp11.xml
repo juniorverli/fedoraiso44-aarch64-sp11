@@ -39,6 +39,10 @@
 		<!-- ec-sam R3 and Bluetooth boot-time configuration / masked capture. -->
 		<package name="libinput-utils"/>
 		<package name="evtest"/>
+		<!-- M13 (cameras R4): Fedora libcamera with the RGB software ISP, and cam/qcam. A test transaction of exactly these two
+		     (libcamera-ipa comes in as a dependency) completes against Fedora 44 aarch64. No tuning file and no Windows data. -->
+		<package name="libcamera"/>
+		<package name="libcamera-tools"/>
 		<!-- Local Fedora-native RPM; upstream udev rule activates iptsd@.service. -->
 		<package name="iptsd"/>
 		<package name="bluez"/>

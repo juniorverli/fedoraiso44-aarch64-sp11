@@ -6,10 +6,10 @@
 # Differences, all listed in image/README.md ("kiwi layer", change 3):
 #   - load_video keeps efi_gop and all_video only: efi_uga, video_bochs and video_cirrus do not exist
 #     on arm64-efi (QEMU printed "file not found" for each; they are x86 modules in Fedora's template);
-#   - no `Test this media` and no `Troubleshooting` submenu; the nine M11 entries (D22–D23) instead;
+#   - no `Test this media` and no `Troubleshooting` submenu; the sixteen M13 entries (D26, image/README.md "M13 private ISO") instead;
 #   - `set default=0` and timeout_style=menu with a fixed timeout: the menu is always shown;
 #   - every device entry has a `devicetree` line (GRUB 2 command, D9); the VM test entry has none;
-#     every device entry uses the `-m11` DTB (or `-m12-notouch` fallback) (speakers and GPU off, S1/D22);
+#     every device entry names an M13 DTB: m13 (microphones) by default; speakers only in the `spk` entry (m13-spk, D26 profile), GPU only in `gpu-diag` (m13-gpu);
 #   - every entry has sp11.entry=<id>; only the VM entry adds the serial console (D15);
 #   - the common kernel arguments are kiwi's boot options: its live options (root=live:CDLABEL, rd.live.image)
 #     plus the verbose kernelcmdline patched into components/liveinstall.xml (patch 0002).
@@ -36,50 +36,92 @@ set timeout_style=menu
 set default=0
 
 search ${search_params}
-
-# M11: speakers/GPU off; touch enabled except in the touch-off fallback. The default and touch-off
-# entries carry the DSP trace arguments (dsp-subsystems R-I2): tracing must start at module load.
+# M13 (series revision 10, kernel 7.3.0-65.sp11.10): default = m13 (microphones; WSA speakers and GPU off, camera chain disabled).
+# Every device entry from 1 to 9 carries the same diagnostic arguments (USB dynamic debug, PDR dynamic debug, the corrected DSP
+# trace string of dsp-subsystems R-K4/R-I5) so any entry produces comparable evidence; entries 4-7 add one kernel parameter each.
+# S1: the only DTB that enables the speaker sound card is m13-spk, only in the `spk` entry, checked against the d26 profile by L0.
+# The kernel gate (audio-speakers 0009) still refuses WSA playback in this build. The GPU DTB is only in the last device entry.
 menuentry 'SP11 debug' --id sp11-debug --class fedora --class gnu-linux --class gnu --class os {
-	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr qcom_pd_mapper.dyndbg=+p pdr_interface.dyndbg=+p trace_event=:mod:qcom_glink,smp2p:*,remoteproc:* trace_buf_size=8M sp11.entry=debug
-	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m12.dtb
+	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr pmic_glink_altmode.dyndbg=+p ps883x.dyndbg=+p phy_qcom_qmp_combo.dyndbg=+p ucsi_glink.dyndbg=+p typec_ucsi.dyndbg=+p dwc3.dyndbg=+p dwc3_qcom.dyndbg=+p qcom_pd_mapper.dyndbg=+p pdr_interface.dyndbg=+p trace_event=:mod:qcom_glink,:mod:smp2p,:mod:qcom_aoss,rpmh:rpmh_send_msg,power:power_domain_target trace_buf_size=16M sp11.entry=debug
+	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m13.dtb
+	initrd ($$root)${bootpath}/${initrd_file}
+}
+menuentry 'SP11 debug, no sound' --id sp11-nosnd --class fedora --class gnu-linux --class gnu --class os {
+	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr pmic_glink_altmode.dyndbg=+p ps883x.dyndbg=+p phy_qcom_qmp_combo.dyndbg=+p ucsi_glink.dyndbg=+p typec_ucsi.dyndbg=+p dwc3.dyndbg=+p dwc3_qcom.dyndbg=+p qcom_pd_mapper.dyndbg=+p pdr_interface.dyndbg=+p trace_event=:mod:qcom_glink,:mod:smp2p,:mod:qcom_aoss,rpmh:rpmh_send_msg,power:power_domain_target trace_buf_size=16M sp11.entry=nosnd
+	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m13-nosnd.dtb
+	initrd ($$root)${bootpath}/${initrd_file}
+}
+menuentry 'SP11 debug, touch off' --id sp11-notouch --class fedora --class gnu-linux --class gnu --class os {
+	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr pmic_glink_altmode.dyndbg=+p ps883x.dyndbg=+p phy_qcom_qmp_combo.dyndbg=+p ucsi_glink.dyndbg=+p typec_ucsi.dyndbg=+p dwc3.dyndbg=+p dwc3_qcom.dyndbg=+p qcom_pd_mapper.dyndbg=+p pdr_interface.dyndbg=+p trace_event=:mod:qcom_glink,:mod:smp2p,:mod:qcom_aoss,rpmh:rpmh_send_msg,power:power_domain_target trace_buf_size=16M sp11.entry=notouch
+	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m13-notouch.dtb
+	initrd ($$root)${bootpath}/${initrd_file}
+}
+menuentry 'SP11 debug, CDSP keep proxy votes' --id sp11-cdsp-keep --class fedora --class gnu-linux --class gnu --class os {
+	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr pmic_glink_altmode.dyndbg=+p ps883x.dyndbg=+p phy_qcom_qmp_combo.dyndbg=+p ucsi_glink.dyndbg=+p typec_ucsi.dyndbg=+p dwc3.dyndbg=+p dwc3_qcom.dyndbg=+p qcom_pd_mapper.dyndbg=+p pdr_interface.dyndbg=+p trace_event=:mod:qcom_glink,:mod:smp2p,:mod:qcom_aoss,rpmh:rpmh_send_msg,power:power_domain_target trace_buf_size=16M qcom_q6v5_pas.keep_proxy_pds=1 sp11.entry=cdsp-keep
+	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m13.dtb
+	initrd ($$root)${bootpath}/${initrd_file}
+}
+menuentry 'SP11 debug, SAM shutdown quiet' --id sp11-ssam-quiet --class fedora --class gnu-linux --class gnu --class os {
+	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr pmic_glink_altmode.dyndbg=+p ps883x.dyndbg=+p phy_qcom_qmp_combo.dyndbg=+p ucsi_glink.dyndbg=+p typec_ucsi.dyndbg=+p dwc3.dyndbg=+p dwc3_qcom.dyndbg=+p qcom_pd_mapper.dyndbg=+p pdr_interface.dyndbg=+p trace_event=:mod:qcom_glink,:mod:smp2p,:mod:qcom_aoss,rpmh:rpmh_send_msg,power:power_domain_target trace_buf_size=16M surface_aggregator.shutdown_mode=quiet sp11.entry=ssam-quiet
+	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m13.dtb
+	initrd ($$root)${bootpath}/${initrd_file}
+}
+menuentry 'SP11 debug, SAM shutdown clean' --id sp11-ssam-clean --class fedora --class gnu-linux --class gnu --class os {
+	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr pmic_glink_altmode.dyndbg=+p ps883x.dyndbg=+p phy_qcom_qmp_combo.dyndbg=+p ucsi_glink.dyndbg=+p typec_ucsi.dyndbg=+p dwc3.dyndbg=+p dwc3_qcom.dyndbg=+p qcom_pd_mapper.dyndbg=+p pdr_interface.dyndbg=+p trace_event=:mod:qcom_glink,:mod:smp2p,:mod:qcom_aoss,rpmh:rpmh_send_msg,power:power_domain_target trace_buf_size=16M surface_aggregator.shutdown_mode=clean sp11.entry=ssam-clean
+	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m13.dtb
+	initrd ($$root)${bootpath}/${initrd_file}
+}
+menuentry 'SP11 debug, SAM shutdown silent' --id sp11-ssam-silent --class fedora --class gnu-linux --class gnu --class os {
+	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr pmic_glink_altmode.dyndbg=+p ps883x.dyndbg=+p phy_qcom_qmp_combo.dyndbg=+p ucsi_glink.dyndbg=+p typec_ucsi.dyndbg=+p dwc3.dyndbg=+p dwc3_qcom.dyndbg=+p qcom_pd_mapper.dyndbg=+p pdr_interface.dyndbg=+p trace_event=:mod:qcom_glink,:mod:smp2p,:mod:qcom_aoss,rpmh:rpmh_send_msg,power:power_domain_target trace_buf_size=16M surface_aggregator.shutdown_mode=silent sp11.entry=ssam-silent
+	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m13.dtb
+	initrd ($$root)${bootpath}/${initrd_file}
+}
+menuentry 'SP11 debug, speakers (gated; kernel gate still refuses playback)' --id sp11-spk --class fedora --class gnu-linux --class gnu --class os {
+	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr pmic_glink_altmode.dyndbg=+p ps883x.dyndbg=+p phy_qcom_qmp_combo.dyndbg=+p ucsi_glink.dyndbg=+p typec_ucsi.dyndbg=+p dwc3.dyndbg=+p dwc3_qcom.dyndbg=+p qcom_pd_mapper.dyndbg=+p pdr_interface.dyndbg=+p trace_event=:mod:qcom_glink,:mod:smp2p,:mod:qcom_aoss,rpmh:rpmh_send_msg,power:power_domain_target trace_buf_size=16M sp11.entry=spk
+	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m13-spk.dtb
+	initrd ($$root)${bootpath}/${initrd_file}
+}
+menuentry 'SP11 debug, rear camera diagnostic' --id sp11-cam --class fedora --class gnu-linux --class gnu --class os {
+	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr pmic_glink_altmode.dyndbg=+p ps883x.dyndbg=+p phy_qcom_qmp_combo.dyndbg=+p ucsi_glink.dyndbg=+p typec_ucsi.dyndbg=+p dwc3.dyndbg=+p dwc3_qcom.dyndbg=+p qcom_pd_mapper.dyndbg=+p pdr_interface.dyndbg=+p trace_event=:mod:qcom_glink,:mod:smp2p,:mod:qcom_aoss,rpmh:rpmh_send_msg,power:power_domain_target trace_buf_size=16M sp11.entry=cam
+	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m13-cam.dtb
 	initrd ($$root)${bootpath}/${initrd_file}
 }
 menuentry 'SP11 debug, USB + DSP trace' --id sp11-usbdbg --class fedora --class gnu-linux --class gnu --class os {
 	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr pmic_glink_altmode.dyndbg=+p ps883x.dyndbg=+p phy_qcom_qmp_combo.dyndbg=+p ucsi_glink.dyndbg=+p typec_ucsi.dyndbg=+p dwc3.dyndbg=+p dwc3_qcom.dyndbg=+p qcom_pd_mapper.dyndbg=+p pdr_interface.dyndbg=+p trace_event=:mod:qcom_glink trace_buf_size=8M sp11.entry=usbdbg
-	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m12.dtb
+	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m13.dtb
 	initrd ($$root)${bootpath}/${initrd_file}
 }
 menuentry 'SP11 debug, no early DSP' --id sp11-nodsp --class fedora --class gnu-linux --class gnu --class os {
 	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr,qcom_q6v5_pas modprobe.blacklist=qcom_battmgr sp11.entry=nodsp
-	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m12.dtb
+	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m13.dtb
 	initrd ($$root)${bootpath}/${initrd_file}
 }
 menuentry 'SP11 debug, Wi-Fi unblock probe' --id sp11-wifi-unblock --class fedora --class gnu-linux --class gnu --class os {
 	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr sp11.wifi_unblock=1 sp11.entry=wifi-unblock
-	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m12.dtb
+	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m13.dtb
 	initrd ($$root)${bootpath}/${initrd_file}
 }
 menuentry 'SP11 debug nomodeset' --id sp11-nomodeset --class fedora --class gnu-linux --class gnu --class os {
 	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr nomodeset sp11.entry=nomodeset
-	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m12.dtb
+	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m13.dtb
 	initrd ($$root)${bootpath}/${initrd_file}
 }
 menuentry 'SP11 debug, stop in initramfs' --id sp11-initramfs --class fedora --class gnu-linux --class gnu --class os {
 	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr rd.break=pre-mount sp11.entry=initramfs
-	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m12.dtb
-	initrd ($$root)${bootpath}/${initrd_file}
-}
-menuentry 'SP11 debug, touch off' --id sp11-notouch --class fedora --class gnu-linux --class gnu --class os {
-	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr qcom_pd_mapper.dyndbg=+p pdr_interface.dyndbg=+p trace_event=:mod:qcom_glink,smp2p:*,remoteproc:* trace_buf_size=8M sp11.entry=notouch
-	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m12-notouch.dtb
-	initrd ($$root)${bootpath}/${initrd_file}
-}
-menuentry 'SP11 debug, microphones' --id sp11-audio --class fedora --class gnu-linux --class gnu --class os {
-	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr qcom_pd_mapper.dyndbg=+p pdr_interface.dyndbg=+p trace_event=:mod:qcom_glink,smp2p:*,remoteproc:* trace_buf_size=8M sp11.entry=audio
-	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m12-audio.dtb
+	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m13.dtb
 	initrd ($$root)${bootpath}/${initrd_file}
 }
 menuentry 'VM test (no devicetree)' --id sp11-vmtest --class fedora --class gnu-linux --class gnu --class os {
 	linux ($$root)${bootpath}/${kernel_file} ${boot_options} console=ttyAMA0,115200 sp11.entry=vmtest
+	initrd ($$root)${bootpath}/${initrd_file}
+}
+# Last entry, never the default: hardware/gpu/collector/grub-entry.txt (gpu worker), kept as written except the entry id check
+# in image/tools/check-m8-menu.py. multi-user.target, so only sp11-gpu-two-step.service opens the render node.
+menuentry 'SP11 debug, GPU diagnostic (WARNING: may reset the machine)' --id sp11-gpu-diag --class fedora --class gnu-linux --class gnu --class os {
+	echo 'WARNING: GPU diagnostic. The machine may reset by itself within 3 minutes. Logs go to the boot USB only.'
+	echo 'After a reset boot this same entry again: it reports which step died. Do not boot Windows in between.'
+	sleep 3
+	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr printk.devkmsg=on log_buf_len=16M systemd.unit=multi-user.target sp11.gpu_diag=1 sp11.entry=gpu-diag
+	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m13-gpu.dtb
 	initrd ($$root)${bootpath}/${initrd_file}
 }
