@@ -1,0 +1,46 @@
+From f226f4bf6e53661d72a8cb266cbf087eb9653035 Mon Sep 17 00:00:00 2001
+From: SP11 cameras worker <sp11-cameras@localhost>
+Date: Sat, 31 Oct 2026 18:37:26 +0000
+Subject: [PATCH 2/2] Kbuild: allow building without -Werror (CAMERA_WERROR=0)
+
+The Kbuild adds -Werror unconditionally. When the driver is built as an
+out-of-tree module against a kernel and compiler newer than the ones it
+was validated with, one new warning stops the whole module.
+
+Make -Werror conditional on CAMERA_WERROR. The default is unchanged
+(-Werror on); CAMERA_WERROR=0 keeps every warning visible without
+failing the build.
+
+Assisted-by: Claude Sonnet 5.5
+---
+ Kbuild | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/Kbuild b/Kbuild
+index 38c315b..1326b0a 100644
+--- a/Kbuild
++++ b/Kbuild
+@@ -222,7 +222,11 @@ LINUXINCLUDE +=                                                  \
+ # After creating lists, add content of 'ccflags-m' variable to 'ccflags-y' one.
+ ccflags-y += ${ccflags-m}
+ ccflags-y += -Wmissing-prototypes
++# Qualcomm builds with -Werror. A newer compiler than the one the sources were tested with can turn a new
++# warning into a build failure, so allow `CAMERA_WERROR=0` to keep the warnings but not fail on them.
++ifneq ($(CAMERA_WERROR),0)
+ ccflags-y += -Werror
++endif
+ 
+ camera_$(CAMERA_ARCH)-y := \
+ 	camera_kt/drivers/cam_req_mgr/cam_req_mgr_core.o \
+@@ -460,7 +464,11 @@ LINUXINCLUDE +=                                                       \
+ # After creating lists, add content of 'ccflags-m' variable to 'ccflags-y' one.
+ ccflags-y += ${ccflags-m}
+ ccflags-y += -Wmissing-prototypes
++# Qualcomm builds with -Werror. A newer compiler than the one the sources were tested with can turn a new
++# warning into a build failure, so allow `CAMERA_WERROR=0` to keep the warnings but not fail on them.
++ifneq ($(CAMERA_WERROR),0)
+ ccflags-y += -Werror
++endif
+ 
+ camera_$(CAMERA_ARCH)-y := \
+ 	camera/drivers/cam_req_mgr/cam_req_mgr_core.o \

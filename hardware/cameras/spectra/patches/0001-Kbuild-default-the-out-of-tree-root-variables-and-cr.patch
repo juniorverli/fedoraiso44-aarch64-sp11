@@ -1,0 +1,48 @@
+From d0e23a8cadee7a58cd8a79b66748402ef7b8c021 Mon Sep 17 00:00:00 2001
+From: SP11 cameras worker <sp11-cameras@localhost>
+Date: Sat, 31 Oct 2026 18:37:25 +0000
+Subject: [PATCH 1/2] Kbuild: default the out-of-tree root variables and create
+ cam_generated_h
+
+For M= builds, Kbuild reads this Kbuild file instead of the Makefile, so
+the cam_generated_h rule of the Makefile never runs and
+CAMERA_KERNEL_ROOT / KERNEL_ROOT stay empty unless a wrapper passes them.
+
+Default both variables with ?= and create cam_generated_h from Kbuild when
+it is missing. This lets a distribution kernel-devel or a DKMS build run
+make -C <kernel> M=<dir> CAMERA_ARCH=<soc> modules directly. The Makefile
+still passes both variables, so the existing flow is unchanged.
+
+Tested against Linux v7.3 plus the SP11 patch series with
+CAMERA_ARCH=x1e80100: all 149 objects build and camera_x1e80100.ko links.
+
+Assisted-by: Claude Sonnet 5.5
+---
+ Kbuild | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/Kbuild b/Kbuild
+index 43c92a9..38c315b 100644
+--- a/Kbuild
++++ b/Kbuild
+@@ -1,5 +1,20 @@
+ # SPDX-License-Identifier: GPL-2.0-only
+ 
++# Out-of-tree defaults: let `make -C <kernel> M=<this dir> CAMERA_ARCH=<soc> modules` work without the
++# CAMERA_KERNEL_ROOT / KERNEL_ROOT wrapper variables of the Qualcomm top-level Makefile (Fedora kernel-devel,
++# DKMS, plain developer builds). The Makefile still passes both, which keeps the old flow unchanged.
++CAMERA_KERNEL_ROOT ?= $(abspath $(src))
++KERNEL_ROOT ?= $(abspath $(srctree))
++
++# camera_main.c includes this generated banner header. The Makefile target creates it, but Kbuild reads this
++# file instead of the Makefile for M= builds, so create it here when it is missing.
++ifeq ($(wildcard $(CAMERA_KERNEL_ROOT)/cam_generated_h),)
++$(shell { echo '#define CAMERA_COMPILE_TIME "$(shell date)"'; \
++	echo '#define CAMERA_COMPILE_HOST "$(shell uname -n)"'; \
++	echo '#define CAMERA_CC_VERSION "$(shell LC_ALL=C $(CC) --version 2>/dev/null | head -n 1)"'; \
++	} > $(CAMERA_KERNEL_ROOT)/cam_generated_h)
++endif
++
+ $(info "CAMERA_KERNEL_ROOT is: $(CAMERA_KERNEL_ROOT)")
+ $(info "KERNEL_ROOT is: $(KERNEL_ROOT)")
+ $(info "CAMERA_ARCH is: $(CAMERA_ARCH)")
