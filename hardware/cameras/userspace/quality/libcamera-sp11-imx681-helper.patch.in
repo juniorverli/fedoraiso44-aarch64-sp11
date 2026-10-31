@@ -1,0 +1,31 @@
+Subject: [PATCH] ipa: libipa: camera_sensor_helper: add imx681
+
+TEMPLATE, NOT APPLIABLE YET. The analogue gain law of the IMX681 is not known (REA
+question G1 in hardware/cameras/evidence/2026-10-31-quality-parity.md). Windows only
+shows that the gain is a linear register code (MIPI CCS 0x0204); the divisor is not in
+the module data. Replace @IMX681_GAIN_DIV@ and @IMX681_BLACK16@ and save as
+libcamera-sp11-imx681-helper.patch (an unfilled template must never be applied: with a
+wrong divisor the Software ISP AGC range is wrong).
+
+  @IMX681_GAIN_DIV@  gain = code / DIV (CCS linear model, c0 = 0): integer
+  @IMX681_BLACK16@   black level in the 16 bit scale: (10 bit black level) << 6
+
+Without the helper libcamera logs "Failed to create camera sensor helper for imx681"
+and uses the control value as the gain; capture works, AGC is coarse.
+
+Assisted-by: Claude Sonnet 5.5
+---
+--- a/src/ipa/libipa/camera_sensor_helper.cpp
++++ b/src/ipa/libipa/camera_sensor_helper.cpp
+@@ -/* anchor: insert before the "class CameraSensorHelperOv13858" definition */
++class CameraSensorHelperImx681 : public CameraSensorHelper
++{
++public:
++	CameraSensorHelperImx681()
++	{
++		blackLevel_ = @IMX681_BLACK16@;
++		gain_ = AnalogueGainLinear{ 1, 0, 0, @IMX681_GAIN_DIV@ };
++	}
++};
++REGISTER_CAMERA_SENSOR_HELPER("imx681", CameraSensorHelperImx681)
++

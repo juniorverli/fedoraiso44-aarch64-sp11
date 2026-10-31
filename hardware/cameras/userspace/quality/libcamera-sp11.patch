@@ -1,0 +1,84 @@
+Subject: [PATCH] ipa: simple: tuned default gamma and OV13858 black level
+
+Carried by the SP11 image only (libcamera 0.7.2, Fedora 44 spec: add as Patch and
+%autosetup -p1). Both changes are small and candidates for upstream.
+
+1. Adjust: read an optional "gamma" key from the tuning file and use it as the
+   default of the Gamma control. Stock 0.7.2 always starts at 2.2 and has no way to
+   carry a sensor tuned value; a tuning file with the key still loads on an
+   unpatched libcamera (the key is ignored).
+2. CameraSensorHelperOv13858: provide the black level (64 at 10 bits, 4096 in the
+   16 bit scale the helpers use), so the Software ISP does not guess it when no
+   tuning file is installed. The tuning file value, when present, still wins.
+
+The CameraSensorHelper for imx681 is not part of this patch: its gain law is an open
+REA question (see libcamera-sp11-imx681-helper.patch.in).
+
+Assisted-by: Claude Sonnet 5.5
+---
+diff --git a/src/ipa/libipa/camera_sensor_helper.cpp b/src/ipa/libipa/camera_sensor_helper.cpp
+index 9457d62..413d7c8 100644
+--- a/src/ipa/libipa/camera_sensor_helper.cpp
++++ b/src/ipa/libipa/camera_sensor_helper.cpp
+@@ -822,6 +822,8 @@ class CameraSensorHelperOv13858 : public CameraSensorHelper
+ public:
+ 	CameraSensorHelperOv13858()
+ 	{
++		/* Black level 64 at 10 bits (same scale as the VD55G1 helper below). */
++		blackLevel_ = 4096;
+ 		gain_ = AnalogueGainLinear{ 1, 0, 0, 128 };
+ 	}
+ };
+diff --git a/src/ipa/simple/algorithms/adjust.cpp b/src/ipa/simple/algorithms/adjust.cpp
+index 8bf39c4..ef6f174 100644
+--- a/src/ipa/simple/algorithms/adjust.cpp
++++ b/src/ipa/simple/algorithms/adjust.cpp
+@@ -8,6 +8,8 @@
+ 
+ #include "adjust.h"
+ 
++#include <algorithm>
++
+ #include <libcamera/base/log.h>
+ #include <libcamera/base/utils.h>
+ 
+@@ -24,10 +26,15 @@ constexpr float kDefaultSaturation = 1.0f;
+ 
+ LOG_DEFINE_CATEGORY(IPASoftAdjust)
+ 
+-int Adjust::init(IPAContext &context, [[maybe_unused]] const ValueNode &tuningData)
++int Adjust::init(IPAContext &context, const ValueNode &tuningData)
+ {
++	/* Optional tuned default gamma, clamped to the range of the control. */
++	const auto gamma = tuningData["gamma"].get<float>();
++	if (gamma.has_value())
++		defaultGamma_ = std::clamp(gamma.value(), 0.1f, 10.0f);
++
+ 	context.ctrlMap[&controls::Gamma] =
+-		ControlInfo(0.1f, 10.0f, kDefaultGamma);
++		ControlInfo(0.1f, 10.0f, defaultGamma_);
+ 	context.ctrlMap[&controls::Contrast] =
+ 		ControlInfo(0.0f, 2.0f, kDefaultContrast);
+ 	if (context.ccmEnabled)
+@@ -39,7 +46,7 @@ int Adjust::init(IPAContext &context, [[maybe_unused]] const ValueNode &tuningDa
+ int Adjust::configure(IPAContext &context,
+ 		      [[maybe_unused]] const IPAConfigInfo &configInfo)
+ {
+-	context.activeState.knobs.gamma = kDefaultGamma;
++	context.activeState.knobs.gamma = defaultGamma_;
+ 	context.activeState.knobs.contrast = std::optional<float>();
+ 	context.activeState.knobs.saturation = std::optional<float>();
+ 
+diff --git a/src/ipa/simple/algorithms/adjust.h b/src/ipa/simple/algorithms/adjust.h
+index 49c1f26..fcb87d6 100644
+--- a/src/ipa/simple/algorithms/adjust.h
++++ b/src/ipa/simple/algorithms/adjust.h
+@@ -43,6 +43,8 @@ public:
+ 
+ private:
+ 	void applySaturation(Matrix<float, 3, 3> &ccm, float saturation);
++
++	float defaultGamma_ = kDefaultGamma;
+ };
+ 
+ } /* namespace ipa::soft::algorithms */
