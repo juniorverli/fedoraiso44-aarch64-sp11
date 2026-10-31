@@ -308,3 +308,9 @@ GPIO235/236 is `aon_cci`; front sensor needs pm8550 `l7b` and pm8010 `ldo3`; IR 
 - Whether VD55G0 is accepted by `vd55g1.c` (chip id 0x3047 differs from the S5G1/S5G3 ids).
 - IR strobe wiring from the VD55G0 GPIO1 to the PMIC (not described by Windows).
 - Hardware confirmation of everything above (needs the device; no `i2cdetect`).
+
+
+## Correction 2026-10-31: Q6 Bayer order
+
+Closed by `2026-10-31-bayer-units-gain-crosscheck.md`: OV13858 blob modes BGGR, IMX681 RGGB, VD55G0 monochrome (Verified, Windows
+colour-code table). The "Unknown" above for the IMX681 and the OV13858 is superseded; the OV13858 Linux built-in modes stay GRBG.

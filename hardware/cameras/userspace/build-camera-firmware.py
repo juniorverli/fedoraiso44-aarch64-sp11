@@ -12,9 +12,9 @@ published. The manifest it writes holds hashes and counts, never register values
 
     python3 -I hardware/cameras/userspace/build-camera-firmware.py all
     python3 -I hardware/cameras/userspace/build-camera-firmware.py all \\
-        --bayer-imx681 bggr          # IMX681 order Unknown: default rggb, see below
+        --bayer-imx681 bggr          # override only, loud note, see below
     python3 -I hardware/cameras/userspace/build-camera-firmware.py ov13858
-    python3 -I hardware/cameras/userspace/build-camera-firmware.py imx681 --bayer rggb
+    python3 -I hardware/cameras/userspace/build-camera-firmware.py imx681 --bayer rggb  # override
     python3 -I hardware/cameras/userspace/build-camera-firmware.py vd55g0      # design only
 
 Outputs (default --out out/firmware-private/cameras):
@@ -57,14 +57,20 @@ hardware/cameras/evidence/ carry the same list):
      pointers in its resolutionData record. The tool asserts the symbols have
      the expected names and sizes, and reports in the manifest whether the
      pointers agree with the older "same order" guess.
-  2. Colour filter: the module carries a numeric CamX code (3 for IMX681, 0 for
-     OV13858, 4 for the mono IR) with no printable enumeration.
-       - OV13858: GRBG (Inference, medium: the Windows windows start on even
-         columns and rows and keep the flip bits of the Linux full mode, which
-         is GRBG). The tool emits GRBG and accepts no other order.
-       - IMX681: Unknown. --bayer-imx681 / --bayer default to rggb and the tool
-         prints a loud note: the order is a guess and one RAW capture of a
-         coloured target decides (swapped red and blue means bggr).
+  2. Colour filter (Verified REA 2026-10-31, hardware/cameras/evidence/
+     2026-10-31-rea-bayer-poll-units.md; the orchestrator re-derived the table from
+     the jump table of the Windows camera DLL): the numeric code at +0x10 of every
+     resolutionData record is translated as 0 BGGR, 1 GBRG, 2 GRBG, 3 RGGB, 4
+     monochrome. The tool reads the code from the data, requires every mode of a
+     module to carry the same code, and requires the code the profile expects
+     (OV13858 0 = BGGR, IMX681 3 = RGGB, VD55G0 4 = monochrome); any other value
+     stops the build. The media bus code follows from the order and the bit depth
+     the mode data states (width of the stream configuration, which must agree with
+     its MIPI data type). The earlier GRBG for the OV13858 was an inference from crop
+     offsets and flip bits and was wrong. --bayer / --bayer-imx681 stay only as an
+     override of a colour sensor: every use prints a loud note and the manifest
+     records it as an override instead of the Verified source. The monochrome IR
+     has no override.
   3. Control registers of the IMX681: the module names the digital gain
      (0x020e), the short exposure (0x0224) and a non-standard middle exposure
      (0x30b2) only; the analogue gain register and the gain code law are not in
@@ -114,8 +120,18 @@ SRB_VERSION = 2
 SRB_MAX_POLL_US = 10000000
 MOD_POLL = 4          # operation code of a poll record in the Chromatix module
 CTRL_EXPOSURE, CTRL_GAIN, CTRL_FRAME_LENGTH = 1, 2, 3
-BAYER = {"bggr": 0x3007, "gbrg": 0x300E, "grbg": 0x300A, "rggb": 0x300F}
-Y10 = 0x200A
+# MEDIA_BUS_FMT_* by bit depth (include/uapi/linux/media-bus-format.h)
+BAYER_BY_DEPTH = {
+    8: {"bggr": 0x3001, "gbrg": 0x3013, "grbg": 0x3002, "rggb": 0x3014},
+    10: {"bggr": 0x3007, "gbrg": 0x300E, "grbg": 0x300A, "rggb": 0x300F},
+    12: {"bggr": 0x3008, "gbrg": 0x3010, "grbg": 0x3011, "rggb": 0x3012},
+}
+BAYER = BAYER_BY_DEPTH[10]
+Y_BY_DEPTH = {8: 0x2001, 10: 0x200A, 12: 0x2013}
+RAW_DATA_TYPE = {8: 0x2A, 10: 0x2B, 12: 0x2C}
+# Module colour filter code to order (Verified REA 2026-10-31, see the docstring)
+COLOR_CODE = {0: "bggr", 1: "gbrg", 2: "grbg", 3: "rggb", 4: "mono"}
+VERIFIED_SRC = "Verified REA 2026-10-31"
 
 # Per sensor profile. 'dirs' are the DriverStore packages (hash suffix globbed).
 PROFILES = {
@@ -125,7 +141,7 @@ PROFILES = {
         module="com.surface.sensormodule.rfc_ov13858.bin",
         scfg="SCFG_REAR_MSHW0491.bin",
         phy="dphy", lanes=4, color=True, hts_scale=4, skip_modes=[], stream_reg=0x0100,
-        bayer_choices=["grbg"], bayer_default="grbg",
+        expect_code=0,
     ),
     "imx681": dict(
         name="imx681-mshw0490.bin",
@@ -134,7 +150,7 @@ PROFILES = {
         scfg="SCFG_FRONT_MSHW0490.bin",
         phy="cphy", lanes=1, color=True, hts_scale=1, stream_reg=0x0100,
         skip_modes=[5],  # 504x378 at 3 fps presence mode
-        bayer_choices=list(BAYER), bayer_default="rggb",
+        expect_code=3,
     ),
     "vd55g0": dict(
         name="vd55g0-mshw0492.bin",
@@ -142,7 +158,7 @@ PROFILES = {
         module="com.surface.sensormodule.aux_vd55g0_MSHW0492.bin",
         scfg="SCFG_AUX_MSHW0492.bin",
         phy="dphy", lanes=1, color=False, hts_scale=1, skip_modes=[],
-        bayer_choices=[],
+        expect_code=4,
     ),
 }
 
@@ -447,20 +463,31 @@ def build_sensor(key, args):
         raise Fail("mode counts differ: %d resSettings, %d streamConfiguration, %d records"
                    % (len(res), len(sc), n_modes))
     notes = []
-    code = Y10
-    bayer = None
-    if prof["color"]:
-        bayer = args.bayer or prof["bayer_default"]
-        if bayer not in prof["bayer_choices"]:
-            raise Fail("%s accepts --bayer %s only" % (key, ",".join(prof["bayer_choices"])))
-        code = BAYER[bayer]
-        if key == "imx681":
-            msg = ("IMX681 Bayer order %s is a GUESS (%s): the module's colour code 3 is "
-                   "not decoded. Capture one RAW frame of a coloured target; swapped red "
-                   "and blue means rebuild with --bayer-imx681 bggr." %
-                   (bayer, "default" if not args.bayer else "from the command line"))
+    # colour filter code of every mode record (Verified REA 2026-10-31)
+    codes = {struct.unpack_from("<I", buf, rdata[0]["foff"] + 252 * i + 0x10)[0]
+             for i in range(n_modes)}
+    if len(codes) != 1:
+        raise Fail("modes disagree on the colour filter code: %s" % sorted(codes))
+    mod_code = codes.pop()
+    if mod_code != prof["expect_code"] or mod_code not in COLOR_CODE:
+        raise Fail("colour filter code %d, the verified table expects %d for %s" %
+                   (mod_code, prof["expect_code"], key))
+    order = COLOR_CODE[mod_code]
+    if order == "mono":
+        if args.bayer:
+            raise Fail("%s is monochrome (Verified); a Bayer override is refused" % key)
+        bayer, bayer_source = None, VERIFIED_SRC + ": module code %d = monochrome" % mod_code
+    else:
+        bayer, bayer_source = order, VERIFIED_SRC + ": module code %d = %s" % (mod_code, order)
+        if args.bayer and args.bayer != order:
+            bayer = args.bayer
+            bayer_source = "OVERRIDE from the command line (verified order is %s)" % order
+            msg = ("%s Bayer order %s is a command-line OVERRIDE; the Verified order from the "
+                   "module data is %s. The blob will report the wrong colours unless a RAW "
+                   "capture proves otherwise." % (key, bayer, order))
             notes.append(msg)
             print("build-camera-firmware: LOUD NOTE: " + msg, file=sys.stderr)
+    code = None   # set per mode from the bit depth the mode data states
     pointer_order_ok = True
     modes, rewrites = [], rw0 + rw1 + rw2
     for i in range(n_modes):
@@ -484,8 +511,9 @@ def build_sensor(key, args):
             raise Fail("mode %d: lanes %d, C-PHY flag %d do not match the profile" %
                        (i, lanes, cphy))
         # data type 0x2b is RAW10
-        if scd[2] != 0x2B or bw != 10:
+        if bw not in RAW_DATA_TYPE or scd[2] != RAW_DATA_TYPE[bw]:
             raise Fail("mode %d: stream data type 0x%x, %d bit" % (i, scd[2], bw))
+        code = Y_BY_DEPTH[bw] if bayer is None else BAYER_BY_DEPTH[bw][bayer]
         rate = pix * bw / lanes                       # bit/s per lane (D-PHY) or trio
         freq = rate * 7 / 16 / 2 if cphy else rate / 2
         freq = int(round(freq / 1e5)) * 100000        # PLLs are exact multiples
@@ -541,7 +569,8 @@ def build_sensor(key, args):
                 inputs={os.path.relpath(mod_path, args.windows_root): sha256(mod_path),
                         os.path.relpath(scfg_path, args.windows_root): sha256(scfg_path)},
                 dropped_same_size_modes=dropped, skipped_modes=prof["skip_modes"],
-                s2_rewrites=rewrites if key == "vd55g0" else 0, bayer=bayer,
+                s2_rewrites=rewrites if key == "vd55g0" else 0, bayer=bayer or "mono",
+                bayer_source=bayer_source, module_color_code=mod_code,
                 mode_pointers_match_symbol_order=pointer_order_ok, notes=notes,
                 summary=summary)
 
@@ -561,10 +590,10 @@ def main():
     ap.add_argument("--windows-root", default="sources/windows")
     ap.add_argument("--out", default="out/firmware-private/cameras")
     ap.add_argument("--bayer", choices=list(BAYER),
-                    help="Bayer order of a colour sensor (ov13858: grbg only; imx681: default "
-                    "rggb, a GUESS that a RAW capture decides)")
+                    help="OVERRIDE of the Bayer order of a colour sensor (default: decoded "
+                    "from the module data, Verified); prints a loud note")
     ap.add_argument("--bayer-imx681", choices=list(BAYER),
-                    help="with 'all': order of the IMX681 (default rggb, a GUESS)")
+                    help="with 'all': override of the IMX681 order (loud note)")
     ap.add_argument("--ccs-controls", action="store_true",
                     help="IMX681: use the public MIPI CCS exposure, gain and frame length registers")
     ap.add_argument("--again-range", help="MIN:MAX:STEP:DEFAULT gain codes for --ccs-controls")

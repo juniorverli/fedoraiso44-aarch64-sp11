@@ -182,3 +182,13 @@ ignored `out/`).
 - Poll semantics of op 4 against the actual Windows consumer (REA of `QcDeviceMFT8380.dll`): the blob now treats it as
   poll-until-equal with the delay as timeout; "not equal", a bit test or a different timeout meaning is not excluded.
 - Whether the group-hold records matter for a first driver (no).
+
+
+## Correction 2026-10-31: Bayer order (supersedes every Bayer statement above)
+
+Verified (REA of the Windows camera DLL, jump table re-derived by the orchestrator; see `2026-10-31-rea-bayer-poll-units.md` and
+`2026-10-31-bayer-units-gain-crosscheck.md`): module colour code 0 is BGGR, 3 is RGGB, 4 is monochrome. Therefore the rear OV13858
+blob modes are **BGGR** (not GRBG: the "GRBG, Inference, medium" above was wrong, because the Linux modes use an odd vertical window
+origin and the Windows modes an even one), the front IMX681 is **RGGB** (the former default, now Verified) and the IR VD55G0 is
+monochrome (`Y10_1X10`). `build-camera-firmware.py` now decodes the code from the data; `--bayer` is only an override with a loud
+note. The earlier text is kept as history.
