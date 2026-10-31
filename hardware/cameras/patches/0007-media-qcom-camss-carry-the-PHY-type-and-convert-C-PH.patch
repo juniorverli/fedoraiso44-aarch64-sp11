@@ -12,9 +12,11 @@ configuration, and pass it to camss_get_link_freq().
 
 V4L2_CID_LINK_FREQ is defined as 1 / (2 * UI). On C-PHY the UI is one
 symbol time, so the symbol rate is twice the link frequency, and one
-trio carries 16 bits in 7 symbols, which is 2.28 bits per symbol. When a
-sensor offers only a pixel rate, derive the link frequency with that
-factor (57/25) instead of the one bit per UI of D-PHY.
+trio carries 16 bits in 7 symbols, on average 2.2857 bits per symbol. The
+Qualcomm CSIPHY reference derives the lane bit rate at 2.28 bits per
+symbol (57/25, 0.25% below 16/7), so use that factor. When a sensor
+offers only a pixel rate, derive the link frequency with it instead of
+the one bit per UI of D-PHY.
 
 The CSIPHY and CSID clock rates are derived from the bit rate of a lane.
 Add camss_get_bit_clock(), which scales a C-PHY link frequency to the
@@ -26,13 +28,13 @@ Nothing sets the flag yet: the endpoint parser still rejects C-PHY.
 
 Assisted-by: Claude Sonnet 5.5
 ---
- .../media/platform/qcom/camss/camss-csid.c    |  7 +--
+ .../media/platform/qcom/camss/camss-csid.c    |  7 ++-
  .../media/platform/qcom/camss/camss-csid.h    |  1 +
  .../media/platform/qcom/camss/camss-csiphy.c  | 10 ++--
  .../media/platform/qcom/camss/camss-csiphy.h  |  4 +-
- drivers/media/platform/qcom/camss/camss.c     | 52 +++++++++++++++++--
+ drivers/media/platform/qcom/camss/camss.c     | 55 ++++++++++++++++++-
  drivers/media/platform/qcom/camss/camss.h     |  3 +-
- 6 files changed, 65 insertions(+), 12 deletions(-)
+ 6 files changed, 68 insertions(+), 12 deletions(-)
 
 diff --git a/drivers/media/platform/qcom/camss/camss-csid.c b/drivers/media/platform/qcom/camss/camss-csid.c
 index 48459b46a..5dbdfba10 100644
@@ -129,16 +131,19 @@ index 9d9657b82..257cb74a3 100644
  
  struct csiphy_csi2_cfg {
 diff --git a/drivers/media/platform/qcom/camss/camss.c b/drivers/media/platform/qcom/camss/camss.c
-index 2123f6388..0885c10b5 100644
+index 2123f6388..82c8a6745 100644
 --- a/drivers/media/platform/qcom/camss/camss.c
 +++ b/drivers/media/platform/qcom/camss/camss.c
-@@ -4619,24 +4619,70 @@ struct media_pad *camss_find_sensor_pad(struct media_entity *entity)
+@@ -4619,24 +4619,73 @@ struct media_pad *camss_find_sensor_pad(struct media_entity *entity)
  	}
  }
  
 +/*
-+ * A C-PHY trio carries 16 bits in 7 symbols, which is 2.28 bits per symbol
-+ * (57/25 to keep the arithmetic exact).
++ * A C-PHY trio carries 16 bits in 7 symbols, on average 2.2857 bits per
++ * symbol. The Qualcomm CSIPHY reference tables derive the lane bit rate from
++ * the symbol rate at 2.28 bits per symbol, so the same 57/25 is used for the
++ * CSIPHY and CSID clock rates here, 0.25% below 16/7. The symbol rate class
++ * of the CSIPHY comes from the link frequency alone and does not use this.
 + */
 +#define CAMSS_CPHY_BITS_PER_SYMBOL_NUM		57
 +#define CAMSS_CPHY_BITS_PER_SYMBOL_DEN		25
