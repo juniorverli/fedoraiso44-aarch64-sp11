@@ -1,0 +1,52 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * M14 combined diagnostic default: everything under test in one boot. The M14 fallback content
+ * (microphones, touch on) plus the Adreno GPU (as m13-gpu: &gpu with GMU and zap) and the rear
+ * OV13858, front IMX681 and IR camera chains enabled (as hardware/cameras/dtb-variants cam-all).
+ * Speakers stay off (S1, D26): only m14-spk may enable them. The fallback is m14-safe.
+ * The IR emitter and flash stay undescribed (S2).
+ * Built by the kernel DTB variants script; not a patch, not part of the RPM.
+ */
+#include "x1p64100-microsoft-denali-m14-safe.dts"
+
+&gpu {
+	status = "okay";
+};
+
+&apps_rsc {
+	regulators-8 {
+		status = "okay";
+	};
+};
+
+&vreg_l7b_2p8 {
+	status = "okay";
+};
+
+&{/camera-leds} {
+	status = "okay";
+};
+
+&camss {
+	status = "okay";
+};
+
+&cci0 {
+	status = "okay";
+};
+
+&cci0_i2c0 {
+	status = "okay";
+};
+
+&cci0_i2c1 {
+	status = "okay";
+};
+
+&cci1 {
+	status = "okay";
+};
+
+&cci1_i2c1 {
+	status = "okay";
+};
