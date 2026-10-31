@@ -1,0 +1,146 @@
+#!/usr/bin/bash
+# SP11 Bluetooth identity experiment: read-only, address-free.
+#
+#   sp11-identity-bt pre      run by sp11-identity-bt-pre.service BEFORE sp11-bt-address.service:
+#                             snapshot the controller exactly as the hardware presented it and
+#                             keep it in /run/sp11-identity/bt-pre.txt (0600, address-free).
+#   sp11-identity-bt report   run by the log-collector drop-in: print the pre snapshot, then a
+#                             second snapshot of the current state.
+#
+# Question answered: does the controller come up with its own non-default public address, or
+# unconfigured (default NVM address, missing public-address) so that an address must be injected?
+# Recorded (S5): configuration state and option names, a 16-hex SHA-256 prefix of the controller
+# address when one is readable, its bits (scope, cast, sentinel, default-NVM sentinel), and in
+# PRIVATE mode only MATCH / NO MATCH against the reference hash. Nothing else.
+#
+# Test hooks: SP11_ID_ROOT prefixes /sys, /proc, /usr, /run; SP11_ID_SLEEP seconds between polls.
+set -uo pipefail
+export LC_ALL=C
+root=${SP11_ID_ROOT:-}
+state_dir=$root/run/sp11-identity
+
+hash16() { printf '%s' "$1" | tr 'A-F' 'a-f' | sha256sum | cut -c1-16; }
+norm() {
+	local a
+	a=$(printf '%s' "$1" | tr 'A-F' 'a-f' | tr -d '[:space:]')
+	[[ $a =~ ^([0-9a-f]{2}:){5}[0-9a-f]{2}$ ]] && printf '%s' "$a"
+}
+bits() { # scope, cast, sentinel, default-NVM sentinel (class only; sentinels are not identities)
+	local a=$1 o scope=universal cast=unicast sent=no nvm=no
+	o=$((16#${a%%:*}))
+	((o & 2)) && scope=locally-administered
+	((o & 1)) && cast=multicast
+	case ${a//:/} in 000000000000 | ffffffffffff) sent=yes ;; 000000005aad) nvm=yes ;; esac
+	printf 'scope=%s cast=%s sentinel=%s default_nvm_sentinel=%s' "$scope" "$cast" "$sent" "$nvm"
+}
+ref_ok() {
+	[[ -f $1 && $(stat -c %a "$1" 2>/dev/null) == 600 ]] || return 1
+	[[ $(stat -c %u "$1" 2>/dev/null) == 0 || -n ${SP11_ID_ALLOW_NONROOT:-} ]]
+}
+
+image_mode() {
+	local m
+	m=$(tr -d '[:space:]' <"$root/usr/share/sp11/image-mode" 2>/dev/null)
+	[[ $m == private ]] && echo private || echo public
+}
+identity_switch() {
+	case " $(cat "$root/proc/cmdline" 2>/dev/null) " in
+	*" sp11.identity=none "*) echo none ;;
+	*" sp11.identity=inject "*) echo inject ;;
+	*" sp11.identity="*) echo 'invalid(treated-as-inject)' ;;
+	*) echo inject ;;
+	esac
+}
+
+snapshot() { # $1 label
+	local label=$1 mode ref='' refbt='' ctrl comp cfg info attempt supported='' missing='' addr='' state=unavailable
+	mode=$(image_mode)
+	echo "-- bt snapshot: $label (uptime $(cut -d' ' -f1 "$root/proc/uptime" 2>/dev/null) s)"
+	echo "bt.image_mode=$mode identity_switch=$(identity_switch) unit_logged_mode=$(cat "$root/run/sp11/identity-bt-mode" 2>/dev/null || echo none-recorded)"
+	if [[ $mode == private ]]; then # reference file is opened in private mode only
+		ref=$root/usr/share/sp11/identity-ref.sha256
+		if ref_ok "$ref"; then
+			refbt=$(sed -n 's/^bt=\([0-9a-f]\{16\}\)$/\1/p' "$ref" | head -1)
+			[[ -n $refbt ]] || echo 'bt.reference: no bt= line (comparison skipped)'
+		else
+			echo 'bt.reference: missing or not root-owned 0600 (comparison skipped)'
+		fi
+	else
+		echo 'bt.reference: not read (public mode)'
+	fi
+	if [[ -d $root/sys/class/bluetooth/hci0 ]]; then
+		comp=$(tr '\0' '\n' <"$root/sys/class/bluetooth/hci0/device/of_node/compatible" 2>/dev/null)
+		if grep -qx 'qcom,wcn7850-bt' <<<"$comp"; then ctrl=wcn7850; else ctrl=other-or-unknown; fi
+	else
+		ctrl=absent
+	fi
+	echo "bt.controller_hci0=$ctrl"
+	if [[ $ctrl == absent ]]; then echo 'bt.state=unavailable (no hci0)'; return 0; fi
+
+	for attempt in 1 2 3 4 5 6; do # firmware setup finishes after hci0 appears
+		cfg=$(timeout -k 1 4 btmgmt --timeout 2 --index 0 config </dev/null 2>&1)
+		if [[ $(grep -c '^[[:space:]]*missing options:' <<<"$cfg") == 1 ]]; then
+			supported=$(sed -n 's/^[[:space:]]*supported options:[[:space:]]*//p' <<<"$cfg" | sed -E 's/[[:space:]]+$//')
+			missing=$(sed -n 's/^[[:space:]]*missing options:[[:space:]]*//p' <<<"$cfg" | sed -E 's/[[:space:]]+$//')
+			state=known
+			break
+		fi
+		[[ $attempt == 6 ]] || sleep "${SP11_ID_SLEEP:-1}"
+	done
+	info=$(timeout -k 1 4 btmgmt --timeout 2 --index 0 info </dev/null 2>&1)
+	addr=$(norm "$(sed -n 's/^[[:space:]]*addr \([0-9A-Fa-f:]\{17\}\)[[:space:]].*/\1/p' <<<"$info" | head -1)")
+	if [[ -z $addr ]] && command -v hciconfig >/dev/null 2>&1; then
+		addr=$(norm "$(timeout -k 1 4 hciconfig hci0 2>/dev/null | sed -n 's/.*BD Address: \([0-9A-Fa-f:]\{17\}\).*/\1/p' | head -1)")
+		[[ -n $addr ]] && echo 'bt.addr_source=hciconfig'
+	else
+		[[ -n $addr ]] && echo 'bt.addr_source=btmgmt-info'
+	fi
+
+	if [[ $state == known ]]; then
+		if [[ -z $missing ]]; then
+			echo 'bt.state=configured (no missing options)'
+		else
+			echo "bt.state=unconfigured missing_options=[$missing] supported_options=[$supported]"
+		fi
+	else
+		echo 'bt.state=unavailable (btmgmt config reply never valid)'
+	fi
+	if grep -q 'Not Configured' <<<"$info"; then echo 'bt.info=refused: Not Configured'; fi
+	if [[ -n $addr ]]; then
+		echo "bt.addr.sha256_16=$(hash16 "$addr") $(bits "$addr")"
+		[[ -n $refbt ]] && echo "bt.ref_match=$([[ $(hash16 "$addr") == "$refbt" ]] && echo MATCH || echo 'NO MATCH')"
+	else
+		echo 'bt.addr=not-readable (controller refuses info while unconfigured, or no tool)'
+		[[ -n $refbt ]] && echo 'bt.ref_match=NO MATCH (no address to compare)'
+	fi
+	case $state/${missing:-none}/${addr:+addr} in
+	known/none/addr) echo 'bt.interpretation=controller presents a configured public address itself' ;;
+	known/none/) echo 'bt.interpretation=configured but address unreadable' ;;
+	known/*) echo 'bt.interpretation=controller reports default or invalid address; an address must be supplied' ;;
+	*) echo 'bt.interpretation=unknown' ;;
+	esac
+}
+
+main() {
+	case ${1:-} in
+	pre)
+		mkdir -p "$state_dir" && chmod 700 "$state_dir"
+		snapshot pre >"$state_dir/bt-pre.txt" 2>&1
+		sed -i -E 's/([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}/<MAC>/g' "$state_dir/bt-pre.txt"
+		chmod 600 "$state_dir/bt-pre.txt"
+		echo 'sp11-identity-bt: pre-injection snapshot stored' >&2
+		;;
+	report)
+		{
+			echo '== sp11 identity experiment, bluetooth, collector v1'
+			if [[ -r $state_dir/bt-pre.txt ]]; then cat "$state_dir/bt-pre.txt"; else echo '-- bt snapshot: pre MISSING (sp11-identity-bt-pre.service did not run before the helper)'; fi
+			snapshot now
+		} 2>&1 | sed -E 's/([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}/<MAC>/g'
+		;;
+	*)
+		echo 'usage: sp11-identity-bt pre|report' >&2
+		return 2
+		;;
+	esac
+}
+main "$@"

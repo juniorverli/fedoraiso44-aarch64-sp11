@@ -1,0 +1,15 @@
+[Unit]
+Description=SP11 identity experiment: record Bluetooth controller state before any address injection
+BindsTo=sys-subsystem-bluetooth-devices-hci0.device
+After=sys-subsystem-bluetooth-devices-hci0.device
+Before=sp11-bt-address.service
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/sp11-identity-bt pre
+TimeoutStartSec=30
+UMask=0077
+
+[Install]
+WantedBy=sys-subsystem-bluetooth-devices-hci0.device

@@ -64,3 +64,18 @@ Do not mount the Windows partition to obtain this file. Use the Windows radio AP
 4. In the next already-planned GPU-off/speakers-off device boot, include the private file, collect the helper's missing-option/success messages and `extra-bluetooth.txt`, then follow [test-plan.md](test-plan.md). Do not schedule an extra reboot merely to get baseline status: the helper logs the pre-change missing option in the same boot.
 5. If the helper reports no file, invalid query, another controller or an unexpected option, preserve that evidence. Do not invent an address, force power-off/unblock, replace NVM or enable audio as a fallback.
 6. Check the expected no-file case separately: exit 0, `Result=success`, no failed unit, journal says `controller remains unconfigured; skipped`, and no address-setting command occurs. One-shot inactivity afterward is normal. Existing malformed explicit files and actual management failures must still be reported as errors. Re-run the refreshed `check.py` in Fedora; its new cases cover missing explicit and boot sources.
+
+## Identity experiment (2026-10-31)
+
+Operator question: does the Bluetooth controller give its own address without the D25 private-mode copy? Full request, builder changes, switch and rotor proposal: `hardware/wifi/image-request-identity.md` (written by the wifi worker; one request covers both radios). Bluetooth payload:
+
+| Component source | Image destination | Mode |
+|:--|:--|:--|
+| `hardware/bluetooth/collector/sp11-identity-bt` | `/usr/libexec/sp11-identity-bt` | 0755 |
+| `hardware/bluetooth/collector/sp11-identity-bt-pre.service` | `/usr/lib/systemd/system/sp11-identity-bt-pre.service`, enable it in the SP11 preset next to `sp11-bt-address.service` | 0644 |
+| `hardware/bluetooth/collector/identity.sh` | `/etc/sp11-log-collector.d/bluetooth-identity.sh` | 0644 |
+| `hardware/bluetooth/userspace/sp11-bt-address` | `/usr/libexec/sp11-bt-address` (refreshed: reads `sp11.identity`) | 0755 |
+
+Why a pre unit: the collector hook runs long after the helper, so in an inject boot it would only see the injected address. `sp11-identity-bt-pre.service` (BindsTo hci0, `Before=sp11-bt-address.service`) stores an address-free snapshot in `/run/sp11-identity/bt-pre.txt` first; the drop-in prints it next to a second snapshot. The pre unit never changes the controller (only `btmgmt config` and `btmgmt info` reads).
+
+Switch: kernel argument `sp11.identity=none` makes `sp11-bt-address` log `identity mode=none` and return before any `btmgmt` call; absent or any other value logs `identity mode=inject` and behaves exactly as before. The mode is written to `/run/sp11/identity-bt-mode`. Reference hashes: `/usr/share/sp11/identity-ref.sha256` (root, 0600, `bt=` line) and marker `/usr/share/sp11/image-mode` (`private`); both only in private builds. The collector never reads the reference in public mode (tested).
