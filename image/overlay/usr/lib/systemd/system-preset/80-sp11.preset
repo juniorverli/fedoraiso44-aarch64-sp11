@@ -12,3 +12,9 @@ enable sp11-ssam-shutdown.service
 enable sp11-ssam-rebind.service
 enable sp11-speaker-ucm.service
 enable sp11-gpu-two-step.service
+enable sp11-sam-mode-rotor.service
+enable sp11-cdsp-variant.service
+enable sp11-suspend-policy.service
+enable sp11-wakeup-policy.service
+enable sp11-suspend-diag.service
+enable sp11-thermal-sample.service

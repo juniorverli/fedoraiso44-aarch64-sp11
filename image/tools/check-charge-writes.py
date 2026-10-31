@@ -14,7 +14,11 @@ import sys
 # Audited DSP drop-in reads thresholds through R() -> timeout cat; never writes sysfs.
 # M13: re-audited; the owner file (6a7d69f) plus the image append still has exactly one charge_control_ reference, the attribute
 # list of the power_supply read loop (R() = timeout cat), and no redirection into /sys.
-DSP_SHA256 = "ff7b9814a21a3b596589834b80f86e29ae8c3b8e6463a28e7301d984fc864a6a"
+# M14: re-audited after the DSP collector refresh (owner file plus the image append): still exactly one charge_control_ reference, the
+# attribute list of the power_supply read loop through R() = timeout cat. The power-thermal collector (owner file) has one
+# charge_control_ glob that is only listed with stat and read through rdl() = timeout cat; no write to /sys anywhere.
+DSP_SHA256 = "95acaf2950b7b2be3faeaf44710e52f98479b38c9077b9dc09f4ca899ca8838b"
+POWER_THERMAL_SHA256 = "e7486972bebf1ade4e309cd637f74f385a8d24e620801f2d3d3d7d59a2e72c1c"
 
 def audit(root):
     failures = []
@@ -47,7 +51,8 @@ def audit(root):
             if b"charge_control_" not in data:
                 continue
             checked += 1
-            if str(p.relative_to(root)) == "etc/sp11-log-collector.d/dsp-subsystems.sh" and hashlib.sha256(data).hexdigest() == DSP_SHA256:
+            audited = {"etc/sp11-log-collector.d/dsp-subsystems.sh": DSP_SHA256, "etc/sp11-log-collector.d/power-thermal.sh": POWER_THERMAL_SHA256}
+            if audited.get(str(p.relative_to(root))) == hashlib.sha256(data).hexdigest():
                 continue
             for number, line in enumerate(data.decode("utf-8", "replace").splitlines(), 1):
                 if "charge_control_" not in line or line.lstrip().startswith("#"):

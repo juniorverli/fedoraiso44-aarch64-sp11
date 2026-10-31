@@ -1,0 +1,43 @@
+#!/usr/bin/bash
+# CDSP experiment rotor, report side (M14). GRUB cycles sp11_cdsp_variant (grub-arm.cfg.iso-template): 0 fw=c1-00078 keep=0, 1 fw=c1-00046.1
+# keep=0, 2 fw=c1-00078 keep=1, 3 fw=c1-00046.1 keep=1, and passes qcom_q6v5_pas.keep_proxy_pds and, for the alternate firmware,
+# firmware_class.path=/usr/lib/firmware-sp11-cdsp46. This service records what this boot got and tells the operator what the NEXT boot
+# will load: the alternate firmware needs a FULL POWER-OFF, not a reboot (dsp-subsystems evidence 2026-10-31-denisix-comparison.md, H-3).
+set -u
+export LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin
+CMDLINE=${SP11_CDSP_CMDLINE:-/proc/cmdline}
+STATE=${SP11_CDSP_STATE:-/run/sp11/cdsp-variant}
+FWDIR=${SP11_CDSP_FWDIR:-/usr/lib/firmware-sp11-cdsp46}
+ESP=${SP11_ESP_ENV:-/usr/libexec/sp11-esp-env}
+NOTICE=${SP11_NOTICE:-/usr/libexec/sp11/operator-notice}
+mkdir -p "$(dirname "$STATE")"
+arg() { tr ' ' '\n' <"$CMDLINE" | sed -n "s/^$1=//p" | tail -n1; }
+desc() { case $1 in 0) echo "fw=c1-00078 keep_proxy_pds=0" ;; 1) echo "fw=c1-00046.1 keep_proxy_pds=0" ;; 2) echo "fw=c1-00078 keep_proxy_pds=1" ;; 3) echo "fw=c1-00046.1 keep_proxy_pds=1" ;; *) echo "unknown" ;; esac; }
+v=$(arg sp11.cdsp_variant)
+keep=$(arg qcom_q6v5_pas.keep_proxy_pds)
+path=$(arg firmware_class.path)
+if [ -z "$v" ]; then
+	line="CDSP variant for this boot: fw=c1-00078 keep_proxy_pds=${keep:-default} (entry $(arg sp11.entry): not the rotor entry, default firmware)"
+	{ echo "$line"; echo "variant: none"; } >"$STATE"
+	"$NOTICE" add 20-cdsp "$line" || true
+	exit 0
+fi
+fw=c1-00078; [ -n "$path" ] && fw=c1-00046.1
+line="CDSP variant for this boot: fw=$fw keep_proxy_pds=${keep:-unset}"
+extra=
+if [ "$fw" = c1-00046.1 ]; then
+	if [ -s "$FWDIR/qcom/x1e80100/microsoft/Denali/qccdsp8380.mbn" ] && [ -s "$FWDIR/qcom/x1e80100/microsoft/Denali/cdsp_dtb.mbn" ]; then
+		extra=" The alternate pair is installed under $FWDIR; if the previous shutdown was a reboot and not a full power-off, this result is not clean."
+	else
+		extra=" WARNING: $FWDIR holds no pair (public image): the kernel falls back to the default firmware, so this boot is NOT the alternate firmware."
+	fi
+fi
+next=$("$ESP" get sp11_cdsp_variant 2>/dev/null)
+nxt="next boot unknown (environment block unreadable)"
+need_off=
+case $next in
+0 | 1 | 2 | 3) nxt="NEXT boot loads $(desc "$next")"; case $next in 1 | 3) need_off=" The next boot loads the ALTERNATE firmware: do a FULL POWER-OFF now (shut down, wait 10 s, power on), NOT a reboot." ;; esac ;;
+esac
+{ echo "$line"; echo "variant: $v ($(desc "$v"))"; echo "firmware_class.path: ${path:-none}"; echo "$nxt"; } >"$STATE"
+"$NOTICE" add 20-cdsp "$line.$extra $nxt.$need_off" || true
+exit 0

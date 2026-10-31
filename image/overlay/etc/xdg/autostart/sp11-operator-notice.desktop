@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=SP11 operator notice
+Comment=Shows the SAM shutdown mode, the CDSP variant and the GPU test result of this boot
+Exec=/usr/libexec/sp11/operator-notice show
+X-GNOME-Autostart-Delay=5
+NoDisplay=true

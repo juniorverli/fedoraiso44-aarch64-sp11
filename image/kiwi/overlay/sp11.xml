@@ -30,6 +30,10 @@
 		<package name="drm-utils"/>
 		<package name="v4l-utils"/>
 		<package name="qrtr"/>
+		<!-- M14 (d), npu/sensors Requests: Fedora's FastRPC runtime and daemons. Its udev rule gives the device nodes to root:fastrpc 0640
+		     (no 0666, no image rule). A test transaction with qrtr completes (image/component-inputs/m14.json). No QAIRT, no hexagonrpcd. -->
+		<package name="fastrpc"/>
+		<package name="fastrpc-services"/>
 		<package name="dtc"/>
 		<package name="pciutils"/>
 		<package name="usbutils"/>

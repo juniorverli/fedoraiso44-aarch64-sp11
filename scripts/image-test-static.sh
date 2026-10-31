@@ -184,47 +184,48 @@ else
 	other=$(xorriso -indev "$iso" -find / -name 'grub*.cfg' 2>/dev/null | grep -v -E "^'/EFI/BOOT/grub.cfg'$" || true)
 	[ -z "$other" ] && pass 2.4 "no other grub.cfg in the ISO" || fail 2.4 "other grub config: $other"
 fi
-titles=$(grep -o "^menuentry '[^']*'" "$cfg_esp" | sed "s/menuentry '//;s/'\$//")
+titles=$(grep -o -E "^[[:space:]]*(menuentry|submenu) '[^']*'" "$cfg_esp" | sed -E "s/^[[:space:]]*(menuentry|submenu) '//;s/'\$//")
 if [ "$builder" = kiwi ]; then
-	# M8: touch-on default plus touch-off fallback, no GPU-on entry
-	expect=$'SP11 debug\nSP11 debug, no sound\nSP11 debug, touch off\nSP11 debug, CDSP keep proxy votes\nSP11 debug, SAM shutdown quiet\nSP11 debug, SAM shutdown clean\nSP11 debug, SAM shutdown silent\nSP11 debug, speakers (gated; kernel gate still refuses playback)\nSP11 debug, rear camera diagnostic\nSP11 debug, USB + DSP trace\nSP11 debug, no early DSP\nSP11 debug, Wi-Fi unblock probe\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)\nSP11 debug, GPU diagnostic (WARNING: may reset the machine)'
-	nentries=16
+	# M14: line 1 is the main entry, line 2 the one submenu, then its seven entries in order
+	expect=$'SP11 debug\nRecovery and tests\nSP11 debug, safe (no GPU, no cameras)\nSP11 debug, no sound\nSP11 debug, touch off\nSP11 debug, speakers (gated)\nSP11 debug, nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)'
+	nentries=8
 else
 	expect=$'SP11 debug\nSP11 debug + DRM trace\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)'
 	nentries=5
 fi
-[ "$titles" = "$expect" ] && pass 2.5 "exactly the $nentries entries, in order" || fail 2.5 "entries differ: $(echo "$titles" | tr '\n' '|')"
-[ "$(grep -c '^set default=0' "$cfg_esp")" = 1 ] && pass 2.6 "default entry is the first (SP11 debug, m13 microphones)" || fail 2.6 "default is not entry 0"
+[ "$titles" = "$expect" ] && pass 2.5 "exactly the M14 menu in order: main entry, submenu, seven submenu entries" || fail 2.5 "entries differ: $(echo "$titles" | tr '\n' '|')"
+[ "$(grep -c '^set default=0' "$cfg_esp")" = 1 ] && pass 2.6 "default entry is the first (SP11 debug, the main entry)" || fail 2.6 "default is not entry 0"
 bad=0
-awk '/^menuentry /{t=$0} /^\tdevicetree /{print $2 "\t" t}' "$cfg_esp" >"$W/dt-lines.txt"
+# M14: the main entry's DTB name is a GRUB variable (m14 or m14-safe, chosen by the GPU self-healing state): both targets must exist
+awk '/^[ \t]*menuentry /{t=$0} /^[ \t]+devicetree /{p=$2; if (p ~ /sp11_gpu_dtb/) { q=p; sub(/\$\{sp11_gpu_dtb\}/, "m14", p); print p "\t" t; sub(/\$\{sp11_gpu_dtb\}/, "m14-safe", q); print q "\t" t } else print p "\t" t}' "$cfg_esp" >"$W/dt-lines.txt"
 while IFS=$'\t' read -r path entry; do
 	path=${path#'($root)'}   # kiwi writes devicetree ($root)/boot/dtb/...
 	p=${path#/}
 	if xorriso -indev "$iso" -find "/$p" -type f 2>/dev/null | grep -q .; then :; else bad=1; fail 2.7 "devicetree target /$p missing ($entry)"; fi
 done <"$W/dt-lines.txt"
-sp11_entries=$(grep -c "^menuentry 'SP11" "$cfg_esp")
-[ "$(wc -l <"$W/dt-lines.txt")" -eq "$sp11_entries" ] && [ "$sp11_entries" -gt 0 ] || { bad=1; fail 2.7 "not every SP11 entry has a devicetree line"; }
+sp11_entries=$(grep -c -E "^[[:space:]]*menuentry 'SP11" "$cfg_esp")
+[ "$(cut -f2- "$W/dt-lines.txt" | sort -u | wc -l)" -eq "$sp11_entries" ] && [ "$sp11_entries" -gt 0 ] || { bad=1; fail 2.7 "not every SP11 entry has a devicetree line"; }
 [ "$bad" = 0 ] && pass 2.7 "every SP11 entry has a devicetree line to a file that exists"
 # D15 / D9: every entry names itself on the command line; only the VM entry has the serial console
 ids_ok=1
-awk '/^menuentry /{t=$0} /^[[:space:]]+linux /{print t "\t" $0}' "$cfg_esp" >"$W/linux-lines.txt"
+awk '/^[ \t]*menuentry /{t=$0} /^[[:space:]]+linux /{print t "\t" $0}' "$cfg_esp" >"$W/linux-lines.txt"
 while IFS=$'\t' read -r t l; do
 	id=$(echo "$t" | sed -n "s/.*--id sp11-\([a-z0-9-]*\).*/\1/p")
-	case $id in debug | nosnd | notouch | cdsp-keep | ssam-quiet | ssam-clean | ssam-silent | spk | cam | usbdbg | nodsp | wifi-unblock | nomodeset | initramfs | vmtest | gpu-diag) ;; *) ids_ok=0; fail 2.12 "unknown entry id '$id' ($t)" ;; esac
+	case $id in debug | safe | nosnd | notouch | spk | nomodeset | initramfs | vmtest) ;; *) ids_ok=0; fail 2.12 "unknown entry id '$id' ($t)" ;; esac
 	want=$id
 	case $l in *" sp11.entry=$want"*) ;; *) ids_ok=0; fail 2.12 "entry '$t' lacks sp11.entry=$want" ;; esac
 	case $l in *console=ttyAMA0*) [ "$id" = vmtest ] || { ids_ok=0; fail 2.12 "serial console on a device entry: $t"; } ;; *) [ "$id" != vmtest ] || { ids_ok=0; fail 2.12 "VM entry lacks the serial console"; } ;; esac
 	case $l in *" debug "*loglevel=8*ignore_loglevel*) ;; *) ids_ok=0; fail 2.12 "entry '$t' is not verbose (debug loglevel=8 ignore_loglevel)" ;; esac
 done <"$W/linux-lines.txt"
 [ "$ids_ok" = 1 ] && [ "$(wc -l <"$W/linux-lines.txt")" = "$nentries" ] && pass 2.12 "every entry has sp11.entry=<id> and is verbose; serial console only on the VM entry"
-vm=$(awk '/^menuentry /{f=0} /^menuentry .VM test/{f=1} f&&/^[[:space:]]+devicetree /{print "x"}' "$cfg_esp")
+vm=$(awk '/^[ \t]*menuentry /{f=0} /^[ \t]*menuentry .VM test/{f=1} f&&/^[[:space:]]+devicetree /{print "x"}' "$cfg_esp")
 [ -z "$vm" ] && pass 2.8 "VM test entry has no devicetree" || fail 2.8 "VM test entry has a devicetree line"
-[ "$(grep -c "^menuentry '" "$cfg_esp")" = "$nentries" ] && [ "$(grep '^set default' "$cfg_esp")" = "set default=0" ] && pass 2.9 "VM test entry is not the default"
+[ "$(grep -c -E "^[[:space:]]*menuentry '" "$cfg_esp")" = "$nentries" ] && [ "$(grep '^set default' "$cfg_esp")" = "set default=0" ] && pass 2.9 "VM test entry is not the default"
 if [ "$builder" = kiwi ]; then
 	if python3 -I "$REPO/image/tools/check-m8-menu.py" "$cfg_esp" >"$W/m8-menu.txt" 2>&1; then
-		pass 2.17 "M13 menu: order, DTB per entry, exact diagnostic arguments (USB dyndbg and corrected DSP trace in the default; keep_proxy_pds and shutdown_mode one each), spk/gpu/cam DTBs only in their own entries"
+		pass 2.17 "M14 menu: main entry then one submenu, DTB per entry, exact diagnostic arguments (USB dyndbg, DSP trace without power_domain_target, gpu_diag inline), allow_nominal on spk only, no literal m14 DTB outside the main variable, grubenv logic (GPU state, CDSP rotor table, no halt/loop)"
 	else
-		fail 2.17 "M13 menu: $(cat "$W/m8-menu.txt")"
+		fail 2.17 "M14 menu: $(cat "$W/m8-menu.txt")"
 	fi
 fi
 if [ "$builder" = kiwi ]; then
@@ -233,7 +234,7 @@ if [ "$builder" = kiwi ]; then
 	# wsa884* and the x1e80100 sound card). Profile `default` for every entry; profile `d26` ONLY for the DTB m13-spk, which must be
 	# used by the entry `spk` and nowhere else, and which must FAIL the default profile (it enables the amplifiers on purpose).
 	s1ok=1 nsel=0
-	awk '/^menuentry /{t=$0} /^\tdevicetree /{print $2 "\t" t}' "$cfg_esp" >"$W/s1-entries.txt"
+	cp "$W/dt-lines.txt" "$W/s1-entries.txt"   # the main entry's variable already expanded to m14 and m14-safe
 	while IFS=$'\t' read -r dp t; do
 		dp=${dp#'($root)'}
 		id=$(echo "$t" | sed -n "s/.*--id sp11-\([a-z0-9-]*\).*/\1/p")
@@ -241,14 +242,14 @@ if [ "$builder" = kiwi ]; then
 		nsel=$((nsel + 1))
 		if [ ! -s "$df" ] || ! dtc -I dtb -O dts -o "$df.dts" "$df" 2>/dev/null; then s1ok=0; fail 2.18 "cannot decompile $dp for the sound check"; continue; fi
 		profile=default
-		case $dp in *denali-m13-spk.dtb) profile=d26; [ "$id" = spk ] || { s1ok=0; fail 2.18 "S1: speaker DTB $dp used by entry '$id', only 'spk' may use it"; } ;; esac
+		case $dp in *denali-m14-spk.dtb) profile=d26; [ "$id" = spk ] || { s1ok=0; fail 2.18 "S1: speaker DTB $dp used by entry '$id', only 'spk' may use it"; } ;; esac
 		python3 -I "$REPO/scripts/kernel-dtb-safety.py" "$df.dts" --profile "$profile" >"$df.s1.json" 2>&1 && res=OK || res="profile $profile failed: $(tr -d '\n ' <"$df.s1.json" | cut -c1-300)"
 		[ "$res" = OK ] || { s1ok=0; fail 2.18 "S1: $dp ($id): $res"; }
 		if [ "$profile" = d26 ]; then
 			if python3 -I "$REPO/scripts/kernel-dtb-safety.py" "$df.dts" --profile default >/dev/null 2>&1; then s1ok=0; fail 2.18 "S1: $dp passes the default profile (it must not: it enables the speakers)"; fi
 		fi
 	done <"$W/s1-entries.txt"
-	[ "$nsel" -ge 1 ] && [ "$s1ok" = 1 ] && pass 2.18 "S1: $nsel device entries judged: every DTB passes the default profile except m13-spk, which passes only d26, fails default and is used only by entry spk"
+	[ "$nsel" -ge 1 ] && [ "$s1ok" = 1 ] && pass 2.18 "S1: $nsel device entries judged: every DTB passes the default profile except m14-spk, which passes only d26, fails default and is used only by entry spk"
 fi
 free=$(mdir -i "$esp_img" ::/ 2>/dev/null | awk '/bytes free/{gsub(/[^0-9]/,""); print}')
 if [ -n "${free:-}" ] && [ "$free" -ge 8388608 ]; then pass 2.10 "embedded ESP has $((free / 1048576)) MiB free for /EFI/sp11-logs"; else fail 2.10 "embedded ESP free space too small (${free:-?} bytes)"; fi
@@ -335,9 +336,9 @@ fi
 if [ "$builder" = kiwi ]; then
 	# D19: DTB variants next to the packaged one. Same SoC and board (root compatible), different from the
 	# packaged DTB, hashes as in the build record and as in out/dtb-variants (the kernel worker's output).
-	m13v="m13 m13-nosnd m13-notouch m13-spk m13-gpu m13-cam"
+	m13v="m14 m14-safe m14-nosnd m14-notouch m14-spk"
 	for v in $m13v; do x "/boot/dtb/qcom/x1p64100-microsoft-denali-$v.dtb" "$W/x1p64100-microsoft-denali-$v.dtb"; done
-	m12dir=$OUT/dtb-variants/7.3.0-65.sp11.9.fc44.aarch64/qcom
+	m12dir=$OUT/dtb-variants/7.3.0-65.sp11.9.fc44.aarch64/qcom   # the M12 DTBs the M14 variants are compared with (scripts/kernel-dtb-m14.sh)
 	for v in $m13v; do
 		vf=x1p64100-microsoft-denali-$v.dtb
 		vd=$W/$vf
@@ -347,20 +348,19 @@ if [ "$builder" = kiwi ]; then
 		fi
 		dtc -I dtb -O dts -o "$vd.dts" "$vd" 2>"$vd.err" && pass 3.6 "variant $v decompiles with dtc" || fail 3.6 "variant $v: dtc failed: $(head -n2 "$vd.err")"
 		gpu_status=$(fdtget "$vd" /soc@0/gpu@3d00000 status 2>/dev/null)
-		if [ "$v" = m13-gpu ]; then
-			[ "$gpu_status" = okay ] && pass 3.12 "D22: m13-gpu enables the GPU node (only this variant, only the GPU diagnostic entry)" || fail 3.12 "D22: m13-gpu GPU status '$gpu_status' (expected okay)"
+		if [ "$v" = m14 ]; then
+			[ "$gpu_status" = okay ] && pass 3.12 "D22/M14: the combined m14 enables the GPU node (only this variant; the main entry selects it only while the GPU self-healing state allows)" || fail 3.12 "D22: m14 GPU status '$gpu_status' (expected okay)"
 		else
 			[ "$gpu_status" = disabled ] && pass 3.12 "D22: $v GPU node disabled" || fail 3.12 "D22: $v GPU status '$gpu_status'"
 		fi
 		# the exact baselines and M12 comparison DTBs of scripts/kernel-dtb-m13.sh
 		base=$dtbf extra=()
 		case $v in
-		m13-notouch | m13-cam) base=$W/x1p64100-microsoft-denali-m13.dtb ;;
-		m13-gpu) base=$W/x1p64100-microsoft-denali-m13-nosnd.dtb ;;
+		m14 | m14-notouch) base=$W/x1p64100-microsoft-denali-m14-safe.dtb ;;
 		esac
 		case $v in
-		m13-nosnd) extra=(--previous-m12 "$m12dir/x1p64100-microsoft-denali-m12.dtb") ;;
-		m13) extra=(--previous-m12 "$m12dir/x1p64100-microsoft-denali-m12-audio.dtb") ;;
+		m14-nosnd) extra=(--previous-m12 "$m12dir/x1p64100-microsoft-denali-m12.dtb") ;;
+		m14-safe) extra=(--previous-m12 "$m12dir/x1p64100-microsoft-denali-m12-audio.dtb") ;;
 		esac
 		if python3 -I "$REPO/scripts/kernel-m8-check.py" "$vd" --variant "$v" --cma-dma32 --parity-in-base --baseline "$base" "${extra[@]}" >"$W/$v-wiring.json" 2>"$W/$v-wiring.err"; then
 			pass 3.13 "$v: S1 profile, parity, wiring, QSPI touch, camera and GPU placement (kernel-m8-check)"
@@ -371,8 +371,8 @@ if [ "$builder" = kiwi ]; then
 		if [ "$(jq_ ".dtb_variants_smoke_copy // false")" = true ]; then
 			skip 3.8 "smoke build: variant $v is a copy of the packaged DTB, not a real variant"
 		else
-			if [ "$v" = m13-nosnd ]; then
-				cmp -s "$vd" "$dtbf" && pass 3.8 "m13-nosnd (M12 behaviour) equals the packaged DTB" || fail 3.8 "m13-nosnd differs from the packaged DTB"
+			if [ "$v" = m14-nosnd ]; then
+				cmp -s "$vd" "$dtbf" && pass 3.8 "m14-nosnd (M12 behaviour) equals the packaged DTB" || fail 3.8 "m14-nosnd differs from the packaged DTB"
 			else
 				cmp -s "$vd" "$dtbf" && fail 3.8 "variant $v is identical to the packaged DTB" || pass 3.8 "variant $v differs from the packaged DTB"
 			fi
@@ -382,7 +382,7 @@ if [ "$builder" = kiwi ]; then
 		if [ -n "$rsha" ]; then [ "$vsha" = "$rsha" ] && pass 3.11 "variant $v SHA-256 equals the kernel worker's JSON record" || fail 3.11 "variant $v SHA-256 differs from the kernel worker's JSON record ($rsha)"; else fail 3.11 "no JSON record of the kernel worker for variant $v in the build record"; fi
 		vr=$OUT/dtb-variants/$kver/qcom/${vf%.dtb}.json
 		if [ -f "$vr" ] && [ "$vsha" = "$(jq -r .sha256 "$vr")" ] &&
-		   [ "$(jq -r .kver "$vr")" = "$kver" ] && [ "$(jq -r .series_rev "$vr")" = 10 ] &&
+		   [ "$(jq -r .kver "$vr")" = "$kver" ] && [ "$(jq -r .series_rev "$vr")" = 11 ] &&
 		   [ "$(jq -r .series_hash_sha256 "$vr")" = "$(jq_ .kernel_patch_series_sha256)" ] &&
 		   jq -e --arg f "$vf.json" --slurpfile source "$vr" '.dtb_variant_records[$f] == $source[0]' "$rec" >/dev/null; then
 			pass 3.14 "variant $v matches published JSON hash/release/series and embedded record"
@@ -390,9 +390,9 @@ if [ "$builder" = kiwi ]; then
 		src=$(ls "$OUT"/dtb-variants/"$kver"/qcom/$vf 2>/dev/null | head -n1)
 		if [ -n "$src" ]; then cmp -s "$src" "$vd" && pass 3.10 "variant $v equals out/dtb-variants/$kver/qcom/$vf" || fail 3.10 "variant $v differs from $src"; else fail 3.10 "no out/dtb-variants/$kver/qcom/$vf to compare with"; fi
 		# D26/S1: the effective safety profile per DTB (default, or d26 for m13-spk only; m13-spk must fail default)
-		sp=default; [ "$v" = m13-spk ] && sp=d26
+		sp=default; [ "$v" = m14-spk ] && sp=d26
 		if python3 -I "$REPO/scripts/kernel-dtb-safety.py" "$vd.dts" --profile "$sp" >/dev/null 2>&1; then
-			if [ "$v" = m13-spk ] && python3 -I "$REPO/scripts/kernel-dtb-safety.py" "$vd.dts" --profile default >/dev/null 2>&1; then fail 3.15 "m13-spk passes the default profile"; else pass 3.15 "$v passes the $sp safety profile$([ "$v" = m13-spk ] && echo ' and fails default')"; fi
+			if [ "$v" = m14-spk ] && python3 -I "$REPO/scripts/kernel-dtb-safety.py" "$vd.dts" --profile default >/dev/null 2>&1; then fail 3.15 "m14-spk passes the default profile"; else pass 3.15 "$v passes the $sp safety profile$([ "$v" = m14-spk ] && echo ' and fails default')"; fi
 		else fail 3.15 "$v fails the $sp safety profile"; fi
 	done
 fi
@@ -404,9 +404,9 @@ if [ "$smoke" = false ]; then
 	ls "$OUT"/rpms/kernel-core-*.rpm >/dev/null 2>&1 && { rpm -qp --qf '%{name}-%{version}-%{release}.%{arch}\n' "$OUT"/rpms/kernel-core-*.rpm | grep -qx "$got_nevra" && pass 4.2 "kernel-core is the RPM of out/rpms" || fail 4.2 "kernel-core is not in out/rpms"; }
 fi
 if [ "$builder" = kiwi ] && [ "$smoke" = false ]; then
-	if [ "$kver" = 7.3.0-65.sp11.10.fc44.aarch64 ] && [ "$got_nevra" = kernel-core-7.3.0-65.sp11.10.fc44.aarch64 ] && [ "$(jq_ .milestone)" = M13 ]; then
-		pass 4.9 "M13: required revision-10 kernel release (7.3.0-65.sp11.10.fc44.aarch64) and milestone"
-	else fail 4.9 "M13 requires the revision-10 kernel and milestone (found $kver / $got_nevra)"; fi
+	if [ "$kver" = 7.3.0-65.sp11.11.fc44.aarch64 ] && [ "$got_nevra" = kernel-core-7.3.0-65.sp11.11.fc44.aarch64 ] && [ "$(jq_ .milestone)" = M14 ]; then
+		pass 4.9 "M14: required revision-11 kernel release (7.3.0-65.sp11.11.fc44.aarch64) and milestone"
+	else fail 4.9 "M14 requires the revision-11 kernel and milestone (found $kver / $got_nevra)"; fi
 fi
 cmp -s "$kimg" "$ROOT/lib/modules/$kver/vmlinuz" && pass 4.3 "ISO kernel image equals lib/modules/$kver/vmlinuz" || fail 4.3 "ISO kernel image differs from the package"
 kimg_ver=$(python3 -I - "$kimg" <<'PY'
@@ -485,12 +485,12 @@ root, record, release = map(pathlib.Path, sys.argv[1:])
 rec = json.loads(record.read_text())
 digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
 assert digest(release) == rec['kernel_release_record_sha256']
-modules = json.loads(release.read_text())['m13']['touch_modules']
+modules = json.loads(release.read_text())['m14']['touch_modules']
 assert modules == rec['kernel_touch_modules'] and len(modules) == 8
 for name, module in modules.items():
     assert digest(root / module['path'].lstrip('/')) == module['module_sha256'], name
 PY
-	then pass 4.12 "all eight M13 touch module payload hashes match the pinned kernel release JSON"
+	then pass 4.12 "all eight M14 touch module payload hashes match the pinned kernel release JSON"
 	else fail 4.12 "M11 touch module bytes or kernel release record differ"; fi
 fi
 
@@ -502,13 +502,39 @@ if [ "$builder" = kiwi ]; then
 	if systemd-analyze --root="$ROOT" verify sp11-ssam-shutdown.service sp11-ssam-rebind.service sp11-rfkill-events.service >"$W/m11-units.txt" 2>&1; then
 		pass 8.36 "SAM shutdown, opt-in rebind and rfkill units validate without ordering cycles"
 	else fail 8.36 "M11 unit validation failed (m11-units.txt)"; fi
-	# M13: collectors (USB-C R-I1, DSP, SAM shutdown mode, cameras, audio), GPU two-step, entry-gated speaker UCM switch, libcamera
-	if python3 -I "$REPO/image/tools/check-m13-payload.py" "$ROOT" "$REPO" "$rec" >"$W/m13-payload.txt" 2>&1; then
-		pass 8.37 "M13 payload: image-owned and owner collectors installed as built from source, GPU two-step gated by sp11.gpu_diag=1, speaker UCM switch gated by sp11.entry=spk, libcamera present"
-	else fail 8.37 "M13 payload validation failed (m13-payload.txt)"; fi
-	if systemd-analyze --root="$ROOT" verify sp11-gpu-two-step.service sp11-speaker-ucm.service >"$W/m13-units.txt" 2>&1; then
-		pass 8.38 "GPU two-step and speaker UCM units validate"
-	else fail 8.38 "M13 unit validation failed (m13-units.txt)"; fi
+	# M14: collectors, GPU two-step with the image hooks, rotors, speaker first-test tooling, UCM fix, power-thermal, FastRPC, libcamera
+	if python3 -I "$REPO/image/tools/check-m14-payload.py" "$ROOT" "$REPO" "$rec" >"$W/m14-payload.txt" 2>&1; then
+		pass 8.37 "M14 payload: owner collectors as built from source, GPU two-step = owner script plus the three recorded image changes and a Before=gdm drop-in, rotor units/scripts/order, speaker first-test tooling (manual, entry- and argument-gated), microphone UCM fix, power-thermal overlay, FastRPC (root:fastrpc 0640), libcamera"
+	else fail 8.37 "M14 payload validation failed ($(tail -n1 "$W/m14-payload.txt" | cut -c1-200))"; fi
+	if systemd-analyze --root="$ROOT" verify sp11-gpu-two-step.service sp11-speaker-ucm.service sp11-sam-mode-rotor.service sp11-cdsp-variant.service sp11-suspend-diag.service sp11-suspend-policy.service sp11-wakeup-policy.service sp11-thermal-sample.service >"$W/m14-units.txt" 2>&1; then
+		pass 8.38 "GPU two-step (with the gdm drop-in), speaker UCM, SAM and CDSP rotor, suspend and thermal units validate"
+	else fail 8.38 "M14 unit validation failed (m14-units.txt)"; fi
+	# M14: the rotor and notice scripts run against a fake sysfs/boot medium: order, counter, wrap-around, command-line override, notices
+	if bash "$REPO/image/tools/rotor-selftest.sh" "$ROOT" >"$W/rotor-selftest.txt" 2>&1; then
+		pass 8.39 "rotor self-test on the installed scripts: SAM order silent-clean-quiet-default and wrap, command-line override, CDSP report and power-off text, GPU hooks report/arm/ok, esp-env refusals"
+	else fail 8.39 "rotor self-test failed ($(grep '^FAIL' "$W/rotor-selftest.txt" | head -n 3 | tr '\n' ';'))"; fi
+	# M14: the microphone UCM lookup, run with alsaucm from Fedora against the ISO's own UCM files (audio-mics test: list only)
+	if bash "$REPO/image/tools/ucm-lookup-test.sh" "$ROOT" "$W/ucm-test" >"$W/ucm-lookup.txt" 2>&1; then
+		pass 8.40 "alsaucm with the shipped UCM files: the Surface Pro 11 DMI string selects the microphone profile (verb HiFi, device Mic, capture PCM), the 12in string does not"
+	else fail 8.40 "UCM lookup failed ($(tail -n 2 "$W/ucm-lookup.txt" | tr '\n' ';' | cut -c1-200))"; fi
+	# M14: the ESP carries the environment block; grub2-script-check accepts the rendered main configuration
+	rm -rf "$W/esp-env"; mkdir -p "$W/esp-env"
+	mcopy -n -i "$esp_img" ::EFI/BOOT/grubenv "$W/esp-env/grubenv" 2>/dev/null
+	if [ "$(stat -c %s "$W/esp-env/grubenv" 2>/dev/null)" = 1024 ] && head -c 24 "$W/esp-env/grubenv" | grep -q '^# GRUB Environment Block' && grub2-editenv "$W/esp-env/grubenv" list >/dev/null 2>&1; then
+		pass 8.41 "the ESP carries EFI/BOOT/grubenv: one valid 1024-byte GRUB environment block"
+	else fail 8.41 "EFI/BOOT/grubenv missing or not a 1024-byte environment block on the ESP"; fi
+	if grub2-script-check "$cfg_main" >"$W/grub-script-check.txt" 2>&1; then pass 8.42 "grub2-script-check accepts the main grub.cfg"; else fail 8.42 "grub2-script-check: $(head -n 2 "$W/grub-script-check.txt")"; fi
+	# M14: private and public contents of the firmware that must never be public
+	lsinitrd "$initrd_img" >"$W/initrd-list.txt" 2>&1
+	if [ "$(jq_ '.private // false | if type == "object" then "true" else "false" end')" = true ]; then
+		python3 -I "$REPO/image/tools/private-m14.py" verify --fp "$OUT/firmware-private" --root "$ROOT" --record "$rec" --initrd-list "$W/initrd-list.txt" >"$W/private-m14.txt" 2>&1
+		if [ $? = 0 ]; then pass 7.11 "private M14 files equal the private tree by hash and are verified (camera blobs with the owner's verify_blob, alternate CDSP pair also in the initramfs, closed-loop speaker files, staged sensors, NPU installer without QAIRT): $(grep -c '^PASS' "$W/private-m14.txt") checks"
+		else fail 7.11 "private M14 files: $(grep '^FAIL' "$W/private-m14.txt" | cut -c1-120 | tr '\n' ';')"; fi
+	else
+		python3 -I "$REPO/image/tools/private-m14.py" absent --root "$ROOT" --initrd-list "$W/initrd-list.txt" >"$W/public-m14.txt" 2>&1
+		if [ $? = 0 ]; then pass 7.12 "public image: no camera blob, alternate CDSP firmware, closed-loop speaker file, sensor configuration or NPU installer; the topology is the public file"
+		else fail 7.12 "public image carries private M14 content: $(grep '^FAIL' "$W/public-m14.txt" | cut -c1-160 | tr '\n' ';')"; fi
+	fi
 fi
 
 # ---------------------------------------------------------------- check 5 ----
@@ -612,9 +638,13 @@ fi
 
 # ---------------------------------------------------------------- check 6 ----
 is_private=$(jq_ '.private // false | if type == "object" then "true" else "false" end')
-python3 - "$REPO/firmware/manifest.toml" "$ROOT" "$W/rpm-files.txt" "$smoke" "$is_private" "$builder" <<'EOF' >"$W/firmware-check.txt"
-import hashlib, os, sys, tomllib
-manifest, root, rpmlist, smoke, is_private, builder = sys.argv[1:7]
+python3 - "$REPO/firmware/manifest.toml" "$ROOT" "$W/rpm-files.txt" "$smoke" "$is_private" "$builder" "$rec" <<'EOF' >"$W/firmware-check.txt"
+import hashlib, json, os, sys, tomllib
+manifest, root, rpmlist, smoke, is_private, builder, record = sys.argv[1:8]
+# M14 private mode: the closed-loop topology replaces the public file; its hash and the private firmware names are verified in 7.11
+private_audio = (json.load(open(record)).get('private_m14') or {}).get('audio', {}) if is_private == 'true' else {}
+private_names = {'/usr/lib/firmware/updates/ov13858-mshw0491.bin', '/usr/lib/firmware/updates/imx681-mshw0490.bin', '/usr/lib/firmware/updates/vd55g0-mshw0492.bin'} if private_audio else set()
+private_names |= {'/usr/lib/firmware/qcom/x1e80100/' + n for n in private_audio if not n.endswith('-tplg.bin')}
 m = tomllib.load(open(manifest, 'rb'))
 # merged /usr: some packages (b43-openfwwf) record /lib/firmware/..., the tree walk sees /usr/lib/...
 owned = set()
@@ -655,7 +685,10 @@ extra = []
 topology = 'qcom/x1e80100/X1E80100-Microsoft-Surface-Pro-11-tplg.bin'
 tp = os.path.join(fwdir, topology)
 if builder == 'kiwi':
-    if os.path.isfile(tp) and sha(tp) == 'b192044f01e97eabe7f6df9ae0d394086badb3c30124573210bc781093da8c03':
+    if private_audio and os.path.isfile(tp) and sha(tp) == private_audio.get(os.path.basename(topology)):
+        expected.add('/usr/lib/firmware/' + topology)
+        print('PASS 6.4 private image: the closed-loop topology equals the recorded stage hash (it replaces the public file; 7.11 verifies it against the private tree)')
+    elif os.path.isfile(tp) and sha(tp) == 'b192044f01e97eabe7f6df9ae0d394086badb3c30124573210bc781093da8c03':
         expected.add('/usr/lib/firmware/' + topology)
         print('PASS 6.4 public upstream microphone topology matches the audio evidence SHA-256')
     else:
@@ -664,7 +697,7 @@ for d, _, fs in os.walk(fwdir):
     for f in fs:
         p = os.path.join(d, f)
         rel = '/' + os.path.relpath(p, root)
-        if rel in owned or rel in expected:
+        if rel in owned or rel in expected or rel in private_names:
             continue
         # private ISO only: the derived board file is verified by hash in 7.7
         if is_private == 'true' and rel == '/usr/lib/firmware/updates/ath12k/WCN7850/hw2.0/board-2.bin':

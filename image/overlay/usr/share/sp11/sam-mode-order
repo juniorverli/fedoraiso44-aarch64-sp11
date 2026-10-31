@@ -1,0 +1,6 @@
+# SAM shutdown mode rotor: one mode per boot, in this order, then repeat. Used by sp11-sam-mode-rotor.service.
+# Order: ec-sam evidence 2026-10-31-m13-keyboard.md ("silent, then clean, then quiet"), `default` last as the control.
+silent
+clean
+quiet
+default
