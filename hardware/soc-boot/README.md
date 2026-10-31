@@ -92,7 +92,12 @@ Ten CPUs online, cpufreq scaling on all three clusters, no PSCI CPU-start errors
 
 - **R-I1, image:** after integration, batch the exact read-only commands in [test-plan.md](test-plan.md) into the next collector. Retain speakers off (S1), GPU off (D22), D23's battery-manager restriction and D20's current command line. No extra reboot is requested solely for this patch. Private raw logs stay in `out/`; only sanitized conclusions enter git.
 
+- **R-I2, image (cpufreq, no kernel build):** `scmi_cpufreq` is `CONFIG_ARM_SCMI_CPUFREQ=m` and never loads, because its SCMI device exists only after the module registers (no autoload alias). Add `image/overlay/etc/modules-load.d/sp11-cpufreq.conf` containing `scmi_cpufreq`, ideally opt-in for the first boot, with governor `schedutil` and `scaling_max_freq` capped to a mid-range level from `scaling_available_frequencies` (never `performance`); extend L0 and the collector (already records cpufreq). See [evidence](evidence/2026-10-31-cpufreq.md).
+- **R-K2, kernel (optional):** `CONFIG_ARM_SCMI_CPUFREQ=y` in `sp11.config` at the next planned build; not needed for R-I2.
+- **R-T1, power-thermal / orchestrator:** after the first cpufreq boot, soc-boot writes patch 0002 (passive 104000 mC or lower plus cpufreq cooling-maps, criticals only lowered); S6 forbids any raise.
+
 ## 9. Log
 
 - 2026-10-23: dossier created from the static survey.
 - 2026-10-30: resolved Q1 from MADT bytes; wrote LCD-only DT parity patch; checked full-series application, DT schemas, S1 and variant equivalence without a full build; requested independent cross-check and kernel-owner integration (D24, uncommitted).
+- 2026-10-31: root cause of missing cpufreq found (module never autoloaded; DT and config sound); requested image modules-load entry; evidence in `evidence/2026-10-31-cpufreq.md`.
