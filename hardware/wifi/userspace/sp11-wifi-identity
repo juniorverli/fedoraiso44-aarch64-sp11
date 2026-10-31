@@ -1,0 +1,39 @@
+#!/usr/bin/bash
+# Private-mode Wi-Fi identity switch. Reads the kernel argument sp11.identity (D25):
+#   inject (default, also when absent or invalid): leave the private-mode copy untouched.
+#   none: neutralise the NetworkManager part of the copy for this boot only, so the station
+#         address stays what the firmware reported. (The udev .link part is switched off by
+#         its own [Match] KernelCommandLine=!sp11.identity=none; see image-request-identity.md.)
+# Logs the mode it used to the journal and to /run/sp11/identity-wifi-mode. Never prints an
+# address and never touches /etc on disk: the neutralisation is a bind mount of /dev/null.
+set -uo pipefail
+export LC_ALL=C
+root=${SP11_ID_ROOT:-}
+nm_conf=$root/etc/NetworkManager/conf.d/90-sp11-wifi-mac.conf
+
+mode=inject
+case " $(cat "$root/proc/cmdline" 2>/dev/null) " in
+*" sp11.identity=none "*) mode=none ;;
+*" sp11.identity=inject "*) mode=inject ;;
+*" sp11.identity="*) echo "sp11-wifi-identity: invalid sp11.identity value; using inject" >&2 ;;
+esac
+
+mkdir -p "$root/run/sp11" && printf '%s\n' "$mode" >"$root/run/sp11/identity-wifi-mode"
+
+if [ "$mode" = none ]; then
+	if [ -e "$nm_conf" ]; then
+		if [ -n "${SP11_ID_DRY_RUN:-}" ]; then
+			echo "sp11-wifi-identity: mode=none (dry run, would bind /dev/null over the NetworkManager copy)" >&2
+		elif mount --bind /dev/null "$nm_conf"; then
+			echo "sp11-wifi-identity: mode=none; NetworkManager address copy neutralised for this boot" >&2
+		else
+			echo "sp11-wifi-identity: mode=none; FAILED to neutralise the NetworkManager copy" >&2
+			exit 1
+		fi
+	else
+		echo "sp11-wifi-identity: mode=none; no NetworkManager copy present (public image or already absent)" >&2
+	fi
+else
+	echo "sp11-wifi-identity: mode=inject; private-mode address copy left as built" >&2
+fi
+exit 0

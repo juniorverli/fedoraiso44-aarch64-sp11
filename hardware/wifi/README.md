@@ -77,7 +77,7 @@ Patch set (`patches/`, base `v7.3`, kernel worktree `out/linux/wifi`, branch `w/
 |:--|:--|:--|:--|
 | Q1 | Does the private Windows-derived BDF restore board-data parity? | Windows filename selection: Inference (strong), Linux id-255 lookup: Verified; DPP override TBD | F2 output hash and first-match payload checked locally; M9 reports override size, name match, board API 2, no BDF rejection |
 | Q2 | Surface SAR / TAS tables | TBD | Read-only Windows evidence from Surface SAR UEFI variables/DPP; no BIOS SAR/TAS function in the captured WLAN `_DSM` |
-| Q3 | Is the factory MAC in OTP? | TBD | M8 local comparison DIFFERENT with type 3 (userspace-set); a permanent-address hash is needed before deciding any userspace address policy |
+| Q3 | Is the factory MAC in OTP? | TBD (experiment ready: [evidence](evidence/2026-10-31-identity-experiment.md); the permanent-address hash answers it) | M8 local comparison DIFFERENT with type 3 (userspace-set); a permanent-address hash is needed before deciding any userspace address policy |
 | Q4 | Did userspace soft-block M8? | Resolved: no, Verified | Listener and sysfs show soft=0; hardware changes to hard=1 at 30.55 s |
 | Q5 | Is the WCN hardware-rfkill input unusable on this board? | Verified OFF event and hard block; Inference (strong) causal setup mismatch | M9 patch 0002: hard=0 without a radio toggle, NM disconnected/connected and cached scan counts >0. `radio_state 1` is OFF, not 0 |
 | Q6 | Can the first QMI host-memory allocation succeed? | Inference (strong): current CMA exceeds coherent mask | Cross-check patch 0003, then M9 CMA base/end below 4 GiB and QMI debug evidence with no large-allocation fallback warning |
@@ -127,6 +127,8 @@ Owner: image
 
 - **I9 (after M10, replaces the default of I7).** The derived board file crashed the firmware in M10 (`MHI_CB_EE_RDDM`, `qmi failed to load board data file:-110`; `evidence/2026-10-30-m10-board-crash.md`). Do not install it by default. Install `/usr/lib/firmware/updates/ath12k/WCN7850/hw2.0/board-2.bin` only when `SP11_WIFI_BOARD2` is explicitly set AND `python3 -I hardware/wifi/tools/wifi-board2.py verify <file> --fedora <Fedora board-2.bin[.xz]> --sha256 <Windows SHA-256>` exits 0. If verification fails, leave Fedora's generic file, warn, do not fail the image. Verification is structural only; keep the override off for the next boot unless the operator asks for a retest. Also set `options ath12k debug_mask=0x70` (I4 was not applied in M10; the log had 0x30) and apply I3 (`Before=NetworkManager.service` was still present).
 
+- **I10 (identity experiment, 2026-10-31).** Install the read-only identity collector and the `sp11.identity=none` switch, add the private-mode marker and reference file, and add one private-only boot entry, exactly as written in [image-request-identity.md](image-request-identity.md). Purpose: learn in one boot whether the hardware gives its own Wi-Fi and Bluetooth addresses without the D25 copy. Public mode is unchanged.
+
 Owner: sources
 
 - **SRC1.** Pin official ath.git Surface rfkill change `5949d1910f13c20f6ebcd26eec9e0c02cb4951aa` in `sources/sources.toml` before integration. Retrieved patch: `https://git.kernel.org/pub/scm/linux/kernel/git/ath/ath.git/patch/?id=5949d1910f13c20f6ebcd26eec9e0c02cb4951aa`, local reference `out/rea/wifi/surface-rfkill-upstream.patch`, SHA-256 `015dc24386a3433945d8fbed29c156957a3054a3400ca8fc84d7d37fda60b5be`. No new Windows package is required.
@@ -144,3 +146,4 @@ Owner: orchestrator
 
 - 2026-10-30: M10 log: derived board-2.bin (structurally valid, ELF raw as in Windows and Linux) crashes the firmware (RDDM); likely mismatch of Windows c5 board data with Fedora c7 firmware (Inference); override dropped by default (I9); `wifi-board2.py verify` added; CMA patch 0003 confirmed effective, 0002 untestable.
 - 2026-10-29: M8 full logs identify firmware hardware rfkill as the scan blocker (OFF=1, soft=0 hard=1); upstream workaround backported as 0002; lower-CMA candidate 0003; private F2 released/built; read-only M9 collector and image requests prepared; DT/schema and ath12k compile checks pass with BTF (D24, no git writes).
+- 2026-10-31: identity experiment built (read-only collector, `sp11.identity=none` switch, fixture tests, decision table); image request I10; nothing run on the device.

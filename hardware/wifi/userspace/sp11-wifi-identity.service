@@ -1,0 +1,15 @@
+[Unit]
+Description=SP11 private mode: select Wi-Fi identity (sp11.identity=inject|none)
+DefaultDependencies=no
+After=local-fs.target systemd-remount-fs.service
+Before=NetworkManager.service network-pre.target
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/sp11-wifi-identity
+UMask=0077
+
+[Install]
+WantedBy=sysinit.target
