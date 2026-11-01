@@ -20,8 +20,17 @@
  * variant script (the .dtsi and msm-camera.h must be in the kernel tree include path). Not a patch, not part of
  * the RPM. Grades: see the evidence file.
  */
-#include "x1p64100-microsoft-denali-m15-safe.dts"
+#include "x1p64100-microsoft-denali-m12.dts"
+#include "x1-microsoft-denali-audio-mics.dtsi"
 #include "hamoa-camera.dtsi"
+
+&usb_1_ss0_qmpphy {
+	orientation-switch;
+};
+
+&usb_1_ss1_qmpphy {
+	orientation-switch;
+};
 
 /* Upstream camera stack off (already disabled in the board DTS; explicit so no later include can enable it). */
 &camss {
