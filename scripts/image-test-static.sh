@@ -190,13 +190,13 @@ fi
 titles=$(grep -o -E "^[[:space:]]*(menuentry|submenu) '[^']*'" "$cfg_esp" | sed -E "s/^[[:space:]]*(menuentry|submenu) '//;s/'\$//")
 if [ "$builder" = kiwi ]; then
 	# M15: one FLAT static menu (M13 style), twelve entries, no submenu
-	expect=$'SP11 debug\nSP11 debug, safe (no GPU, no cameras)\nSP11 debug, no sound\nSP11 debug, touch off\nSP11 debug, speakers (gated)\nSP11 debug, USB + DSP trace\nSP11 debug, no early DSP\nSP11 debug, Wi-Fi unblock probe\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nSP11 debug, Spectra camera test\nVM test (no devicetree)'
+	expect=$'SP11 debug\nSP11 debug, safe (no GPU)\nSP11 debug, no sound\nSP11 debug, touch off\nSP11 debug, speakers (gated)\nSP11 debug, USB + DSP trace\nSP11 debug, no early DSP\nSP11 debug, Wi-Fi unblock probe\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nSP11 debug, Spectra camera test\nVM test (no devicetree)'
 	nentries=12
 else
 	expect=$'SP11 debug\nSP11 debug + DRM trace\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)'
 	nentries=5
 fi
-[ "$titles" = "$expect" ] && pass 2.5 "exactly the M15 flat menu in order: debug, safe, no sound, touch off, speakers, USB + DSP trace, no early DSP, Wi-Fi unblock, nomodeset, stop in initramfs, Spectra camera test, VM test" || fail 2.5 "entries differ: $(echo "$titles" | tr '\n' '|')"
+[ "$titles" = "$expect" ] && pass 2.5 "exactly the M16 flat menu in order: debug, safe (no GPU, cameras enabled), no sound, touch off, speakers, USB + DSP trace, no early DSP, Wi-Fi unblock, nomodeset, stop in initramfs, Spectra camera test, VM test" || fail 2.5 "entries differ: $(echo "$titles" | tr '\n' '|')"
 [ "$(grep -c '^set default=0' "$cfg_esp")" = 1 ] && pass 2.6 "default entry is the first (SP11 debug, the main entry)" || fail 2.6 "default is not entry 0"
 bad=0
 # M15: every devicetree line is a fixed path (no GRUB variable anywhere); the file must exist on the ISO
@@ -384,7 +384,18 @@ if [ "$builder" = kiwi ]; then
 			skip 3.8 "smoke build: variant $v is a copy of the packaged DTB, not a real variant"
 		else
 			if [ "$v" = m15-nosnd ]; then
-				cmp -s "$vd" "$dtbf" && pass 3.8 "m15-nosnd (M12 behaviour) equals the packaged DTB" || fail 3.8 "m15-nosnd differs from the packaged DTB"
+				# M16: m15-nosnd is the packaged DTB plus exactly the two QMP PHY orientation-switch
+				# properties (usb-typec 0003 experiment). Compare the decompiled trees (structural dtc
+				# comparison, not the bytes): drop the orientation-switch property lines from both, require
+				# the rest to be identical and the variant to carry exactly two more of them.
+				os_re='^[[:space:]]*orientation-switch;[[:space:]]*$'
+				if [ -s "$W/denali.dts" ] && [ -s "$vd.dts" ] &&
+				   diff -q <(grep -v -E "$os_re" "$W/denali.dts") <(grep -v -E "$os_re" "$vd.dts") >/dev/null &&
+				   [ "$(grep -c -E "$os_re" "$vd.dts")" -eq $(( $(grep -c -E "$os_re" "$W/denali.dts") + 2 )) ]; then
+					pass 3.8 "m15-nosnd equals the packaged DTB except the two added orientation-switch properties (structural dtc comparison)"
+				else
+					fail 3.8 "m15-nosnd differs from the packaged DTB beyond the two orientation-switch properties"
+				fi
 			else
 				cmp -s "$vd" "$dtbf" && fail 3.8 "variant $v is identical to the packaged DTB" || pass 3.8 "variant $v differs from the packaged DTB"
 			fi
@@ -401,11 +412,24 @@ if [ "$builder" = kiwi ]; then
 		else fail 3.14 "variant $v published JSON absent or differs in hash/release/series/record"; fi
 		src=$(ls "$OUT"/dtb-variants/"$kver"/qcom/$vf 2>/dev/null | head -n1)
 		if [ -n "$src" ]; then cmp -s "$src" "$vd" && pass 3.10 "variant $v equals out/dtb-variants/$kver/qcom/$vf" || fail 3.10 "variant $v differs from $src"; else fail 3.10 "no out/dtb-variants/$kver/qcom/$vf to compare with"; fi
-		# D26/S1: the effective safety profile per DTB (default, or d26 for m13-spk only; m13-spk must fail default)
-		sp=default; [ "$v" = m15-spk ] && sp=d26
-		if python3 -I "$REPO/scripts/kernel-dtb-safety.py" "$vd.dts" --profile "$sp" >/dev/null 2>&1; then
-			if [ "$v" = m15-spk ] && python3 -I "$REPO/scripts/kernel-dtb-safety.py" "$vd.dts" --profile default >/dev/null 2>&1; then fail 3.15 "m15-spk passes the default profile"; else pass 3.15 "$v passes the $sp safety profile$([ "$v" = m15-spk ] && echo ' and fails default')"; fi
-		else fail 3.15 "$v fails the $sp safety profile"; fi
+		# D26/S1: the chosen speaker-policy marker is the only switch. A variant that carries
+		# /chosen/sp11,speaker-policy must pass the d26 profile and be refused by the default profile;
+		# a variant without the marker must pass default. No per-variant special case.
+		marker=$(fdtget "$vd" /chosen sp11,speaker-policy 2>/dev/null || true)
+		d26_ok=0 default_ok=0
+		python3 -I "$REPO/scripts/kernel-dtb-safety.py" "$vd.dts" --profile d26 >/dev/null 2>&1 && d26_ok=1
+		python3 -I "$REPO/scripts/kernel-dtb-safety.py" "$vd.dts" --profile default >/dev/null 2>&1 && default_ok=1
+		if [ -n "$marker" ]; then
+			if [ "$d26_ok" = 1 ] && [ "$default_ok" = 0 ]; then
+				pass 3.15 "$v carries sp11,speaker-policy='$marker': passes d26 and is refused by default"
+			else
+				fail 3.15 "$v carries sp11,speaker-policy='$marker' but d26 pass=$d26_ok, default pass=$default_ok (want d26 pass and default fail)"
+			fi
+		elif [ "$default_ok" = 1 ]; then
+			pass 3.15 "$v has no speaker-policy marker: passes the default safety profile"
+		else
+			fail 3.15 "$v has no speaker-policy marker but fails the default safety profile"
+		fi
 	done
 fi
 
@@ -549,6 +573,15 @@ if [ "$builder" = kiwi ]; then
 		sh "$LREPO/hardware/audio-mics/userspace/tests/ucm-routes-test.sh" >"$W/ucm-routes.txt" 2>&1 && grep -q '^ALL PASS' "$W/ucm-routes.txt" && ucm_ok=1
 		[ "$ucm_ok" = 1 ] && pass 8.45 "audio-mics tests on the shipped route files: mic-gain-check (default +14 dB = step 98, cap 108) and ucm-routes-test ($(grep -c '^PASS' "$W/ucm-routes.txt") PASS, ALL PASS)" || fail 8.45 "ucm-routes-test failed ($(grep '^FAIL' "$W/ucm-routes.txt" | head -n 2 | tr '\n' ';' | cut -c1-200))"
 	else fail 8.45 "mic-gain-check failed or the shipped SP11-MicGain.conf differs from the source ($(tail -n 1 "$W/mic-gain.txt" | cut -c1-150))"; fi
+	# Operator decision (M16): automatic brightness is off and cannot be turned back on from the
+	# desktop. The distro dconf default disables it and the lock keeps the key read-only.
+	disp=$ROOT/etc/dconf/db/distro.d/92-sp11-display
+	displock=$ROOT/etc/dconf/db/distro.d/locks/92-sp11-display
+	if grep -qx 'ambient-enabled=false' "$disp" 2>/dev/null &&
+	   [ -f "$displock" ] &&
+	   grep -qx '/org/gnome/settings-daemon/plugins/power/ambient-enabled' "$displock"; then
+		pass 8.46 "automatic brightness is off and locked: distro dconf sets ambient-enabled=false and its lock file exists"
+	else fail 8.46 "automatic brightness policy missing (92-sp11-display default or lock)"; fi
 	# M15: the ESP carries NO environment block (GRUB is static); grub2-script-check accepts the rendered main configuration
 	if [ -n "$patched" ]; then skip 8.41 "patched test ISO keeps the ESP of its base ISO"
 	elif mdir -i "$esp_img" ::EFI/BOOT 2>/dev/null | grep -qi grubenv; then fail 8.41 "EFI/BOOT/grubenv present on the ESP (M15: GRUB is static, no environment block)"; else pass 8.41 "the ESP carries no grubenv: GRUB reads and writes no state"; fi
@@ -639,7 +672,13 @@ print(next((b['sha256'] for b in m['blob'] if b.get('linux_path') == sys.argv[2]
 		got=$(lsinitrd "$initrd_img" -f "usr/lib/firmware/$lp" 2>/dev/null | sha256sum | cut -d' ' -f1)
 		if [ -n "$want" ] && [ "$got" = "$want" ]; then pass 5.7 "initramfs has $lp, SHA-256 equals firmware/manifest.toml"; else fail 5.7 "initramfs $lp: SHA-256 ${got:0:16}... (manifest ${want:0:16}...)"; fi
 	done
-	if grep -q -E 'gen70500|qcdxkmsuc8380' "$W/initrd-list.txt"; then fail 5.8 "GPU zap shader or gen70500 is in the initramfs"; else pass 5.8 "GPU zap shader and gen70500 are not in the initramfs"; fi
+	# M16: the early in-kernel DRM open needs the zap shader and both gen70500 blobs in the
+	# initramfs (dracut install_items). All three must be there.
+	miss=
+	for f in gen70500_sqe.fw gen70500_gmu.bin qcdxkmsuc8380.mbn; do
+		grep -q -E "/$f(\.(xz|zst|gz))?$" "$W/initrd-list.txt" || miss="$miss $f"
+	done
+	[ -z "$miss" ] && pass 5.8 "initramfs has the GPU zap shader (qcdxkmsuc8380.mbn) and both gen70500 blobs (gen70500_sqe.fw, gen70500_gmu.bin) for the early DRM open" || fail 5.8 "initramfs lacks:$miss"
 fi
 grep -E '^[-dlcbps][-rwxsStT]{9} .*plymouth' "$W/initrd-list.txt" >/dev/null && fail 5.4 "plymouth files in the initramfs" || pass 5.4 "no plymouth in the initramfs"
 

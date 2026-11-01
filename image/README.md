@@ -989,7 +989,7 @@ One private ISO for the operator's device (D25/S5); never share it. Kernel M14 (
 | Line | Title | `sp11.entry` | DTB | Arguments |
 |:--|:--|:--|:--|:--|
 | 1 | `SP11 debug` | `debug` | `m15` (microphones, rear/front/IR camera nodes ON, GPU/GMU/zap ON = the former m14.dtb) | diagnostics (USB and PDR dyndbg, DSP trace) plus the CONSTANT `sp11.gpu_diag=1` (on this line only) |
-| 2 | `SP11 debug, safe (no GPU, no cameras)` | `safe` | `m15-safe` (microphones only, cameras and GPU OFF; the M13/M14-safe content) | same as line 1 without `sp11.gpu_diag`: the always-booting fallback |
+| 2 | `SP11 debug, safe (no GPU)` | `safe` | `m15-safe` (microphones and cameras ON, GPU OFF; cameras arrived in M16) | same as line 1 without `sp11.gpu_diag`: the always-booting fallback |
 | 3 | `SP11 debug, no sound` | `nosnd` | `m15-nosnd` | same |
 | 4 | `SP11 debug, touch off` | `notouch` | `m15-notouch` | same |
 | 5 | `SP11 debug, speakers (gated)` | `spk` | `m15-spk` (d26 profile only) | same plus `sp11.allow_nominal=1`; the first-test notice and `sleep 3` (static `echo`) |

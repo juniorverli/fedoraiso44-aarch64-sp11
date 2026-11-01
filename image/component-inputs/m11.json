@@ -14,6 +14,6 @@
     "usr/share/wireplumber/wireplumber.conf.d/51-sp11-audio-safety.conf": "83c0e8a319bc0102c8856a03780612b3ca7b48228f44182c1b739ea468051594",
     "usr/share/alsa/ucm2/conf.d/x1e80100/X1E80100-Microsoft-Surface-Pro-11.conf": "3713e1b6fee436f46ce8517845ca59a169f73a1494daa59969ccd6dcbfb14243",
     "usr/share/alsa/ucm2/Qualcomm/x1e80100/MICROSOFT-Surface-Pro-11.conf": "3713e1b6fee436f46ce8517845ca59a169f73a1494daa59969ccd6dcbfb14243",
-    "usr/share/alsa/ucm2/Qualcomm/x1e80100/Surface11-HiFi.conf": "336f8e95ce0d08590c186c84f4172dc4412d3e1a87d012cdb0c0e62b936c4562"
+    "usr/share/alsa/ucm2/Qualcomm/x1e80100/Surface11-HiFi.conf": "4ab8b5cd67acfbd89b1f521d44a167f76c63f1963e0945622c797aef63eca16f"
   }
 }

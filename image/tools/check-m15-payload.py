@@ -32,11 +32,16 @@ def check(root, repo, record):
     assert not re.search(r'Surface11-(SpeakerSeq|WsaInit)', fix), 'UCM driver file names a speaker sequence'
     unit = root / 'usr/lib/systemd/system/sp11-speaker-ucm.service'
     assert unit.read_bytes() == (repo / 'image/overlay/usr/lib/systemd/system/sp11-speaker-ucm.service').read_bytes(), 'speaker UCM unit'
-    assert 'ConditionKernelCommandLine=sp11.entry=spk' in unit.read_text(), 'speaker UCM unit is not entry-gated'
+    # M16: the overlay runs on the debug, safe and spk entries (the | makes the conditions OR).
+    unit_text = unit.read_text()
+    for entry in ('spk', 'debug', 'safe'):
+        assert f'ConditionKernelCommandLine=|sp11.entry={entry}' in unit_text, f'speaker UCM unit is not entry-gated for {entry}'
     assert (root / 'etc/systemd/system/sysinit.target.wants/sp11-speaker-ucm.service').readlink() == Path('/usr/lib/systemd/system/sp11-speaker-ucm.service')
     script = root / 'usr/libexec/sp11/speaker-ucm-enable'
     assert script.stat().st_mode & 0o111 and script.read_bytes() == (repo / 'image/overlay/usr/libexec/sp11/speaker-ucm-enable').read_bytes(), 'speaker UCM script'
-    assert "grep -qx 'sp11.entry=spk' " in script.read_text(), 'speaker UCM script has no entry gate'
+    script_text = script.read_text()
+    for entry in ('spk', 'debug', 'safe'):
+        assert f'" sp11.entry={entry} "' in script_text, f'speaker UCM script has no {entry} entry gate'
     # speaker first-test tooling: present everywhere, manual, gated by the entry and its arguments, with the policy limits
     for name in ('speaker-supervisor', 'speaker-first-test'):
         f = root / 'usr/libexec/sp11' / name
@@ -213,7 +218,13 @@ def check(root, repo, record):
             if r.is_file():
                 assert not ('fastrpc' in r.read_text() and 'MODE="0666"' in r.read_text()), f'{r.name}: world-writable FastRPC node'
     assert 'fastrpc' in (root / 'usr/lib/sysusers.d/fastrpc.conf').read_text(), 'no fastrpc group definition'
-    assert not (root / 'opt/qairt').exists() and not (root / 'usr/bin/hexagonrpcd').exists(), 'QAIRT or a local hexagonrpcd build in the image'
+    # M16: no QAIRT in the image. hexagonrpcd is intentionally the pinned local sensors RPM
+    # (check-m15-integration verifies the NEVRA); a loose copy is still refused.
+    assert not (root / 'opt/qairt').exists(), 'QAIRT in the image'
+    if (root / 'usr/bin/hexagonrpcd').exists():
+        owner = subprocess.run(['rpm', '--root', str(root), '-qf', '/usr/bin/hexagonrpcd'],
+                               capture_output=True, text=True)
+        assert owner.returncode == 0, 'loose local hexagonrpcd build (not RPM-owned)'
 
 
 if __name__ == '__main__':
