@@ -507,7 +507,7 @@ record = {
     "grub_entries": entries,
     "milestone": "M15",
     "kernel_release_record_sha256": sha256(kernel_record_path),
-    "kernel_touch_modules": next(v["touch_modules"] for k in ("m15", "m14", "m13") for v in [json.load(open(kernel_record_path)).get(k)] if v and "touch_modules" in v),
+    "kernel_touch_modules": next(v["touch_modules"] for k in ("m16", "m15", "m14", "m13") for v in [json.load(open(kernel_record_path)).get(k)] if v and "touch_modules" in v),
     "module_policy": {"qcom_battmgr": "blacklist + install false + dracut omit_drivers (D23)",
                       "ucsi_glink": "retained early", "ath12k.debug_mask": "0x70; CONFIG_ATH12K_DEBUG=y; output checked by L0",
                       "scmi_cpufreq": "modules-load.d/sp11-cpufreq.conf (soc-boot R-I2); cap by default, lifted only by the boot-medium marker sp11/cpufreq-uncapped"},
