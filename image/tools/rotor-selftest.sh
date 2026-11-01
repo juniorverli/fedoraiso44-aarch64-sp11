@@ -191,6 +191,16 @@ rm -f "$T/medium/sp11/touch-conf-A"; tsel; [ -e "$T/touch50.conf" ] && ok "touch
 	[ -z "$(bs get sp11_gpu_state)" ] && echo "PASS GPU hook: sp11.gpu_retry=1 clears the state (plain file)" || echo "FAIL gpu_retry"
 	echo "" >"$CMD"; sp11_gpu_hook_arm
 	[ "$(bs get sp11_gpu_state)" = testing ] && echo "PASS GPU hook: armed before step 1 (testing)" || echo "FAIL arm"
+	cat >"$T/boot-state-fail" <<'EOF'
+#!/usr/bin/env bash
+exit 5
+EOF
+	chmod +x "$T/boot-state-fail"
+	SP11_ESPENV=$T/boot-state-fail
+	if (sp11_gpu_hook_arm); then echo "FAIL GPU hook: arm failure was accepted"; else
+		grep -q 'GPU test: ABORTED before GPU power-up' "$OUT/gpu-test-result.txt" && echo "PASS GPU hook: refuses to start GPU test without a persisted boot marker" || echo "FAIL GPU arm failure has no abort result"
+	fi
+	SP11_ESPENV=$BSX
 	: >"$STATE"; sp11_gpu_hook_ok
 	[ "$(bs get sp11_gpu_state)" = testing ] && echo "PASS GPU hook: no ok without both step ends" || echo "FAIL ok without ends"
 	printf 'T=1 UP=1 BOOT=bootB EVENT=STEP1_END\nT=2 UP=2 BOOT=bootB EVENT=STEP2_END\n' >"$STATE"; sp11_gpu_hook_ok

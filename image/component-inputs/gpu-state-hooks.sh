@@ -52,9 +52,12 @@ sp11_gpu_hook_skip() { # true (0) on a boot started with sp11.gpu_dtb=skip: noth
 	return 0
 }
 sp11_gpu_hook_arm() { # before step 1
-	if "$SP11_ESPENV" set sp11_gpu_state=testing; then sp11_gpu_note "GPU test: armed (sp11_gpu_state=testing on the boot medium); if the machine resets now, the next boot reports the step"
-	else sp11_gpu_note "GPU test: WARNING cannot write sp11_gpu_state=testing (boot medium state unavailable); the state is not recorded"; fi
-	return 0
+	if "$SP11_ESPENV" set sp11_gpu_state=testing; then
+		sp11_gpu_note "GPU test: armed (sp11_gpu_state=testing on the boot medium); if the machine resets now, the next boot reports the step"
+		return 0
+	fi
+	sp11_gpu_note "GPU test: ABORTED before GPU power-up because sp11_gpu_state=testing could not be persisted on the boot medium"
+	return 1
 }
 sp11_gpu_hook_ok() { # after both steps: only when this boot's state.log shows both ends
 	if grep -q "BOOT=$BOOT_ID EVENT=STEP1_END" "$STATE" 2>/dev/null && grep -q "BOOT=$BOOT_ID EVENT=STEP2_END" "$STATE" 2>/dev/null; then

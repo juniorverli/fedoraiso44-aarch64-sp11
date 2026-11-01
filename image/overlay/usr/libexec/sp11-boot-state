@@ -62,7 +62,8 @@ else
 	disk=$(find_boot_disk) || { echo "sp11-boot-state: boot medium unknown" >&2; exit 3; }
 	disk_has_windows "$disk" && { echo "sp11-boot-state: S4: $disk carries NTFS/BitLocker/MSR; refusing" >&2; exit 4; }
 	dev=$(on_disk "$LOGS_LABEL" "$disk") || dev=$(on_disk "$ESP_LABEL" "$disk") || { echo "sp11-boot-state: no $LOGS_LABEL or $ESP_LABEL partition on $disk" >&2; exit 3; }
-	exec 9>/run/sp11-boot-state.lock; flock 9
+	exec 9>/run/sp11-boot-state.lock
+	flock -w 10 9 || { echo "sp11-boot-state: timed out waiting for the boot-medium lock" >&2; exit 6; }
 	mkdir -p "$MNT"; modprobe vfat 2>/dev/null
 	mount -t vfat -o "$mode,noatime,nodev,nosuid,noexec,umask=0077,shortname=winnt" "$dev" "$MNT" 2>/dev/null || { echo "sp11-boot-state: cannot mount $dev ($mode)" >&2; exit 5; }
 	mounted=1

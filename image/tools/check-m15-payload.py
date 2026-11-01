@@ -60,7 +60,7 @@ def check(root, repo, record):
     text = installed.read_text()
     assert hooks.read_text() + '\n' in text, 'hook functions are not in the installed GPU script'
     back = text.replace(hooks.read_text() + '\n', '')
-    for line in ('sp11_gpu_hook_report\n', '[ "$limit" -ge 1 ] && sp11_gpu_hook_arm\n', '[ "$limit" -ge 2 ] && sp11_gpu_hook_ok\n'):
+    for line in ('sp11_gpu_hook_report\n', '[ "$limit" -ge 1 ] && { sp11_gpu_hook_arm || { mark \'ABORT GPU test: boot-medium state was not persisted\'; pkill -P "$KMSG_PID" 2>/dev/null; kill "$KMSG_PID" 2>/dev/null; exit 0; }; }\n', '[ "$limit" -ge 2 ] && sp11_gpu_hook_ok\n'):
         assert back.count(line) == 1, f'call line missing or duplicated: {line.strip()}'
         back = back.replace(line, '')
     back, n = re.subn(r'^if sp11_gpu_hook_skip; then sp11_gpu_note [^\n]*; mark SKIP_GPU_TEST; mark DONE; flush; exit 0; fi\n', '', back, flags=re.M)
@@ -68,7 +68,7 @@ def check(root, repo, record):
     assert back.replace('for lbl in SP11LOGS ANACONDA BOOT; do', 'for lbl in SP11LOGS ANACONDA; do') == owner.read_text(), 'GPU script differs from the owner beyond the recorded image changes'
     subprocess.run(['bash', '-n', str(installed)], check=True)
     # state order in the script: armed before step 1, ok only after both ends, skip before the follower
-    assert text.index('sp11_gpu_hook_arm\n') < text.index('step1 || true'), 'arm is not before step 1'
+    assert text.index('sp11_gpu_hook_arm ||') < text.index('step1 || true'), 'arm is not before step 1'
     assert 'sync -f' in hooks.read_text() or '$SP11_ESPENV" set sp11_gpu_state=testing' in hooks.read_text()
     gunit = root / 'usr/lib/systemd/system/sp11-gpu-two-step.service'
     assert digest(gunit) == gpu['unit_sha256'] == digest(repo / 'hardware/gpu/collector/sp11-gpu-two-step.service'), 'GPU unit bytes'
@@ -99,6 +99,7 @@ def check(root, repo, record):
     assert not (root / 'usr/libexec/sp11-esp-env').exists() and not (root / 'usr/libexec/sp11/cdsp-variant').exists(), 'GRUB environment helpers still installed'
     helper = root / 'usr/libexec/sp11-boot-state'
     assert helper.stat().st_mode & 0o111 and helper.read_bytes() == (repo / 'image/overlay/usr/libexec/sp11-boot-state').read_bytes(), 'sp11-boot-state'
+    assert 'flock -w 10 9' in helper.read_text(), 'boot-state lock wait must be bounded'
     subprocess.run(['bash', '-n', str(helper)], check=True)
     h = helper.read_text()
     for needle in ('disk_has_windows', 'find_boot_disk', 'SP11LOGS', 'LABEL', 'pkname', 'S4', 'sp11/state', 'marker'):
