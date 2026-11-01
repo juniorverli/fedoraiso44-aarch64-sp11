@@ -1,0 +1,59 @@
+#!/usr/bin/bash
+# Private ISO only. Copy root-only, staged sensor seeds into fresh service state once.
+# Args: SOURCE_DIR DEST_DIR OWNER GROUP. Existing destination data is never changed.
+set -euo pipefail
+export LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin
+
+if [ "$#" -ne 4 ]; then
+	echo "usage: seed-private-sensor-registry SOURCE_DIR DEST_DIR OWNER GROUP" >&2
+	exit 2
+fi
+src=$1 dst=$2 owner=$3 group=$4
+case $owner:$group in *[!A-Za-z0-9_.:-]*) echo "seed-private-sensor-registry: invalid owner/group" >&2; exit 2 ;; esac
+
+[ -d "$src" ] && [ ! -L "$src" ] || { echo "seed-private-sensor-registry: private seed directory missing" >&2; exit 1; }
+[ "$(stat -c %a "$src")" = 700 ] || { echo "seed-private-sensor-registry: seed directory mode is not 0700" >&2; exit 1; }
+[ -d "$dst" ] && [ ! -L "$dst" ] || { echo "seed-private-sensor-registry: destination directory missing or unsafe" >&2; exit 1; }
+parent=${dst%/*}
+[ -d "$parent" ] && [ ! -L "$parent" ] || { echo "seed-private-sensor-registry: destination parent missing or unsafe" >&2; exit 1; }
+
+# The installer may run again on a later boot. Never touch non-empty state.
+if [ -n "$(find "$dst" -mindepth 1 -maxdepth 1 -print -quit)" ]; then
+	echo "seed-private-sensor-registry: existing registry preserved"
+	exit 0
+fi
+
+seeds=("$src"/*)
+[ "${#seeds[@]}" -gt 0 ] && [ -f "${seeds[0]}" ] || { echo "seed-private-sensor-registry: no staged seeds" >&2; exit 1; }
+id -u "$owner" >/dev/null 2>&1 && getent group "$group" >/dev/null 2>&1 || { echo "seed-private-sensor-registry: target service account missing" >&2; exit 1; }
+for f in "${seeds[@]}"; do
+	name=${f##*/}
+	case $name in '' | *[!A-Za-z0-9_.-]* | . | ..) echo "seed-private-sensor-registry: invalid seed name" >&2; exit 1 ;; esac
+	[ -f "$f" ] && [ ! -L "$f" ] || { echo "seed-private-sensor-registry: seed entry is not a regular file" >&2; exit 1; }
+	[ "$(stat -c %a "$f")" = 600 ] || { echo "seed-private-sensor-registry: seed file mode is not 0600" >&2; exit 1; }
+done
+
+tmp=$(mktemp -d "$parent/.sp11-registry-seed.XXXXXX")
+cleanup() { [ -z "${tmp:-}" ] || { [ ! -d "$tmp" ] || rm -rf -- "$tmp"; }; }
+trap cleanup EXIT
+for f in "${seeds[@]}"; do
+	install -o "$owner" -g "$group" -m 0640 -- "$f" "$tmp/${f##*/}"
+done
+chown "$owner:$group" "$tmp"
+chmod 0750 "$tmp"
+
+# Recheck immediately before replacing only the empty StateDirectory child.
+if [ -n "$(find "$dst" -mindepth 1 -maxdepth 1 -print -quit)" ]; then
+	echo "seed-private-sensor-registry: registry changed during seeding; existing data preserved" >&2
+	exit 1
+fi
+rmdir -- "$dst"
+if mv -T -- "$tmp" "$dst"; then
+	tmp=
+else
+	mkdir -m 0750 -- "$dst"
+	chown "$owner:$group" "$dst"
+	echo "seed-private-sensor-registry: atomic install failed" >&2
+	exit 1
+fi
+echo "seed-private-sensor-registry: installed ${#seeds[@]} private seeds for the service"

@@ -9,8 +9,8 @@ Contents (all Windows-derived or generated from Windows data, never in git, neve
   cameras   ov13858/imx681/vd55g0 register blobs -> /usr/lib/firmware/updates/ (verified with the owner's verify_blob and MANIFEST.json)
   cdsp46    the CDSP c1-00046.1 pair -> /usr/lib/firmware-sp11-cdsp46/qcom/x1e80100/microsoft/Denali/ and the initramfs (dracut conf)
   audio     closed-loop topology (replaces the public file of the same name), sp11cl, sp11cal -> /usr/lib/firmware/qcom/x1e80100/
-  sensors   the staged sensor tree out/firmware-private/sensors (sp11-sensors-stage.sh) installed by sp11-sensors-install-private.sh with the seeded registry
-            -> /usr/share/qcom/x1e80100/Microsoft/Surface-Pro-11/{sensors,socinfo}/ and /var/lib/hexagonrpcd/registry
+  sensors   the staged sensor tree out/firmware-private/sensors (sp11-sensors-stage.sh) installed by sp11-sensors-install-private.sh
+            -> /usr/share/qcom/x1e80100/Microsoft/Surface-Pro-11/{sensors,socinfo}/; root-only private registry seeds are copied at first service start only into an empty StateDirectory child
   tuning    libcamera tuning YAMLs of the cameras owner -> /usr/share/libcamera/ipa/simple/ (hashes against libcamera-tuning.manifest.json)
   spectra   CAMERA_ICP.mbn (Qualcomm Linux package, both pins) -> /usr/lib/firmware/qcom/x1e80100/ and its licence
   quality   audio quality files sp11q.bin and sp11q-dyn.bin next to sp11cl; PipeWire microphone configs -> /etc/pipewire/pipewire.conf.d/; the speaker EQ is
@@ -43,6 +43,9 @@ PUBLIC_TPLG = "b192044f01e97eabe7f6df9ae0d394086badb3c30124573210bc781093da8c03"
 SENSORS = "usr/share/qcom/x1e80100/Microsoft/Surface-Pro-11/sensors"
 SENSORS_ROOT = "usr/share/qcom/x1e80100/Microsoft/Surface-Pro-11"
 REGISTRY = "var/lib/hexagonrpcd/registry"
+PRIVATE_SENSOR_SEEDS = "usr/libexec/sp11/private-sensor-seeds/registry"
+PRIVATE_SENSOR_SEED_HELPER = "usr/libexec/sp11/seed-private-sensor-registry"
+PRIVATE_SENSOR_SEED_DROPIN = "usr/lib/systemd/system/hexagonrpcd-sensors.service.d/20-sp11-private-seeds.conf"
 SENSORS_FP = "sensors"
 TUNING = {"ov13858": "ov13858.yaml", "imx681": "imx681.yaml"}
 TUNING_DEST = "usr/share/libcamera/ipa/simple"
@@ -83,7 +86,8 @@ def put(src, dst, mode=0o644):
 def sensors_counts(root, sfp):
     base = root / SENSORS_ROOT
     return {"config": sum(1 for p in (base / "sensors/config").rglob("*") if p.is_file()), "identity": sum(1 for p in (base / "socinfo").iterdir() if p.is_file()),
-            "registry": sum(1 for p in (root / REGISTRY).rglob("*") if p.is_file()), "sns_reg_conf": (base / "sensors/sns_reg.conf").is_file(),
+            "registry": sum(1 for p in (root / REGISTRY / "registry").rglob("*") if p.is_file()),
+            "registry_seed": sum(1 for p in (root / PRIVATE_SENSOR_SEEDS).iterdir() if p.is_file()), "sns_reg_conf": (base / "sensors/sns_reg.conf").is_file(),
             "registry_link": os.readlink(base / "sensors/registry") if (base / "sensors/registry").is_symlink() else None,
             "stage_sums_sha256": sha(sfp / "SHA256SUMS")}
 
@@ -136,15 +140,36 @@ def cmd_stage(a):
             raise Fail("the private topology equals the public one: the closed-loop file was not generated")
         put(src, root / AUDIO_DEST / name)
     rec["audio"] = {n: sha(fp / AUDIO_FP / n) for n in AUDIO}
-    # sensors: the owner's install script, registry route A (seed), then the tree is verified against the stage's SHA256SUMS
+    # Sensors: install static files; keep private seeds root-only in the overlay, then copy them at first daemon start
+    # only if StateDirectory's configured registry child is empty. Runtime user/group names resolve after RPM install.
     sfp = fp / SENSORS_FP
     inst = repo / "hardware/sensors/userspace/sp11-sensors-install-private.sh"
-    r = subprocess.run(["bash", str(inst), "--stage", str(sfp), "--root", str(root), "--registry", "seed"], capture_output=True, text=True)
+    r = subprocess.run(["bash", str(inst), "--stage", str(sfp), "--root", str(root), "--registry", "keep"], capture_output=True, text=True)
     if r.returncode != 0:
         raise Fail("sp11-sensors-install-private.sh failed (" + (r.stderr.strip().splitlines() or ["no message"])[-1][:120] + ")")
+    if os.getuid() != 0:
+        raise Fail("private sensor seeds require root-owned staging in the image container")
+    seed_src = sfp / "registry-seed"
+    seed_files = sorted(seed_src.iterdir()) if seed_src.is_dir() else []
+    if len(seed_files) != 293 or any(not p.is_file() or p.is_symlink() for p in seed_files):
+        raise Fail("private sensor seed source differs from the 293-file owner stage")
+    seed_dst = root / PRIVATE_SENSOR_SEEDS
+    seed_dst.mkdir(parents=True, mode=0o700, exist_ok=True)
+    os.chmod(seed_dst, 0o700)
+    for src in seed_files:
+        dst = seed_dst / src.name
+        shutil.copyfile(src, dst)
+        os.chmod(dst, 0o600)
+        os.chown(dst, 0, 0)
+    os.chown(seed_dst, 0, 0)
+    registry_dst = root / REGISTRY / "registry"
+    registry_dst.mkdir(parents=True, mode=0o750, exist_ok=True)
+    os.chmod(registry_dst, 0o750)
+    put(repo / "image/component-inputs/private-sensors/seed-private-sensor-registry", root / PRIVATE_SENSOR_SEED_HELPER, 0o755)
+    put(repo / "image/component-inputs/private-sensors/hexagonrpcd-sensors-private-seeds.conf", root / PRIVATE_SENSOR_SEED_DROPIN, 0o644)
     rec["sensors"] = sensors_counts(root, sfp)
-    if rec["sensors"]["config"] != 70 or rec["sensors"]["identity"] != 6 or rec["sensors"]["registry"] != 293:
-        raise Fail("sensor tree counts differ from the owner's evidence (70 config, 6 identity, 293 registry): " + json.dumps(rec["sensors"]))
+    if rec["sensors"]["config"] != 70 or rec["sensors"]["identity"] != 6 or rec["sensors"]["registry"] != 0 or rec["sensors"]["registry_seed"] != 293:
+        raise Fail("sensor tree counts differ from the owner's evidence (70 config, 6 identity, 293 private seeds, empty registry child): " + json.dumps(rec["sensors"]))
     # libcamera tuning YAMLs (the owner's manifest holds their hashes)
     man = json.loads((fp / "cameras/libcamera/libcamera-tuning.manifest.json").read_text())
     for sensor, name in TUNING.items():
@@ -218,17 +243,18 @@ def cmd_verify(a):
     chk("record: hashes of the private files equal the installed ones", rec.get("cameras") == {n: sha(root / CAM_DEST / n) for n in CAM.values()}
         and rec.get("cdsp46") == {f: sha(root / CDSP_ROOT / CDSP_DIR / f) for f in CDSP_FILES}
         and rec.get("audio") == {n: sha(root / AUDIO_DEST / n) for n in AUDIO})
-    # sensors: every installed file equals its line in the stage's SHA256SUMS (config, identity, registry seed), symlink, counts
+    # Sensors: static files and root-only seeds match the stage; registry state remains empty in the ISO overlay.
     sfp = fp / SENSORS_FP
     sums = {}
     for line in (sfp / "SHA256SUMS").read_text().splitlines():
         h, _, name = line.partition("  ")
         sums[name.lstrip("./")] = h
     base = root / SENSORS_ROOT
+    seed_root = root / PRIVATE_SENSOR_SEEDS
     bad_s = []
     for name, h in sums.items():
         if name.startswith("registry-seed/"):
-            dst = root / REGISTRY / name[len("registry-seed/"):]
+            dst = seed_root / name[len("registry-seed/"):]
         elif name.startswith("sensors/") or name.startswith("socinfo/"):
             dst = base / name
         else:
@@ -236,9 +262,23 @@ def cmd_verify(a):
         if name == "sensors/registry" or not dst.is_file() or sha(dst) != h:
             bad_s.append(name)
     cnt = sensors_counts(root, sfp)
-    chk("sensors: 70 config files, 6 identity files, sns_reg.conf, 293 registry seed files equal the private stage by hash", not bad_s and cnt["config"] == 70 and cnt["identity"] == 6
-        and cnt["registry"] == 293 and cnt["sns_reg_conf"], f"{len(bad_s)} differ")
+    seed_entries = list(seed_root.iterdir()) if seed_root.is_dir() else []
+    seed_private = (seed_root.is_dir() and not seed_root.is_symlink() and seed_root.stat().st_mode & 0o777 == 0o700
+                    and seed_root.stat().st_uid == 0 and seed_root.stat().st_gid == 0
+                    and len(seed_entries) == 293
+                    and all(p.is_file() and not p.is_symlink() and p.stat().st_mode & 0o777 == 0o600
+                            and p.stat().st_uid == 0 and p.stat().st_gid == 0 for p in seed_entries))
+    chk("sensors: 70 config files, 6 identity files and 293 root-only private seeds equal the stage; state registry child remains empty", not bad_s and cnt["config"] == 70 and cnt["identity"] == 6
+        and cnt["registry"] == 0 and cnt["registry_seed"] == 293 and cnt["sns_reg_conf"] and seed_private, f"{len(bad_s)} differ")
     chk("sensors: sensors/registry is a symlink to /var/lib/hexagonrpcd/registry", cnt["registry_link"] == "/var/lib/hexagonrpcd/registry")
+    helper = root / PRIVATE_SENSOR_SEED_HELPER
+    source_helper = Path(__file__).resolve().parents[1] / "component-inputs/private-sensors/seed-private-sensor-registry"
+    chk("sensors: first-start seeder and private service drop-in match image sources", helper.is_file() and helper.read_bytes() == source_helper.read_bytes()
+        and helper.stat().st_mode & 0o777 == 0o755 and helper.stat().st_uid == 0 and helper.stat().st_gid == 0
+        and (root / PRIVATE_SENSOR_SEED_DROPIN).is_file()
+        and (root / PRIVATE_SENSOR_SEED_DROPIN).read_bytes() == (Path(__file__).resolve().parents[1] / "component-inputs/private-sensors/hexagonrpcd-sensors-private-seeds.conf").read_bytes()
+        and (root / PRIVATE_SENSOR_SEED_DROPIN).stat().st_mode & 0o777 == 0o644
+        and (root / PRIVATE_SENSOR_SEED_DROPIN).stat().st_uid == 0 and (root / PRIVATE_SENSOR_SEED_DROPIN).stat().st_gid == 0)
     chk("record: sensor counts equal the installed ones", rec.get("sensors") == cnt)
     chk("tuning: libcamera YAMLs equal the private tree and the owner's manifest hashes, mode 0644", all(same(fp / "cameras/libcamera" / n, root / TUNING_DEST / n) for n in TUNING.values())
         and all(json.loads((fp / "cameras/libcamera/libcamera-tuning.manifest.json").read_text())[s]["yaml_sha256"] == sha(root / TUNING_DEST / n) for s, n in TUNING.items()))
@@ -264,7 +304,7 @@ def cmd_absent(a):
         if not ok:
             bad.append(i)
 
-    here = ([CAM_DEST + "/" + n for n in CAM.values()] + [CDSP_ROOT, DRACUT, SENSORS, SENSORS_ROOT + "/socinfo", REGISTRY, NPU, ICP_DEST, ICP_LIC_DEST]
+    here = ([CAM_DEST + "/" + n for n in CAM.values()] + [CDSP_ROOT, DRACUT, SENSORS, SENSORS_ROOT + "/socinfo", REGISTRY, PRIVATE_SENSOR_SEEDS, PRIVATE_SENSOR_SEED_HELPER, PRIVATE_SENSOR_SEED_DROPIN, NPU, ICP_DEST, ICP_LIC_DEST]
             + [TUNING_DEST + "/" + n for n in TUNING.values()] + list(PW.values()) + [AUDIO_DEST + "/" + n for n in list(AUDIO) + list(QUALITY) + [QUALITY_GATED] if not n.endswith("-tplg.bin")])
     present = [p for p in here if (root / p).exists()]
     chk("public image: no camera blob, tuning YAML, sensor configuration or registry, audio quality or PipeWire quality file, topology variant, CAMERA_ICP, CDSP alternate or NPU installer", not present, ",".join(present))
