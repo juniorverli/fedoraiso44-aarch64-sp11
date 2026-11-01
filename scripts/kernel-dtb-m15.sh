@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Build M15 DTB variants from the release series without git writes.
-# scripts/kernel-dtb-m15.sh [--preflight] [KVER]; publication requires checked revision-12 RPMs.
+# scripts/kernel-dtb-m15.sh [--preflight] [KVER]; publication requires checked revision-12/13 RPMs.
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/kernel-common.sh"
 preflight=0
 if [[ ${1:-} == --preflight ]]; then preflight=1; shift; fi
 kver=${1:-$KERNEL_KVER}
-[[ $KERNEL_SERIES_REV == 12 && $kver == "$KERNEL_KVER" ]] || die "M15 requires series_rev 12 and $KERNEL_KVER"
+[[ ($KERNEL_SERIES_REV == 12 || $KERNEL_SERIES_REV == 13) && $kver == "$KERNEL_KVER" ]] || die "M15 requires series_rev 12 or 13 and $KERNEL_KVER"
 kernel_series_check
 src="$SP11_OUT/linux/m15"
 checks="$SP11_OUT/build/dtb-m15-checks"
@@ -18,7 +18,7 @@ if ((preflight)); then
   # Run the same DT gates before an expensive RPM build; publish no artifacts.
   packaged=""
 else
-  [[ -f $packaged && -f $record ]] || die "run the revision-12 release build and kernel-check first"
+  [[ -f $packaged && -f $record ]] || die "run the revision-$KERNEL_SERIES_REV release build and kernel-check first"
 fi
 mkdir -p "$checks" "$outdir" "$SP11_OUT/linux"
 exec 8>"$SP11_OUT/.kernel-m15.lock"
@@ -152,7 +152,7 @@ base, kver, release_path = sys.argv[4:7]
 patches = sys.argv[7:]
 sha = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
 release = json.loads(Path(release_path).read_text())
-assert release["series_rev"] == 12 and release['build']['rpmbuild_rc'] == 0
+assert release["series_rev"] in (12, 13) and release['build']['rpmbuild_rc'] == 0
 assert release['btf']['vmlinux'] == 'ok' and release['btf']['modules_without_btf'] == 0
 assert release['btf']['modules_with_btf'] == release['btf']['modules_total'] > 0
 assert release['kver'] == kver and release['base']['commit'] == base
@@ -202,7 +202,7 @@ for name, previous in [('m15-nosnd', ''), ('m15-safe', ''), ('m15', '-m15-safe')
     assert timing and 'CONFIG_DEBUG_INFO_BTF=y' in (repo / 'out/build/dev-m15/.config').read_text()
     assert 'CONFIG_DEBUG_INFO_BTF_MODULES=y' in (repo / 'out/build/dev-m15/.config').read_text()
     dtb = checks / f'{full}.source.dtb'
-    record = dict(name=full, kver=kver, series_rev=12, built_utc=datetime.now(timezone.utc).isoformat(),
+    record = dict(name=full, kver=kver, series_rev=int(release["series_rev"]), built_utc=datetime.now(timezone.utc).isoformat(),
         base=f'v7.3 {base}', source_commit=base, kernel_tree='out/linux/m15',
         source_mode='git archive; release patches applied by patch --fuzz=0, no commits',
         series_hash_sha256=release['series_hash_sha256'], patches_applied=patches,
