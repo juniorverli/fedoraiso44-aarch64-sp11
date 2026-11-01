@@ -152,3 +152,24 @@ Record whether IFPC is enabled and whether idle/resume-between-loads produces
 GMU errors. This checks Q4, not system suspend. Add dated, redacted logs and
 the exact image/kernel/package identifiers to `hardware/gpu/evidence/`.
 Only the orchestrator can set `pass` after reviewing this device evidence.
+
+## 4. Controlled M15 boot-stage trace
+
+This is diagnostic instrumentation, not a fix. Do not enable the GPU until the
+image owner has isolated early DRM opens, verified initramfs firmware staging,
+added markers around the hook and its helper's global deadline, and confirmed
+the operator's thermal safeguards. Then, only for a controlled test kernel,
+set `CONFIG_DRM_MSM_GPU_BOOT_TRACE=m` using [patch 0001](patches/0001-drm-msm-add-opt-in-gpu-boot-phase-trace.patch); it defaults off.
+
+Collect `dmesg` from boot start and retain timestamped markers:
+
+- `load begin`, then `firmware ready` or no following marker: lazy DRM-open
+  firmware lookup failure.
+- `runtime resume begin/returned`: runtime PM/GMU resume result.
+- `GMU firmware start` and `GMU HFI start` begin/return markers: GMU phase.
+- `hw init begin/returned`: remaining hardware init, which includes zap/PAS.
+
+These markers do not isolate zap/PAS within hardware init. Preserve the
+collector's `STEP0`/`STEP1` markers and image hook before/after markers. Do not
+repeat automatically after a reset. Disable the option after the diagnostic
+build.
