@@ -505,7 +505,7 @@ record = {
     "dtb_variant_records": {f: json.load(open(f"{work}/dtb-records/{f}")) for f in sorted(os.listdir(f"{work}/dtb-records"))} if os.path.isdir(f"{work}/dtb-records") else {},
     "kernel_cmdline_reasons": "image/README.md, GRUB 2 and the kernel command line",
     "grub_entries": entries,
-    "milestone": "M15",
+    "milestone": "M16",
     "kernel_release_record_sha256": sha256(kernel_record_path),
     "kernel_touch_modules": next(v["touch_modules"] for k in ("m16", "m15", "m14", "m13") for v in [json.load(open(kernel_record_path)).get(k)] if v and "touch_modules" in v),
     "module_policy": {"qcom_battmgr": "blacklist + install false + dracut omit_drivers (D23)",

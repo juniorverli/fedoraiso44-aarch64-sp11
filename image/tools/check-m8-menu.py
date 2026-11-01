@@ -26,7 +26,7 @@ USBDSP = set(BASE + USB + PDR + ["trace_event=:mod:qcom_glink", "trace_buf_size=
 # ident: (title, DTB variant or None, set of special arguments); order is the menu order
 ENTRIES = {
     "debug": ("SP11 debug", "m15", DEFAULT | {"sp11.gpu_diag=1"}),
-    "safe": ("SP11 debug, safe (no GPU, no cameras)", "m15-safe", DEFAULT),
+    "safe": ("SP11 debug, safe (no GPU)", "m15-safe", DEFAULT),
     "nosnd": ("SP11 debug, no sound", "m15-nosnd", DEFAULT),
     "notouch": ("SP11 debug, touch off", "m15-notouch", DEFAULT),
     "spk": ("SP11 debug, speakers (gated)", "m15-spk", DEFAULT | {"sp11.allow_nominal=1"}),

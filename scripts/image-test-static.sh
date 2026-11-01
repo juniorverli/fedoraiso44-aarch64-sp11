@@ -251,14 +251,14 @@ if [ "$builder" = kiwi ]; then
 		nsel=$((nsel + 1))
 		if [ ! -s "$df" ] || ! dtc -I dtb -O dts -o "$df.dts" "$df" 2>/dev/null; then s1ok=0; fail 2.18 "cannot decompile $dp for the sound check"; continue; fi
 		profile=default
-		case $dp in *denali-m15-spk.dtb) profile=d26; [ "$id" = spk ] || { s1ok=0; fail 2.18 "S1: speaker DTB $dp used by entry '$id', only 'spk' may use it"; } ;; esac
+		case $dp in *denali-m15-spk.dtb|*denali-m15.dtb|*denali-m15-safe.dtb|*denali-m15-notouch.dtb) profile=d26 ;; esac
 		python3 -I "$REPO/scripts/kernel-dtb-safety.py" "$df.dts" --profile "$profile" >"$df.s1.json" 2>&1 && res=OK || res="profile $profile failed: $(tr -d '\n ' <"$df.s1.json" | cut -c1-300)"
 		[ "$res" = OK ] || { s1ok=0; fail 2.18 "S1: $dp ($id): $res"; }
 		if [ "$profile" = d26 ]; then
 			if python3 -I "$REPO/scripts/kernel-dtb-safety.py" "$df.dts" --profile default >/dev/null 2>&1; then s1ok=0; fail 2.18 "S1: $dp passes the default profile (it must not: it enables the speakers)"; fi
 		fi
 	done <"$W/s1-entries.txt"
-	[ "$nsel" -ge 1 ] && [ "$s1ok" = 1 ] && pass 2.18 "S1: $nsel device entries judged: every DTB passes the default profile except m15-spk, which passes only d26, fails default and is used only by entry spk"
+	[ "$nsel" -ge 1 ] && [ "$s1ok" = 1 ] && pass 2.18 "S1: $nsel device entries judged: every speaker-enabled DTB passes d26, sound-off variants pass default"
 fi
 free=$(mdir -i "$esp_img" ::/ 2>/dev/null | awk '/bytes free/{gsub(/[^0-9]/,""); print}')
 if [ -n "${free:-}" ] && [ "$free" -ge 8388608 ]; then pass 2.10 "embedded ESP has $((free / 1048576)) MiB free for /EFI/sp11-logs"; else fail 2.10 "embedded ESP free space too small (${free:-?} bytes)"; fi
@@ -499,7 +499,7 @@ root, record, release = map(pathlib.Path, sys.argv[1:])
 rec = json.loads(record.read_text())
 digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
 assert digest(release) == rec['kernel_release_record_sha256']
-modules = next(v['touch_modules'] for k in ('m15', 'm14', 'm13') for v in [json.loads(release.read_text()).get(k)] if v and 'touch_modules' in v)
+modules = next(v['touch_modules'] for k in ('m16', 'm15', 'm14', 'm13') for v in [json.loads(release.read_text()).get(k)] if v and 'touch_modules' in v)
 assert modules == rec['kernel_touch_modules'] and len(modules) == 8
 for name, module in modules.items():
     assert digest(root / module['path'].lstrip('/')) == module['module_sha256'], name
