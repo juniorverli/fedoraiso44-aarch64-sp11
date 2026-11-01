@@ -21,6 +21,7 @@ export LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin
 MNT=/run/sp11-boot-state
 LOGS_LABEL=${SP11_LOGS_LABEL:-SP11LOGS}
 ESP_LABEL=${SP11_ESP_LABEL:-BOOT}
+sync_cmd=sync umount_cmd=umount
 SP11_MSR_GUID=e6d6d379-f507-44c2-a23c-238f2a3df928
 pkname() { local n=${1##*/}; if [ -e "/sys/class/block/$n/partition" ]; then basename "$(readlink -f "/sys/class/block/$n/..")"; else echo "$n"; fi; }
 find_boot_disk() {
@@ -50,7 +51,22 @@ disk_has_windows() {
 }
 on_disk() { local cand; for cand in $(blkid -t "LABEL=$1" -o device 2>/dev/null); do [ "$(pkname "$cand")" = "$2" ] && { echo "$cand"; return 0; }; done; return 1; }
 mounted=0
-cleanup() { [ "$mounted" = 1 ] && { sync -f "$MNT" 2>/dev/null; umount "$MNT" 2>/dev/null; }; return 0; }
+cleanup() {
+	local status=$? cleanup_status=0
+	trap - EXIT
+	if [ "$mounted" = 1 ]; then
+		if ! "$sync_cmd" -f "$MNT" 2>/dev/null; then
+			echo "sp11-boot-state: sync failed for the boot medium" >&2
+			cleanup_status=8
+		fi
+		if ! "$umount_cmd" "$MNT" 2>/dev/null; then
+			echo "sp11-boot-state: unmount failed for the boot medium" >&2
+			[ "$cleanup_status" -ne 0 ] || cleanup_status=9
+		fi
+	fi
+	[ "$status" -ne 0 ] || status=$cleanup_status
+	exit "$status"
+}
 trap cleanup EXIT
 cmd=${1:-}
 case $cmd in get | set | unset | list | marker | markers) ;; *) echo "usage: sp11-boot-state get NAME | set NAME=VALUE | unset NAME | list | marker NAME | markers" >&2; exit 2 ;; esac
@@ -58,11 +74,18 @@ validname() { case $1 in '' | *[!A-Za-z0-9_-]*) echo "sp11-boot-state: bad name 
 mode=ro; case $cmd in set | unset) mode=rw ;; esac
 if [ -n "${SP11_STATE_ROOT:-}" ]; then
 	R=$SP11_STATE_ROOT
+	# Test only: exercise mounted-path cleanup without mounting or unmounting a real device.
+	if [ "${SP11_STATE_TEST_CLEANUP:-}" = 1 ]; then
+		MNT=$R; mounted=1
+		sync_cmd=${SP11_STATE_TEST_SYNC:-sync}
+		umount_cmd=${SP11_STATE_TEST_UMOUNT:-umount}
+	fi
 else
 	disk=$(find_boot_disk) || { echo "sp11-boot-state: boot medium unknown" >&2; exit 3; }
 	disk_has_windows "$disk" && { echo "sp11-boot-state: S4: $disk carries NTFS/BitLocker/MSR; refusing" >&2; exit 4; }
 	dev=$(on_disk "$LOGS_LABEL" "$disk") || dev=$(on_disk "$ESP_LABEL" "$disk") || { echo "sp11-boot-state: no $LOGS_LABEL or $ESP_LABEL partition on $disk" >&2; exit 3; }
-	exec 9>/run/sp11-boot-state.lock; flock 9
+	exec 9>/run/sp11-boot-state.lock
+	flock -w 10 9 || { echo "sp11-boot-state: timed out waiting for the boot-medium lock" >&2; exit 6; }
 	mkdir -p "$MNT"; modprobe vfat 2>/dev/null
 	mount -t vfat -o "$mode,noatime,nodev,nosuid,noexec,umask=0077,shortname=winnt" "$dev" "$MNT" 2>/dev/null || { echo "sp11-boot-state: cannot mount $dev ($mode)" >&2; exit 5; }
 	mounted=1
