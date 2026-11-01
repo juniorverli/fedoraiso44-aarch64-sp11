@@ -1,0 +1,96 @@
+# Proposed, unmerged alternative; held after independent GPU review.
+# Omitting firmware alone does not remove the early in-kernel DRM client or vblank loop.
+diff --git a/image/README.md b/image/README.md
+index b6c94ff..811ba7e 100644
+--- a/image/README.md
++++ b/image/README.md
+@@ -217,7 +217,7 @@ The first device boot with the kiwi `-d18` ISO printed the console on the firmwa
+ ### M4: initramfs, parity and failure capture (decision D20), and the boot medium (risk S4)
+ 
+ - **Initramfs of the kiwi image** (`image/kiwi/overlay/root/etc/dracut.conf.d/`): `leds-qcom-lpg` is added (the M3 initramfs lacked the PMK8550 PWM provider; with display-lcd 0003 the panel references the backlight, and `panel_edp_probe()` returns the `drm_panel_of_backlight()` error before panel detection, so the panel could not probe there; Verified by CPIO inspection in `out/agents/surface-compare/report.md` 2d). `qcom_q6v5_pas` (F1 is superseded for the kiwi image) with `qcom_pd_mapper`, `pdr_interface`, `qrtr`, `qrtr-smd`; its other dependencies (GLINK, SMEM, sysmon, mdt_loader) come through `modules.dep`. The four staged DSP images (`qcadsp8380.mbn`, `adsp_dtb.mbn`, `qccdsp8380.mbn`, `cdsp_dtb.mbn` under `qcom/x1e80100/microsoft/Denali/`) are installed with dracut `install_items`. The GPU zap shader and `gen70500` stay out (`msm_open()` loads them at the first open). The kiwi overlay's `90-sp11.conf` replaces the shared one (which still carries the F1 `omit_drivers` for the lorax path).
+-- **L0 5.5** requires every module of the display chain (`msm panel_edp phy_qcom_edp drm_dp_aux_bus pwm_bl leds_qcom_lpg dispcc_x1e80100`) and the DSP set, and everything `modules.dep` says they need, to be in the actual initramfs CPIO (or built in); a missing one fails L0. The check was run against the M3 initramfs first and failed on exactly `leds_qcom_lpg`. **5.7** requires the four DSP images in the initramfs with the SHA-256 of `firmware/manifest.toml`; **5.8** requires the GPU zap shader and `gen70500` to be absent.
++- **L0 5.5** requires every module of the display chain (`msm panel_edp phy_qcom_edp drm_dp_aux_bus pwm_bl leds_qcom_lpg dispcc_x1e80100`) and the DSP set, and everything `modules.dep` says they need, to be in the actual initramfs CPIO (or built in); a missing one fails L0. The check was run against the M3 initramfs first and failed on exactly `leds_qcom_lpg`. **5.7** requires the four DSP images in the initramfs with the SHA-256 of `firmware/manifest.toml`; **5.8** requires the GPU zap shader and both `gen70500` files on the rootfs and absent from the actual initramfs.
+ - **Failure capture in the initramfs** (dracut module `95sp11-initrd-log`, shipped by the kiwi overlay, added by `92-sp11-initrd-log.conf`): hooks `initqueue/timeout` (two thirds of `rd.retry`) and `emergency`. Each writes `/EFI/sp11-logs/initrd-<boot-id>/` on the ESP (label `BOOT`) with `journal-<reason>.txt.gz`, `dmesg-…`, `rdsosreport-…` (made with `/sbin/rdsosreport` when dracut has not yet), a state report (cmdline, `blkid`, `lsblk`, `/dev/disk/by-label`, initqueue hooks, modules, `devices_deferred`), `STATUS.<reason>`, `SEQ`, `COMPLETE`. Same cap (`CAP_ESP_KIB` from `/etc/sp11-log-collector.conf`, installed into the initramfs) and gzip rule as the collector; the oldest other boot directory goes first. The boot id is the collector's, so `initrd-<id>` and `<id>` belong together.
+ - **S4: write only to the boot medium.** The test device is also a Windows machine (internal NVMe with ESP, MSR, NTFS C:, WinRE). The collector and the initramfs hook find the boot medium by (1) the label of `root=live:CDLABEL=` (or `LABEL=`) on the command line, resolved with `blkid -L`, taking the parent disk from sysfs (the PKNAME); (2) the `/run/initramfs/live` mount source; (3) the label built into the ISO (`/etc/sp11-boot-medium`, `Fedora-WS-Live-44`, L0 checks it equals the ISO volume id), for the case that the command line label is the failure; the method that worked is logged and written to `boot-medium.txt`. They mount **only** a partition labelled `SP11LOGS` or `BOOT` whose parent disk is that disk. If no medium is found they write nothing outside `/run` and say so in the journal. They refuse a disk that carries an NTFS or BitLocker file system or a Microsoft reserved partition (GUID `e6d6d379-…`), found with `blkid -p`, not `lsblk`, because the udev database may not exist yet. The old rule ("any partition labelled `BOOT`" when the parent was unknown) is gone; L0 8.11-8.13 check both scripts. `image/tools/collector_selftest.sh` tests the guard and the rule with loop devices and a fake Windows disk; L1 `--decoy` attaches that disk (`image/tools/make-decoy-disk.sh`: FAT32 `BOOT` with the EFI type, FAT32 `SP11LOGS`, NTFS, MSR) and compares its md5sum before and after.
+ - **L1 additions:** `--decoy`; `--initrd-fail` (the VM entry is edited in GRUB with a wrong `root=live:CDLABEL=` last, `rd.retry=12 rd.shell=0`; this entry exists only in the test run, not in the ISO).
+@@ -1066,6 +1066,16 @@ L0 for a private ISO (`scripts/image-test-static.sh`, which mounts the address f
+ 
+ Rollback: rebuild without `--private`. Q3 of the wifi dossier (is the OTP address the factory one) is not decided by this mode; it only makes the userspace address persistent.
+ 
++## M16 GPU firmware incident: proposed rollback
++
++The private M16 ISO `20261101T183232Z` with kernel `7.3.0-65.sp11.14.fc44` produced repeated `msm_dpu` vblank timeout warnings from `drm_fb_helper_damage_work`; an earlier DIE was photographed only in part, without its header. The operator reports this loop was absent in M15.1. M16 commit `2ee4dbf` added the SQE, GMU and zap firmware to the initramfs, allowing the early DRM client open to succeed. The proposed mitigation restores the earlier policy: retain all three on the rootfs, remove their explicit initramfs installation, and fail L0 5.8 if dracut includes any of them anyway. The build record states this policy. This is a proposed cause and mitigation, not proof of the cause of the DIE or of a successful device boot.
++
++`msm_open()` calls `load_gpu()` on each open (Linux `sources/linux/drivers/gpu/drm/msm/msm_drv.c:266`); `adreno_load_gpu()` returns on a firmware load failure (`sources/linux/drivers/gpu/drm/msm/adreno/adreno_device.c:87`). A later userspace open can therefore retry after switch-root with the rootfs firmware available; actual GPU and desktop operation remain device tests. The early in-kernel client is expected to fail its open as in M15.1, so early msm fbcon is unavailable and the screen may be blank until a later display client initializes it. The collector does not depend on fbcon: its systemd service captures the journal and dmesg and writes to the boot medium; dracut failure hooks capture early failures separately. Neither path guarantees a capture if the kernel dies before it runs. An alternative is to retain the early firmware and add `drm_kms_helper.fbdev_emulation=0` to affected entries; that changes kernel command lines and requires separate validation. No GRUB arguments change in this proposal.
++
++Reference comparison: `/tmp/ref-sp11` was unavailable in this environment, so the upstream [reference tree](https://github.com/dwhinham/archiso-aarch64-sp11/tree/9a50ce3c81e4e17b30adcfc0dd517c19795e89f3) at `9a50ce3c81e4e17b30adcfc0dd517c19795e89f3` was inspected instead. Its `configs/releng/profiledef.sh` sets `clk_ignore_unused pd_ignore_unused arm64.nopauth systemd.mask=tpm2.target`; `configs/releng/airootfs/etc/mkinitcpio.conf.d/archiso.conf` includes `msm` and `panel_edp` with the `kms` hook. Its README says proprietary firmware is not redistributed and instructs users to run `sp11-grab-fw` after installation. This is a different distribution and kernel, and does not establish our runtime outcome.
++
++Audio review: the M16 speaker UCM service copies userspace ALSA configuration on `debug`, `safe` and `spk`; the copy operation itself cannot execute kernel code or directly cause a kernel DIE. ALSA clients may later apply that configuration through kernel audio interfaces, so an indirect trigger cannot be excluded from the incomplete DIE transcript. M16 also changes `cdsp-experiment` permission detection; that service can restart CDSP and change kernel-exposed parameters and firmware selection, so its interaction with kernel/DSP paths cannot be ruled out from image inspection. Preserve speaker safety gates and obtain the full DIE header and stack before attribution.
++
+ ## Requests
+ 
+ - kernel (M15): (1) `scripts/kernel-m8-check.py` must accept `--variant m15 m15-safe m15-nosnd m15-notouch m15-spk` (L0 3.13 passes them; m15 = camera nodes and GPU/GMU/zap ON, m15-safe = microphones only; L0 3.12 requires the GPU node `okay` in m15 only) and the release JSON should keep `touch_modules` and `new_modules` under the key `m15`; (2) make the `qcom_q6v5_pas` parameter `keep_proxy_pds` writable at runtime (`0644`, dsp-subsystems patch 0003 has `0444`): the CDSP experiment sets it between `stop` and `start`, and without it variants 2 and 3 are skipped; (3) per-mode camera bus codes (patches 0002/0013) are in the kernel brief, nothing for the image.
+@@ -1124,6 +1134,7 @@ Rollback: rebuild without `--private`. Q3 of the wifi dossier (is the OTP addres
+ 
+ ## Log
+ 
++- 2026-11-01: Proposed post-M16 GPU firmware rollback and L0 rootfs/archive policy for the reported vblank loop; no ISO built or device outcome established.
+ - 2026-11-01: M15.1 device-log triage found the GPU diagnostic had no persisted marker after `STEP0_END`; the image arms the test with a bounded boot-state lock and aborts before GPU power-up if the marker write fails. `rotor-selftest.sh` covers the fail-closed path. Cause of the original stop remains unconfirmed pending another device boot.
+ - 2026-10-31: menu2. GRUB never writes (no `save_env`), only reads the environment block; GPU state and CDSP rotor transitions moved to Linux; two static bisect entries first in the submenu; patched test ISO `...private-menu2.iso` from the menu1 ISO without a kiwi rebuild (`image/tools/make-menu2-iso.sh`); L0 247/247.
+ - 2026-10-31: built the M14 private ISO `sp11-fedora44-aarch64-kiwi-20261031T133710Z-private` (kiwi 1895 s, SHA-256 `56b0ead2...`): revision-11 kernel, five M14 DTBs, a two-line menu (main entry `SP11 debug` plus one submenu), GRUB environment block on the ESP with GPU self-healing (`testing`/`failed` to `m14-safe`), CDSP experiment rotor (four combinations, alternate firmware pair private and in the initramfs), SAM shutdown mode rotor (silent, clean, quiet, default), operator notices (journal, motd, desktop), speaker first-test entry and tools with the private closed-loop topology, camera blobs, sensor staging and NPU installer (private), microphone UCM fix, power-thermal overlay and collector, FastRPC packages. L0 245/245, QEMU L1 21/21, GRUB logic on the real ISO 25/25. No git writes; nothing left running.
+diff --git a/image/kiwi/overlay/root/etc/dracut.conf.d/90-sp11.conf b/image/kiwi/overlay/root/etc/dracut.conf.d/90-sp11.conf
+index ee47bfd..01d7b23 100644
+--- a/image/kiwi/overlay/root/etc/dracut.conf.d/90-sp11.conf
++++ b/image/kiwi/overlay/root/etc/dracut.conf.d/90-sp11.conf
+@@ -8,8 +8,8 @@ omit_dracutmodules+=" plymouth "
+ # images are in the initramfs, as in the previous project's ISO, which reached GNOME. The driver requests its firmware
+ # once (request_firmware_nowait, no user-helper fallback), so the firmware must be readable when it binds. The driver
+ # and its dependencies (GLINK, SMEM, PDR, QRTR, pd-mapper) are in 91-sp11-drivers.conf.
+-# Stage DSP firmware and GPU SQE/GMU firmware + zap shader in initramfs for early in-kernel DRM open.
+-install_items+=" /usr/lib/firmware/qcom/x1e80100/microsoft/Denali/qcadsp8380.mbn /usr/lib/firmware/qcom/x1e80100/microsoft/Denali/adsp_dtb.mbn /usr/lib/firmware/qcom/x1e80100/microsoft/Denali/qccdsp8380.mbn /usr/lib/firmware/qcom/x1e80100/microsoft/Denali/cdsp_dtb.mbn /usr/lib/firmware/qcom/gen70500_sqe.fw.xz /usr/lib/firmware/qcom/gen70500_gmu.bin.xz /usr/lib/firmware/qcom/x1e80100/microsoft/qcdxkmsuc8380.mbn "
++# Keep GPU firmware on the rootfs, not in the initramfs; L0 checks the actual archive.
++install_items+=" /usr/lib/firmware/qcom/x1e80100/microsoft/Denali/qcadsp8380.mbn /usr/lib/firmware/qcom/x1e80100/microsoft/Denali/adsp_dtb.mbn /usr/lib/firmware/qcom/x1e80100/microsoft/Denali/qccdsp8380.mbn /usr/lib/firmware/qcom/x1e80100/microsoft/Denali/cdsp_dtb.mbn "
+ 
+ # D23/S6: SAM owns the battery; retain ucsi_glink for USB-C power information.
+ omit_drivers+=" qcom_battmgr "
+diff --git a/scripts/image-build-kiwi.sh b/scripts/image-build-kiwi.sh
+index 5f7a5a6..5801173 100755
+--- a/scripts/image-build-kiwi.sh
++++ b/scripts/image-build-kiwi.sh
+@@ -496,6 +496,7 @@ record = {
+     "kernel_series_sha256": sha256(series) if os.path.exists(series) else None,
+     "kernel_patch_series_sha256": hashlib.sha256(patch_series.encode()).hexdigest(),
+     "firmware_manifest_sha256": sha256(manifest) if os.path.exists(manifest) else None,
++    "gpu_firmware_policy": "rootfs only; absent from initramfs (L0 5.8)",
+     "firmware_installed": [{"sha256": a, "path": b} for a, b in fw],
+     "firmware_installed_listing_sha256": hashlib.sha256("\n".join(" ".join(x) for x in fw).encode()).hexdigest(),
+     "dtb": "qcom/x1p64100-microsoft-denali.dtb",
+diff --git a/scripts/image-test-static.sh b/scripts/image-test-static.sh
+index 586b2a2..31f76cf 100755
+--- a/scripts/image-test-static.sh
++++ b/scripts/image-test-static.sh
+@@ -672,13 +672,18 @@ print(next((b['sha256'] for b in m['blob'] if b.get('linux_path') == sys.argv[2]
+ 		got=$(lsinitrd "$initrd_img" -f "usr/lib/firmware/$lp" 2>/dev/null | sha256sum | cut -d' ' -f1)
+ 		if [ -n "$want" ] && [ "$got" = "$want" ]; then pass 5.7 "initramfs has $lp, SHA-256 equals firmware/manifest.toml"; else fail 5.7 "initramfs $lp: SHA-256 ${got:0:16}... (manifest ${want:0:16}...)"; fi
+ 	done
+-	# M16: the early in-kernel DRM open needs the zap shader and both gen70500 blobs in the
+-	# initramfs (dracut install_items). All three must be there.
+-	miss=
+-	for f in gen70500_sqe.fw gen70500_gmu.bin qcdxkmsuc8380.mbn; do
+-		grep -q -E "/$f(\.(xz|zst|gz))?$" "$W/initrd-list.txt" || miss="$miss $f"
++	# GPU firmware must be available after switch-root but absent from the actual archive.
++	miss= present=
++	for f in qcom/gen70500_sqe.fw qcom/gen70500_gmu.bin qcom/x1e80100/microsoft/qcdxkmsuc8380.mbn; do
++		found=0
++		for suffix in '' .xz .zst .gz; do
++			[ ! -s "$ROOT/usr/lib/firmware/$f$suffix" ] || found=1
++		done
++		[ "$found" = 1 ] || miss="$miss $f"
++		base=${f##*/}
++		if awk '{print $NF}' "$W/initrd-list.txt" | grep -F -x -e "usr/lib/firmware/$f" -e "usr/lib/firmware/$f.xz" -e "usr/lib/firmware/$f.zst" -e "usr/lib/firmware/$f.gz" -e "/usr/lib/firmware/$f" -e "/usr/lib/firmware/$f.xz" -e "/usr/lib/firmware/$f.zst" -e "/usr/lib/firmware/$f.gz" >/dev/null; then present="$present $base"; fi
+ 	done
+-	[ -z "$miss" ] && pass 5.8 "initramfs has the GPU zap shader (qcdxkmsuc8380.mbn) and both gen70500 blobs (gen70500_sqe.fw, gen70500_gmu.bin) for the early DRM open" || fail 5.8 "initramfs lacks:$miss"
++	[ -z "$miss$present" ] && pass 5.8 "GPU firmware present on rootfs and absent from initramfs" || fail 5.8 "rootfs missing:$miss; initramfs contains:$present"
+ fi
+ grep -E '^[-dlcbps][-rwxsStT]{9} .*plymouth' "$W/initrd-list.txt" >/dev/null && fail 5.4 "plymouth files in the initramfs" || pass 5.4 "no plymouth in the initramfs"
+ 
