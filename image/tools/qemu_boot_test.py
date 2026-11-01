@@ -491,7 +491,8 @@ def main():
             check("D19 display files are in the log directory", not miss, ("missing: " + ", ".join(miss)) if miss else f"{len(need)} files")
             touch = read_log(a.logs, bd, "touch-pen.txt") or ""
             check("M8 touch helper captured kernel, DT, pinctrl and firmware sections",
-                  all(section in touch for section in ("7.3.0-65.sp11.12.fc44.aarch64",
+                  any(k in touch for k in ("7.3.0-65.sp11.14.fc44.aarch64", "7.3.0-65.sp11.13.fc44.aarch64", "7.3.0-65.sp11.12.fc44.aarch64")) and
+                  all(section in touch for section in (
                       "=== live DT and platform driver state ===",
                       "=== pinctrl ownership and configuration ===",
                       "=== installed firmware package and file")))
