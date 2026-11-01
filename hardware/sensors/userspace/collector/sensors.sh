@@ -20,9 +20,9 @@ echo "sns_reg.conf: $(ls -l $root/sensors/sns_reg.conf 2>&1)"
 echo "config files: $(ls $root/sensors/config 2>/dev/null | wc -l)"
 echo "socinfo: $(ls $root/socinfo 2>&1 | tr '\n' ' ')"
 echo "registry link: $(ls -ld $root/sensors/registry 2>&1)"
-echo "registry files at configured output ($state/registry): $(ls $state/registry 2>/dev/null | wc -l)"
-echo "parent state files: $(ls -l $state/sns_reg_config $state/sns_secure_database.bin $state/parsed_file_list.csv 2>&1)"
-echo "newest parent state files: $(ls -lt $state 2>/dev/null | sed -n '2,6p' | awk '{print $5, $6, $7, $8, $9}' | tr '\n' ';')"
+echo "registry files: $(ls $state 2>/dev/null | wc -l)"
+echo "ADSP-written state files: $(ls -l $state/sns_reg_config $state/sns_secure_database.bin $state/parsed_file_list.csv 2>&1)"
+echo "newest registry files: $(ls -lt $state 2>/dev/null | sed -n '2,6p' | awk '{print $5, $6, $7, $8, $9}' | tr '\n' ';')"
 echo
 echo "## qrtr services"
 timeout 5 qrtr-lookup 2>&1 | head -n 60

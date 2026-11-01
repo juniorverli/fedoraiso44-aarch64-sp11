@@ -4,8 +4,8 @@
 # separately; this step only adds the Windows-derived data they serve.
 # Usage: sp11-sensors-install-private.sh --stage DIR [--root ROOT] [--registry empty|seed|keep]
 #   --root      target root (default /)
-#   --registry  seed (default): copy registry-seed/ into the configured registry/ child when it is empty;
-#               empty: leave the configured registry/ child empty so the ADSP generates it;
+#   --registry  seed (default): copy registry-seed/ into /var/lib/hexagonrpcd/registry when that directory is empty;
+#               empty: leave it empty so the ADSP generates the registry (needs the write-capable hexagonrpcd);
 #               keep: touch nothing there.
 set -euo pipefail
 STAGE=""; ROOT=/; MODE=seed
@@ -24,27 +24,22 @@ case "$MODE" in empty|seed|keep) ;; *) echo "bad --registry" >&2; exit 2 ;; esac
 
 dest="$ROOT/usr/share/qcom/x1e80100/Microsoft/Surface-Pro-11"
 state="$ROOT/var/lib/hexagonrpcd/registry"
-registry="$state/registry"
 rm -rf "$dest/sensors/config" "$dest/socinfo"
 install -d -m 0755 "$dest/sensors/config" "$dest/socinfo"
 cp -a "$STAGE/sensors/config/." "$dest/sensors/config/"
 install -m 0644 "$STAGE/sensors/sns_reg.conf" "$dest/sensors/sns_reg.conf"
 cp -a "$STAGE/socinfo/." "$dest/socinfo/"
-# sns_reg.conf sets output=/persist/sensors/registry/registry. hexagonrpcd maps
-# /persist/sensors/registry to <root>/sensors/registry, so the JSON registry
-# belongs in the nested registry/ directory. Keep ADSP state files that use
-# the parent path in $state; both remain writable through the same symlink.
+# hexagonrpcd serves <root>/sensors/registry as /persist/sensors/registry/registry: a symlink to the state
+# directory keeps /usr read-only and the registry writable (StateDirectory= of the unit creates the target).
 rm -rf "$dest/sensors/registry"
 ln -s /var/lib/hexagonrpcd/registry "$dest/sensors/registry"
 find "$dest" -type d -exec chmod 0755 {} +
 find "$dest" -type f -exec chmod 0644 {} +
 
-install -d -m 0750 "$state" "$registry"
-if [ "$MODE" = seed ] && [ -d "$STAGE/registry-seed" ] && [ -z "$(ls -A "$registry")" ]; then
-	cp -a "$STAGE/registry-seed/." "$registry/"
-	# These generated seed entries are read-only inputs (matching sscregistrygen's
-	# 0644 output); ADSP-created state files are written separately by the daemon.
-	find "$registry" -type f -exec chmod 0644 {} +
+install -d -m 0750 "$state"
+if [ "$MODE" = seed ] && [ -d "$STAGE/registry-seed" ] && [ -z "$(ls -A "$state")" ]; then
+	cp -a "$STAGE/registry-seed/." "$state/"
+	find "$state" -type f -exec chmod 0640 {} +
 fi
-echo "installed: $(find "$dest/sensors/config" -type f | wc -l) config files, $(ls "$dest/socinfo" | wc -l) identity files, registry files: $(find "$registry" -type f | wc -l), parent state files: $(find "$state" -maxdepth 1 -type f | wc -l) (mode $MODE)"
+echo "installed: $(find "$dest/sensors/config" -type f | wc -l) config files, $(ls "$dest/socinfo" | wc -l) identity files, registry state files: $(ls "$state" | wc -l) (mode $MODE)"
 echo "ownership of $ROOT/var/lib/hexagonrpcd: the unit's StateDirectory= sets it to hexagonrpcd:fastrpc at the first start"

@@ -13,7 +13,7 @@ packages = ["qcsensors", "surfacepro_snscfgcrd8380", "sensorshidclassdriver", "s
 drivers = ["misc/fastrpc", "userspace: hexagonrpcd, libssc, iio-sensor-proxy"]
 dt = []
 native = "none"
-gaps = ["M15.1 reached hexagonrpcd and the ADSP QRTR service, but sensor data is unverified; installer now places seed files under the configured nested registry path; their naming compatibility with ADSP requests is unverified; needs a new private ISO boot", "ADSP state file creation and the remaining 20 to 25 reference registry files are unexplained; journal ENOENT does not report open mode, so missing reads and failed creates are not yet distinguished", "ALS event and automatic brightness response/delay are unmeasured", "tmd2755.json truncated in the Windows package (proximity)"]
+gaps = ["M15.1 reached hexagonrpcd and the ADSP QRTR service, but sensor data is unverified; M15.1 seeds landed in the parent with build-user owner; image composition must relocate new files to nested output and assign target service owner without touching persisted state; seed naming compatibility is also unverified; needs a new private ISO boot", "ADSP state file creation and the remaining 20 to 25 reference registry files are unexplained; journal ENOENT does not report open mode, so missing reads and failed creates are not yet distinguished", "ALS event and automatic brightness response/delay are unmeasured", "tmd2755.json truncated in the Windows package (proximity)"]
 
 [firmware]
 needs = ["ADSP sensor registry and config (from surfacepro_ext_adsp8380 / surfacepro_snscfgcrd8380)"]

@@ -31,8 +31,7 @@ echo "# 2. served tree (names and counts only)"
 [ -s $root/sensors/sns_reg.conf ] && ok "sns_reg.conf present" || bad "sns_reg.conf missing (private tree not installed)"
 note "config files: $(ls $root/sensors/config 2>/dev/null | wc -l)"
 note "socinfo files: $(ls $root/socinfo 2>/dev/null | wc -l)"
-note "registry files at configured output ($state/registry): $(ls $state/registry 2>/dev/null | wc -l)"
-note "parent state files in $state: $(ls $state 2>/dev/null | grep -c -E '^(sns_reg_config|sns_secure_database.bin|parsed_file_list.csv)$') of 3 ADSP-written state files"
+note "registry files in $state: $(ls $state 2>/dev/null | wc -l) (ADSP-written state files: $(ls $state 2>/dev/null | grep -c -E '^(sns_reg_config|sns_secure_database.bin|parsed_file_list.csv)$') of 3)"
 
 echo "# 3. daemon"
 st=$(systemctl is-active hexagonrpcd-sensors.service 2>&1)

@@ -7,8 +7,8 @@
 #   Unverified on the device: only a boot can show that three listeners coexist.
 # - The ADSP exists when /dev/fastrpc-adsp exists (the rpmsg channel of the ADSP creates the node); nothing here
 #   starts, stops or resets a remoteproc (the reference reports a SoC crash when the ADSP is stopped).
-# - The tree under -R is read-only package data; the registry output is the nested registry/ child below
-#   <root>/sensors/registry, which links to the state directory. sns_reg.conf names this child explicitly.
+# - The tree under -R is read-only package data; the writable registry lives in the state directory and is
+#   reached through <root>/sensors/registry (a symlink made by sp11-sensors-install-private).
 [Unit]
 Description=Hexagon RPC daemon for the ADSP sensors PD (Surface Pro 11)
 Documentation=file:///usr/share/doc/sp11-sensors/README
@@ -24,7 +24,7 @@ StartLimitBurst=20
 Type=simple
 User=hexagonrpcd
 Group=fastrpc
-StateDirectory=hexagonrpcd hexagonrpcd/registry hexagonrpcd/registry/registry
+StateDirectory=hexagonrpcd hexagonrpcd/registry
 ExecStart=/usr/bin/hexagonrpcd -f /dev/fastrpc-adsp -d adsp -s -R /usr/share/qcom/x1e80100/Microsoft/Surface-Pro-11
 Restart=always
 RestartSec=5

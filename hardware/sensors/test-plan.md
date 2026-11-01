@@ -1,6 +1,6 @@
 # Sensors device test plan
 
-Run on the next private debug ISO after the nested registry layout fix. These checks are read-only. Do not clear or edit `/var/lib/hexagonrpcd/registry`, stop or restart the daemon, or reset the ADSP; the existing evidence reports that resetting the ADSP can crash the SoC.
+Run on the next private debug ISO after the image owner updates composition to place new seeds in the nested registry directory with target service ownership and mode 0640. Do not change ownership or contents of already-persisted registry files. These checks are read-only. Do not clear or edit `/var/lib/hexagonrpcd/registry`, stop or restart the daemon, or reset the ADSP; the existing evidence reports that resetting the ADSP can crash the SoC.
 
 ## Startup and registry layout
 
@@ -12,10 +12,11 @@ Run on the next private debug ISO after the nested registry layout fix. These ch
    root=/usr/share/qcom/x1e80100/Microsoft/Surface-Pro-11
    ls -ld "$root/sensors/registry" /var/lib/hexagonrpcd/registry/registry
    find /var/lib/hexagonrpcd/registry/registry -maxdepth 1 -type f | wc -l
+   find /var/lib/hexagonrpcd/registry/registry -maxdepth 1 -type f -printf '%u:%g %m\n' | sort | uniq -c
    journalctl -b -u hexagonrpcd-sensors.service --no-pager
    ```
 
-   The installer now puts seed files in the configured nested directory. Do not treat the 293 `sscregistrygen` files as accepted registry content: their names differ from the paths requested in the M15.1 journal. Check whether the ADSP creates or accepts the names it requests, without clearing existing state. Distinguish expected initial reads of absent ADSP state from failures to create/write: the current daemon diagnostic omits the requested open mode, so any `fstempfile` ENOENT needs more specific instrumentation before concluding that creation failed.
+   The existing installer places seeds in the parent directory. The next ISO needs the proposed composition update to put newly staged files in the configured nested directory. Do not treat the 293 `sscregistrygen` files as accepted registry content: their names differ from the paths requested in the M15.1 journal. Check whether the ADSP creates or accepts the names it requests, without clearing existing state. Distinguish expected initial reads of absent ADSP state from failures to create/write: the current daemon diagnostic omits the requested open mode, so any `fstempfile` ENOENT needs more specific instrumentation before concluding that creation failed.
 4. Run `/usr/libexec/sp11/sp11-sensors-test 30` in a logged-in user session. It masks sensor numbers and performs no service, registry, or remoteproc action. Record whether the proxy reports accelerometer, orientation and ambient light.
 
 ## Ambient light and brightness
