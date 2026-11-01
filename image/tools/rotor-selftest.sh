@@ -25,6 +25,25 @@ bs set sp11_test=3; eq "boot-state: set/get" "$(bs get sp11_test)" 3
 bs set sp11_other=x; bs unset sp11_test
 eq "boot-state: unset" "$(bs get sp11_test)" ""
 eq "boot-state: list keeps the others" "$(bs list)" "sp11_other=x"
+printf '#!/bin/sh\nexit 1\n' >"$T/sync-fail"; chmod +x "$T/sync-fail"
+printf '#!/bin/sh\nexit 0\n' >"$T/umount-ok"; chmod +x "$T/umount-ok"
+if SP11_STATE_TEST_CLEANUP=1 SP11_STATE_TEST_SYNC="$T/sync-fail" SP11_STATE_TEST_UMOUNT="$T/umount-ok" bs set sp11_sync_failure=visible 2>"$T/sync-failure.err"; then
+	bad "boot-state: reports success after sync cleanup failure"
+else
+	rc=$?
+	[ "$rc" = 8 ] && ok "boot-state: sync cleanup failure is nonzero" || bad "boot-state: sync cleanup returned $rc, want 8"
+fi
+grep -q 'sync failed for the boot medium' "$T/sync-failure.err" && ok "boot-state: sync failure is reported" || bad "boot-state: missing sync failure diagnostic"
+eq "boot-state: cleanup failure does not hide the visible value" "$(bs get sp11_sync_failure)" visible
+printf '#!/bin/sh\nexit 0\n' >"$T/sync-ok"; chmod +x "$T/sync-ok"
+printf '#!/bin/sh\nexit 1\n' >"$T/umount-fail"; chmod +x "$T/umount-fail"
+if SP11_STATE_TEST_CLEANUP=1 SP11_STATE_TEST_SYNC="$T/sync-ok" SP11_STATE_TEST_UMOUNT="$T/umount-fail" bs set sp11_unmount_failure=visible 2>"$T/unmount-failure.err"; then
+	bad "boot-state: reports success after unmount cleanup failure"
+else
+	rc=$?
+	[ "$rc" = 9 ] && ok "boot-state: unmount cleanup failure is nonzero" || bad "boot-state: unmount cleanup returned $rc, want 9"
+fi
+grep -q 'unmount failed for the boot medium' "$T/unmount-failure.err" && ok "boot-state: unmount failure is reported" || bad "boot-state: missing unmount failure diagnostic"
 bs set 'bad name=1' 2>/dev/null; [ $? -ne 0 ] && ok "boot-state: rejects a bad name" || bad "boot-state: bad name accepted"
 bs marker enable-cpufreq-cap; [ $? -ne 0 ] && ok "boot-state: marker absent" || bad "boot-state: marker present without file"
 : >"$T/medium/sp11/enable-cpufreq-cap"; bs marker enable-cpufreq-cap && ok "boot-state: marker present" || bad "boot-state: marker not seen"
@@ -201,6 +220,12 @@ EOF
 		grep -q 'GPU test: ABORTED before GPU power-up' "$OUT/gpu-test-result.txt" && echo "PASS GPU hook: refuses to start GPU test without a persisted boot marker" || echo "FAIL GPU arm failure has no abort result"
 	fi
 	SP11_ESPENV=$BSX
+	: >"$OUT/gpu-test-result.txt"
+	if SP11_STATE_TEST_CLEANUP=1 SP11_STATE_TEST_SYNC="$T/sync-fail" SP11_STATE_TEST_UMOUNT="$T/umount-ok" sp11_gpu_hook_arm; then
+		echo "FAIL GPU hook: arm accepted a sync cleanup failure"
+	else
+		grep -q 'GPU test: ABORTED before GPU power-up' "$OUT/gpu-test-result.txt" && echo "PASS GPU hook: sync cleanup failure aborts GPU arming" || echo "FAIL GPU sync failure has no abort result"
+	fi
 	: >"$STATE"; sp11_gpu_hook_ok
 	[ "$(bs get sp11_gpu_state)" = testing ] && echo "PASS GPU hook: no ok without both step ends" || echo "FAIL ok without ends"
 	printf 'T=1 UP=1 BOOT=bootB EVENT=STEP1_END\nT=2 UP=2 BOOT=bootB EVENT=STEP2_END\n' >"$STATE"; sp11_gpu_hook_ok

@@ -104,6 +104,8 @@ def check(root, repo, record):
     h = helper.read_text()
     for needle in ('disk_has_windows', 'find_boot_disk', 'SP11LOGS', 'LABEL', 'pkname', 'S4', 'sp11/state', 'marker'):
         assert needle in h, f'sp11-boot-state lacks {needle}'
+    for needle in ('flock -w 10 9', 'sync failed for the boot medium', 'unmount failed for the boot medium', 'cleanup_status=8', 'cleanup_status=9'):
+        assert needle in h, f'sp11-boot-state cleanup contract lacks {needle}'
     assert 'grubenv' not in h.replace('menu1 failed', '') .replace('no GRUB environment block', ''), 'sp11-boot-state touches a grubenv'
     order = [l.strip() for l in (root / 'usr/share/sp11/sam-mode-order').read_text().splitlines() if l.strip() and not l.startswith('#')]
     assert order == ['silent', 'clean', 'quiet', 'default'], f'SAM rotor order {order}'
