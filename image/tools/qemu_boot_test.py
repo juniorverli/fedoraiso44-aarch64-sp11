@@ -192,7 +192,7 @@ def main():
     os.makedirs(a.work, exist_ok=True)
     if a.initrd_fail or a.until_session:
         a.esp_fallback = True
-    early = a.early or a.esp_fallback
+    early = a.early or (a.esp_fallback and not a.until_session)
     decoy_md5 = None
     if a.decoy:
         import hashlib
@@ -355,7 +355,7 @@ def main():
                     gdm = read_log(a.logs, bd, "gdm-status.txt") or ""
                     if a.until_session:
                         names = [f.lstrip('/').split('/')[-1] for f in mtools_listing(a.logs, bd)]
-                        if any(n.startswith("session-first-") for n in names) and any(n.startswith("session-user-") for n in names):
+                        if all(any(n in (f"{name}", f"{name}.gz") for n in names) for name in ("STATUS.session-first", "STATUS.session-user", "session-first-journal.txt", "session-user-journal.txt", "session-first-loginctl.txt", "session-user-loginctl.txt")):
                             bootdir = bd
                             print(f"[{int(now - start)}s] both logind session snapshots are in the log directory", flush=True)
                             break
@@ -480,6 +480,10 @@ def main():
                   any(f.lstrip('/').split('/')[-1].startswith("session-first-") for f in files) and any(f.lstrip('/').split('/')[-1].startswith("session-user-") for f in files),
                   ", ".join(sorted(f.lstrip('/').split('/')[-1] for f in files if "session-" in f)))
             for tag in ("first", "user"):
+                marker = read_log(a.logs, bd, f"STATUS.session-{tag}") or ""
+                journal = read_log(a.logs, bd, f"session-{tag}-journal.txt") or ""
+                check(f"session-{tag} marker and journal tail are present", bool(marker.strip()) and bool(journal.strip()),
+                      "present" if marker.strip() and journal.strip() else "missing or empty")
                 lg = read_log(a.logs, bd, f"session-{tag}-loginctl.txt") or ""
                 check(f"session-{tag}-loginctl.txt shows a session", "SESSION" in lg or "/run/systemd/sessions" in lg, lg.strip().splitlines()[0][:120] if lg.strip() else "empty")
         if not a.no_display_files:
@@ -491,7 +495,7 @@ def main():
             check("D19 display files are in the log directory", not miss, ("missing: " + ", ".join(miss)) if miss else f"{len(need)} files")
             touch = read_log(a.logs, bd, "touch-pen.txt") or ""
             check("M8 touch helper captured kernel, DT, pinctrl and firmware sections",
-                  any(k in touch for k in ("7.3.0-65.sp11.14.fc44.aarch64", "7.3.0-65.sp11.13.fc44.aarch64", "7.3.0-65.sp11.12.fc44.aarch64")) and
+                  re.search(r"7\.3\.0-65\.sp11\.\d+\.fc44\.aarch64", touch) is not None and
                   all(section in touch for section in (
                       "=== live DT and platform driver state ===",
                       "=== pinctrl ownership and configuration ===",
