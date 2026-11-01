@@ -2,7 +2,7 @@
 
 ## 1. Summary
 
-The X1P64100's Adreno X1-85 (chip ID `0x43050c01`, "C512v2") has native Linux 7.3 support, and the captured Windows configuration selects a 1.25 GHz graphics ceiling. Status: `designed`; no kernel patch is indicated by the static evidence, with the physical fuse, independent cross-check and device acceptance still outstanding.
+The X1P64100's Adreno X1-85 (chip ID `0x43050c01`, "C512v2") has native Linux 7.3 support, and the captured Windows configuration selects a 1.25 GHz graphics ceiling. Status: `designed`; static speed-bin evidence needs no behavioral kernel patch, while the M15 debug boot now has an opt-in phase-trace patch for a controlled diagnostic build.
 
 ## 2. Hardware
 
@@ -44,6 +44,7 @@ The X1P64100's Adreno X1-85 (chip ID `0x43050c01`, "C512v2") has native Linux 7.
 | Physical fuse and safe initial GPU enablement | Read the fuse with msm blacklisted before accelerated boot, then verify 1.25 GHz ceiling; existing fuse-7 mapping suffices if observed. No kernel patch proposed |
 | Independent cross-check | Orchestrator must reproduce the active config selection, clock table, fuse extraction and OPP arithmetic before using these safety values |
 | Mesa/image pin | Verified available `mesa-{dri,vulkan}-drivers-0:26.2.5-1.fc44.aarch64`; sources/image owners pin the actual compose. No Mesa change indicated |
+| M15 early DRM open and boot-stage failure | Stage-by-stage evidence is missing; use the default-off trace patch and fix the image firmware/hook ordering before a controlled retest |
 | Thermal mitigation and device behavior | `power-thermal` establishes equivalent GPU cooling; device tests confirm PAS authentication, rendering and IFPC stability |
 
 ## 6. Open questions
@@ -70,8 +71,9 @@ On the device, with logs in `evidence/`, following [test-plan.md](test-plan.md).
 - **orchestrator / cross-check:** independently reproduce REV 008A's selected base file, graphics clock table, fuse/OPP masks and pre-probe extraction before approving these safety values. Actual physical fuse remains TBD; no kernel patch has been written.
 - **firmware:** mark `gen70500_*` package availability confirmed from `qcom-firmware-0:20261019-1.fc44.noarch` (source `linux-firmware-20261019-1.fc44.src.rpm`), pin the actual RPM, and retain the exact Microsoft zap mapping. See [query evidence](evidence/2026-10-24-firmware-mesa.md); no payload/signature or on-device verification is claimed.
 - **sources / image:** pin Fedora repo/compose, the above firmware RPM and `mesa-{dri,vulkan}-drivers-0:26.2.5-1.fc44.aarch64`, plus matching Mesa source inputs cited in the evidence. Do not derive aarch64 updates from older release-specific Fedora Packages web pages.
-- **kernel / image:** verify `CONFIG_NVMEM_SYSFS=y`, QFPROM and `CONFIG_FW_LOADER_COMPRESS_XZ=y` in the assembled config; include firmware in the initramfs when msm probes there. Provide the msm-blacklisted, multi-user diagnostic entry in the test plan for the first fuse read.
+- **kernel / image:** verify `CONFIG_NVMEM_SYSFS=y`, QFPROM and `CONFIG_FW_LOADER_COMPRESS_XZ=y` in the assembled config; include firmware in the initramfs when msm probes there. Provide the msm-blacklisted, multi-user diagnostic entry in the test plan for the first fuse read. For a controlled GPU boot only, opt into `CONFIG_DRM_MSM_GPU_BOOT_TRACE=m` from [patch 0001](patches/0001-drm-msm-add-opt-in-gpu-boot-phase-trace.patch); it is default-off and diagnostic only.
 - **power-thermal:** confirm active qcpep binding for `QCOM0CF7`, decode `GpuLimits_R2` CGLC/OGLC policy, map GPU cooling, and give the condition for releasing sustained GPU load. [Evidence and exact INF hashes/lines](evidence/2026-10-24-thermal-policy-request.md).
+- **image (M15 debug ordering):** the debug log records an early `msm_open()` firmware request at 5.197 s, before the GPU guard service starts at 29.462 s. `90-sp11.conf` currently omits `gen70500_*` based on the assumption that `msm_open()` happens after root is mounted. Stage and verify these files in initramfs, then test GDM/DRM open ordering with explicit markers immediately before and after the GPU hook plus a global deadline covering helper mount/sync/unmount. Do not expose working firmware to uncontrolled early opens: first isolate those opens and verify thermal safeguards, because an early successful load can proceed into GMU/zap before the diagnostic guard. See [M15 boot evidence](evidence/2026-11-01-m15-debug-step0.md).
 - **image:** include `mesa-dri-drivers`, `mesa-vulkan-drivers`, `vulkan-tools`, `glx-utils`, `glmark2`; verify the named test binaries are present. Log collection needs the identified GPU's devfreq readings, DRM chip/fuse value, driver/firmware errors and GPU cooling state. Review/redact debug state before it enters git.
 
 - **kernel (new, 2026-10-30):** build DTB variant `m13-gpu` from `kernel/dtb-variants/x1p64100-microsoft-denali-m13-gpu.dts` (written; M12 plus `&gpu` okay, speakers off) and add the script wiring listed in [two-step evidence](evidence/2026-10-30-two-step.md) section 2. Optional: marker patch or `CONFIG_DYNAMIC_DEBUG=y` (section 4). No speed-bin patch is needed (section 2).
@@ -82,4 +84,5 @@ On the device, with logs in `evidence/`, following [test-plan.md](test-plan.md).
 
 - 2026-10-23: dossier created from the static survey.
 - 2026-10-24: established REV 008A's active unsuffixed base file and 1.25 GHz clock table; mapped Linux fuse/OPPs and unsafe unknown-fuse fallback; confirmed Fedora firmware/Mesa availability, checked zap container and documented thermal hand-off plus staged device tests. Status designed; no kernel patch or git write operation.
+- 2026-11-01: M15 debug capture confirms a DRM open reached firmware loading at 5.197 s, before the guard service, and stopped at `-ENOENT` before runtime PM/GMU; root cause of missing STEP1 remains unknown. Added default-off phase markers for a controlled follow-up; see [boot evidence](evidence/2026-11-01-m15-debug-step0.md) and [kernel patch 0001](patches/0001-drm-msm-add-opt-in-gpu-boot-phase-trace.patch).
 - 2026-10-30: M5 GPU-on traced to DTB `m5gpu` (no `&gpu` override; patch 0002 later disabled it). Designed DTB `m13-gpu` and the reset-surviving two-step collector; found the GPU device's `power/control` is a no-op until the first render open, so step 1 powers the GMU device (CX GDSC) and step 2 is one `open()` (GMU boot and zap cannot be split from userspace). The M5 userspace speed-bin read failed on alignment, the kernel read worked (1.25 GHz ceiling, no patch). See [two-step evidence](evidence/2026-10-30-two-step.md).
