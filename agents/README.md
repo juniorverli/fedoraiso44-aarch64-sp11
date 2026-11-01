@@ -44,7 +44,7 @@ Every prompt is runtime-neutral: Claude Code reads `CLAUDE.md`, Codex reads `AGE
 | Runtime | Model | Effort | Launch |
 |:--|:--|:--|:--|
 | `claude` | Sonnet 5.5 (`claude-sonnet-5-5`) | high | `claude --model claude-sonnet-5-5 --effort high "<task>"` |
-| `codex` | Sol 6.1 (`gpt-6.1-sol`) | xhigh | `codex exec -m gpt-6.1-sol -c model_reasoning_effort="xhigh" -s workspace-write -c sandbox_workspace_write.network_access=true --add-dir <main>/out -C <worktree> "<task>"` |
+| `codex` | Terra 6.1 (`gpt-6.1-terra`) | high | `codex exec -m gpt-6.1-terra -c model_reasoning_effort="high" -s workspace-write -c sandbox_workspace_write.network_access=true --add-dir <main>/out -C <worktree> "<task>"` |
 
 Codex workers run sandboxed (operator decision, 2026-10-24): `workspace-write` with network, writable roots limited to their worktree, `/tmp` and the shared `out/`. They cannot write to `/mnt/c` (Windows) or anywhere else. The sandbox keeps `.git` read-only, so **Codex workers never commit**: they leave changes uncommitted (patches as diff files in `hardware/<id>/patches/`), and the orchestrator reviews and commits them on `worker/<id>`. Global skills from `~/.agents/skills` (e.g. `bmad-build`) are not used in this repository; the prompt tells the worker to ignore them. Claude workers run as subagents of the orchestrator session and commit on their own branch.
 
@@ -52,7 +52,7 @@ Default assignment (the orchestrator may swap per session):
 
 | Runtime | Workers | Why |
 |:--|:--|:--|
-| `codex` (Sol 6.1 xhigh) | `display-lcd`, `gpu`, `touch-pen`, `audio-speakers`, `cameras`, `usb4`, `security-tpm`, `power-thermal` | Deep reverse engineering in REA, long reasoning chains over decompiled code |
+| `codex` (Terra 6.1 high) | `display-lcd`, `gpu`, `touch-pen`, `audio-speakers`, `cameras`, `usb4`, `security-tpm`, `power-thermal` | Deep reverse engineering in REA, long reasoning chains over decompiled code |
 | `claude` (Sonnet 5.5 high) | `sources`, `kernel`, `firmware`, `image`, `soc-boot`, `dsp-subsystems`, `ec-sam`, `wifi`, `bluetooth`, `usb-typec`, `storage`, `audio-mics`, `sensors`, `npu`, `video-codec` | Build plumbing, upstream research, DT work, documentation |
 | the other one | every `--crosscheck` run | Independent second read (`agents/protocol.md` §5.1) |
 

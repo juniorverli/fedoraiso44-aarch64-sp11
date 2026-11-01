@@ -1,20 +1,22 @@
 #!/usr/bin/env bash
 # Prepare the worktrees of one worker and print how to launch it.
-#   scripts/worker.sh <id> [--kernel] [--runtime claude|codex] [--crosscheck]
+#   scripts/worker.sh <id> [--kernel] [--runtime claude|codex] [--model <model>] [--effort <effort>] [--crosscheck]
 #
 # Runtimes (agents/README.md "Runtimes"):
 #   claude  Claude Code, Sonnet 5.5, effort high
-#   codex   Codex, gpt-6.1-sol, reasoning effort xhigh
+#   codex   Codex, Terra 6.1 (gpt-6.1-terra), reasoning effort high (or Sol 6.1 xhigh)
 # --crosscheck starts an independent second read of the same component on its
 # own branch worker/<id>-x-<runtime>; it may write only hardware/<id>/crosscheck/.
 set -euo pipefail
-id=${1:?usage: scripts/worker.sh <id> [--kernel] [--runtime claude|codex] [--crosscheck]}
+id=${1:?usage: scripts/worker.sh <id> [--kernel] [--runtime claude|codex] [--model <model>] [--effort <effort>] [--crosscheck]}
 shift
-kernel=0 runtime=claude cross=0
+kernel=0 runtime=claude cross=0 model="" effort=""
 while [ $# -gt 0 ]; do
 	case "$1" in
 	--kernel) kernel=1 ;;
 	--runtime) runtime=${2:?}; shift ;;
+	--model) model=${2:?}; shift ;;
+	--effort) effort=${2:?}; shift ;;
 	--crosscheck) cross=1 ;;
 	*) echo "unknown option $1" >&2; exit 1 ;;
 	esac
@@ -53,9 +55,17 @@ else
 	task="You are the $id worker. Read AGENTS.md, agents/protocol.md and agents/workers/$id.md, then do the task in that file. Write only inside the folder it names. Finish with the hand-back of agents/protocol.md section 10."
 fi
 case "$runtime" in
-claude) cmd="claude --model claude-sonnet-5-5 --effort high \"$task\"" ;;
-codex) task="$task Codex sandbox: do not run git commands that write; leave changes uncommitted for the orchestrator. Ignore global skills such as bmad-build."
-	cmd="codex exec -m gpt-6.1-sol -c model_reasoning_effort=\"xhigh\" -s workspace-write -c sandbox_workspace_write.network_access=true --add-dir $root/out -C $wt \"$task\"" ;;
+claude)
+	m=${model:-claude-sonnet-5-5}
+	e=${effort:-high}
+	cmd="claude --model $m --effort $e \"$task\""
+	;;
+codex)
+	m=${model:-gpt-6.1-terra}
+	e=${effort:-high}
+	task="$task Codex sandbox: do not run git commands that write; leave changes uncommitted for the orchestrator. Ignore global skills such as bmad-build."
+	cmd="codex exec -m $m -c model_reasoning_effort=\"$e\" -s workspace-write -c sandbox_workspace_write.network_access=true --add-dir $root/out -C $wt \"$task\""
+	;;
 *) echo "unknown runtime $runtime" >&2; exit 1 ;;
 esac
 echo "project worktree: $wt"
