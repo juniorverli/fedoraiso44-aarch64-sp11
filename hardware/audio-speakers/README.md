@@ -2,7 +2,7 @@
 
 ## 1. Summary
 
-Two WSA8845 smart amplifiers on SoundWire, driven by the ADSP through AudioReach. Safe use requires speaker protection: a thermal and excursion model fed by voltage/current (VI) sense from the amplifiers. Linux 7.3 has the codec, the machine driver and the AudioReach module IDs for protection, but no wired-up graph or calibration for this machine. Status: `designed` (2026-10-30): safe bring-up plan and three patches written, nothing built or run; speakers stay off under S1.
+Two WSA8845 smart amplifiers on SoundWire, driven by the ADSP through AudioReach. Safe use requires speaker protection: a thermal and excursion model fed by voltage/current (VI) sense from the amplifiers. A closed-loop topology, calibration loader and fail-closed kernel guard are prepared and parser-checked, but ADSP graph start, live VI feedback and per-unit calibration remain unverified on the device. Status: `designed`; speakers stay off under S1.
 
 ## 2. Hardware
 
@@ -52,11 +52,12 @@ Two WSA8845 smart amplifiers on SoundWire, driven by the ADSP through AudioReach
 
 | Gap | Planned answer |
 |:--|:--|
-| protection graph (SP/VI) not wired in topology | New topology with SP/VI plus calibration (R1 to R3); upstream one has none |
+| protection graph and calibration | Closed-loop topology plus guard are prepared and parser-checked; ADSP acceptance, separate-graph ordering (H3), VI trigger graph start (H10), live feedback and calibration remain device TBD |
 | per-unit calibration (ACDB REV_0D) to Linux format | TBD |
 | VI capture path | TBD |
 | amplifier reset GPIO and port map are reference-design values | TBD |
 | UCM profile | Local copy of alsa-ucm-conf master; capped and muted speaker variant on hold (`userspace/`) |
+| M15.1 boot evidence | Available `safe` and `spectra` boots have `swr0` disabled, no WSA link, and guard correctly closed; no speaker-enabled test was captured. Repeatable WSA macro flat-cache warning lacks register/caller context. |
 | SPF query times out at `q6apm` probe | Root cause found: GPR callback installed after probe (patches 0006, 0007); the timeout does not block the card (evidence `2026-10-30-d26-audio.md` section 2) |
 | PA gain reset to the maximum on SoundWire re-attach | patch 0001 |
 | WSA MIX digital volumes uncapped | patch 0002 |
@@ -82,6 +83,7 @@ Two WSA8845 smart amplifiers on SoundWire, driven by the ADSP through AudioReach
 ## 8. Requests
 
 - kernel: build and check patches `0001` to `0003` (in `patches/`; branch `w/audio-speakers`); copy `patches/dtb-variants/x1p64100-microsoft-denali-m11-audio.dts` into `kernel/dtb-variants/` and build it; do NOT build `...-m11-audio-spk.dts` into any image. Extend `scripts/kernel-dtb-safety.py`: an enabled `x1e80100-sndcard` is acceptable when it has no `wsa-dai-link` and `swr0` is effectively disabled.
+- kernel: if the `wsa_macro 6b00000.codec: using zero-initialized flat cache` warning reproduces in a speaker-enabled diagnostic entry, identify the register and caller before proposing cache/default changes; preserve current mute/guard behavior. See [M15.1 evidence](evidence/2026-11-01-m15.1-audio-safe-boots.md).
 - image: boot entry `SP11 audio, microphones` (DTB `m11-audio`, args as M10 plus `sp11.entry=audio`); install `userspace/overlay/` and the topology (`userspace/build-topology.sh`); collector step for H1 (reload `snd_q6apm` late, dmesg, read-only). L0 check 2.18 must keep failing for speaker-enabled device entries.
 - firmware: install path for `qcom/x1e80100/X1E80100-Microsoft-Surface-Pro-11-tplg.bin` (SHA-256 `b192044f...da8c03`, built from upstream source, not a Windows file).
 - dsp-subsystems: take the SPF timeout (Q5) with the audio owners; H1 evidence needs no speaker path.
@@ -97,6 +99,7 @@ Two WSA8845 smart amplifiers on SoundWire, driven by the ADSP through AudioReach
 - 2026-10-30: audio plan (`evidence/2026-10-30-audio-plan.md`): M8/M10 state, DT, safety layers, topology/UCM, patches 0001 to 0003, REA questions; status `designed`.
 
 - 2026-10-31 (topology and RFC session): closed-loop topology generated locally (`userspace/build-topology/m4/`, `build-closedloop.sh` with `SP11_TOPOLOGY=1`) and loaded through the real kernel parser in a QEMU harness (`build-topology/harness/`, 16 checks pass); acdb_inspect module names corrected (0x0700101a is DATA_LOGGING, not MFC, so no host tap is needed); Qualcomm RFC fetched, pinned and evaluated; no kernel patches. See `evidence/2026-10-31-topology-rfc.md`.
+- 2026-11-01: M15.1 safe and Spectra logs confirm the speaker bus/link are disabled and guard state remains closed as intended; recorded the unresolved WSA macro flat-cache warning and read-only microphone endpoint observations. No graph failure or safe-path speaker defect inferred. See [M15.1 evidence](evidence/2026-11-01-m15.1-audio-safe-boots.md).
 - 2026-10-31 (flash review, kernel part): independent review F-01..F-12 verified against the composed tree; the amplifier unmute (not the stream open) is now the gate; patches 0012 to 0015 amended in place; see `evidence/2026-10-31-flash-review-verdicts.md`.
 
 ## Requests (2026-10-30, orchestrator)
