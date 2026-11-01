@@ -1,0 +1,3 @@
+# SP11 display defaults: disable automatic brightness adjustment from ambient light sensor / front camera sensor
+[org/gnome/settings-daemon/plugins/power]
+ambient-enabled=false

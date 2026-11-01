@@ -77,8 +77,8 @@ if [ "$cs2" != "$cs" ]; then log "not run: CDSP state changed from $cs to $cs2 w
 
 # ---- choose the variant: counter, advance first, skip what cannot be realised
 alt_ok=no; [ -s "$FWDIR/$FWREL/qccdsp8380.mbn" ] && [ -s "$FWDIR/$FWREL/cdsp_dtb.mbn" ] && alt_ok=yes
-keep_ok=no; [ -w "$KEEP" ] && keep_ok=yes
-fwp_ok=no; [ -w "$FWPATH" ] && fwp_ok=yes
+keep_ok=no; [[ $(stat -L -c %A "$KEEP" 2>/dev/null) == *w* ]] && keep_ok=yes
+fwp_ok=no; [[ $(stat -L -c %A "$FWPATH" 2>/dev/null) == *w* ]] && fwp_ok=yes
 realisable() { # variant
 	case $1 in 0) [ "$keep_ok" = yes ] ;; 1) [ "$alt_ok" = yes ] && [ "$fwp_ok" = yes ] ;; 2) [ "$alt_ok" = yes ] && [ "$fwp_ok" = yes ] && [ "$keep_ok" = yes ] ;; 3) return 0 ;; esac
 }

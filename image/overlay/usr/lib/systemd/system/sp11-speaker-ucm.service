@@ -1,7 +1,8 @@
 [Unit]
-Description=SP11 D26 speaker UCM overlay (runs only on the speakers boot entry, sp11.entry=spk)
-# Opt-in by boot entry. Every other entry keeps the microphone-only UCM profile (S1).
-ConditionKernelCommandLine=sp11.entry=spk
+Description=SP11 D26 speaker UCM overlay (runs on debug, safe and spk entries)
+ConditionKernelCommandLine=|sp11.entry=spk
+ConditionKernelCommandLine=|sp11.entry=debug
+ConditionKernelCommandLine=|sp11.entry=safe
 DefaultDependencies=no
 After=local-fs.target
 Before=sysinit.target sound.target
