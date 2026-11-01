@@ -2,6 +2,7 @@
 # the output becomes extra-audio-routes.txt. Read only: no mixer write, no playback, no capture, no verb enable
 # (alsaucm "list" and "get" never run a sequence), no pairing. Privacy: Bluetooth addresses and USB serial numbers
 # are masked; the card long name (unit specific) is never printed; no user name, no host name.
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin:${PATH:-}
 mask() {
 	sed -E \
 		-e 's/([0-9A-Fa-f]{2})([:_-])([0-9A-Fa-f]{2})\2([0-9A-Fa-f]{2})\2([0-9A-Fa-f]{2})\2([0-9A-Fa-f]{2})\2([0-9A-Fa-f]{2})/xx\2xx\2xx\2xx\2xx\2xx/g' \
