@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: cam <cam@x.invalid>
+Date: Sun, 1 Nov 2026 12:37:58 +0000
+Subject: [PATCH] i2c: qcom-cci: initialize every master completion
+
+The m15-safe DTB enables CCI1 master 1 without master 0. Probe still
+resets using master 0, whose completion is not initialized when its
+child node is unavailable. Calling reinit_completion() on a zeroed
+completion is invalid because its wait queue has not been initialized.
+
+Initialize all master completions immediately after allocation, before
+requesting the IRQ or resetting the controller.
+
+Signed-off-by: cam <cam@x.invalid>
+---
+ drivers/i2c/busses/i2c-qcom-cci.c | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/i2c/busses/i2c-qcom-cci.c b/drivers/i2c/busses/i2c-qcom-cci.c
+--- a/drivers/i2c/busses/i2c-qcom-cci.c
++++ b/drivers/i2c/busses/i2c-qcom-cci.c
+@@ -514,6 +514,9 @@
+ 	if (!cci)
+ 		return -ENOMEM;
+ 
++	for (i = 0; i < NUM_MASTERS; i++)
++		init_completion(&cci->master[i].irq_complete);
++
+ 	cci->dev = dev;
+ 	platform_set_drvdata(pdev, cci);
+ 	cci->data = device_get_match_data(dev);
+@@ -559,7 +562,5 @@
+ 				master->mode = I2C_MODE_FAST_PLUS;
+ 		}
+-
+-		init_completion(&master->irq_complete);
+ 	}
+ 
+ 	/* Memory */
+-- 
+2.47.3

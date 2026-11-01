@@ -1,0 +1,48 @@
+--- a/kernel/dtb-variants/x1p64100-microsoft-denali-m15-safe.dts
++++ b/kernel/dtb-variants/x1p64100-microsoft-denali-m15-safe.dts
+@@ -2,7 +2,7 @@
+ /*
+  * M15 fallback / safe mode (no GPU): complete functional system with
+  * audio (speakers with D26 open-loop protection, microphones, DisplayPort audio),
+- * cameras (rear OV13858, front IMX681, IR VD55G0), LCD, Wi-Fi, and Bluetooth.
++ * LCD, Wi-Fi, and Bluetooth; camera probe is gated pending validation.
+  * GPU disabled (safe from GPU bring-up resets / hangs).
+  * Built by the kernel DTB variants script; not a patch, not part of the RPM.
+  */
+@@ -35,29 +35,29 @@
+ };
+ 
+ &{/camera-leds} {
+-	status = "okay";
++	status = "disabled";
+ };
+ 
+ &camss {
+-	status = "okay";
++	status = "disabled";
+ };
+ 
+ &cci0 {
+-	status = "okay";
++	status = "disabled";
+ };
+ 
+ &cci0_i2c0 {
+-	status = "okay";
++	status = "disabled";
+ };
+ 
+ &cci0_i2c1 {
+-	status = "okay";
++	status = "disabled";
+ };
+ 
+ &cci1 {
+-	status = "okay";
++	status = "disabled";
+ };
+ 
+ &cci1_i2c1 {
+-	status = "okay";
++	status = "disabled";
+ };
