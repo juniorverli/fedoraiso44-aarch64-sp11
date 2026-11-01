@@ -212,14 +212,8 @@ gpu_hooks=$REPO/image/component-inputs/gpu-state-hooks.sh
 for pat in '^	for lbl in SP11LOGS ANACONDA; do$' '^cp "\$OUT/previous-boot-report.txt" "\$RUN/report.txt" 2>/dev/null$' '^start_follower$' '^\[ "\$limit" -ge 1 \] && { step1 || true; } || mark "SKIP step 1 (died there last time)"$' '^mark DONE$' '^# --------------------------------------------------------------- main -----$'; do
 	[ "$(grep -c -- "$pat" "$gpu_src/gpu-two-step.sh")" = 1 ] || { log "REFUSED: gpu-two-step.sh no longer has exactly one line matching $pat"; exit 6; }
 done
-awk -v hooks="$gpu_hooks" '
-/^	for lbl in SP11LOGS ANACONDA; do$/ { print "\tfor lbl in SP11LOGS ANACONDA BOOT; do"; next }
-/^# --------------------------------------------------------------- main -----$/ { while ((getline l < hooks) > 0) print l; print ""; print; next }
-/^cp "\$OUT\/previous-boot-report.txt" "\$RUN\/report.txt" 2>\/dev\/null$/ { print; print "sp11_gpu_hook_report"; next }
-/^start_follower$/ { print "if sp11_gpu_hook_skip; then sp11_gpu_note \"GPU test: not run on this boot (sp11.gpu_dtb=skip: the GPU test is off after a failed test; clear it with /usr/libexec/sp11/gpu-retry)\"; mark SKIP_GPU_TEST; mark DONE; flush; exit 0; fi"; print; next }
-/^\[ "\$limit" -ge 1 \] && \{ step1 \|\| true; \} \|\| mark "SKIP step 1 \(died there last time\)"$/ { print "[ \"$limit\" -ge 1 ] && { sp11_gpu_hook_arm || { mark 'ABORT GPU test: boot-medium state was not persisted'; pkill -P \"$KMSG_PID\" 2>/dev/null; kill \"$KMSG_PID\" 2>/dev/null; exit 0; }; }"; print; next }
-/^mark DONE$/ { print "[ \"$limit\" -ge 2 ] && sp11_gpu_hook_ok"; print; next }
-{ print }' "$gpu_src/gpu-two-step.sh" >"$desc/root/usr/libexec/sp11-gpu-two-step"
+bash "$REPO/image/tools/test-gpu-two-step-transform.sh" || { log "REFUSED: the GPU two-step image transformation test failed"; exit 6; }
+awk -v hooks="$gpu_hooks" -f "$REPO/image/component-inputs/gpu-two-step-patch.awk" "$gpu_src/gpu-two-step.sh" >"$desc/root/usr/libexec/sp11-gpu-two-step"
 chmod 0755 "$desc/root/usr/libexec/sp11-gpu-two-step"
 bash -n "$desc/root/usr/libexec/sp11-gpu-two-step" || { log "REFUSED: the patched gpu-two-step.sh has a syntax error"; exit 6; }
 install -m 0644 "$gpu_src/sp11-gpu-two-step.service" "$desc/root/usr/lib/systemd/system/sp11-gpu-two-step.service"
