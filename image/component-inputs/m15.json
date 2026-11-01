@@ -12,9 +12,10 @@
  "gpu_two_step": {
   "owner_script_sha256": "e705df29564fd6d61add0f08a76ffcab0f21b79b93f69380cfee4bd14e19c6f6",
   "hooks_sha256": "7d09951617b8666e0b182e70243b49920e52e988bd5eeab40e48e78ffe9cb2e4",
-  "installed_script_sha256": "296b369dd814f49a34766b87f8828b2b758a9bb29a642c7dafa3b9a07f9edcca",
+  "installed_script_sha256": "edcdbcfea694c5837bf69075db546eb5a056167621e53e0e77cff3d1d9063caa",
   "unit_sha256": "5f4e927db1f0e6713346c1882239dbd0f7527f591adaf1fad2cce6ad96192d3a",
-  "image_changes": "label list gains BOOT; hook functions inserted before the main section; the GPU test aborts before power-up if its testing marker cannot be persisted; state-helper lock wait is bounded to 10 seconds; four hook call sites; M15: ENABLED only through sp11.gpu_diag=1 on line 1; state uses plain files on boot medium (S4)"
+  "image_changes": "label list gains BOOT; hook functions inserted before the main section; the GPU test aborts before power-up if its testing marker cannot be persisted; state-helper lock wait is bounded to 10 seconds; four hook call sites; forced-quote awk transformation is pinned and executed in builder preflight; M15: ENABLED only through sp11.gpu_diag=1 on line 1; state uses plain files on boot medium (S4)",
+  "transform_sha256": "5117534060903f51b92ebf31f131df0fd1fa055811cdb779a457df43de785f55"
  },
  "dsp_collector_sha256": "82a1d919198f0702dc5c69998c45ca91015ab64e9212bc795119cf351fe4fb47",
  "ec_sam_collector_sha256": "b8e07f47967215748589dce498f1897b9e49350172820fd5237a6581be0582ef",

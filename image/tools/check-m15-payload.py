@@ -54,13 +54,15 @@ def check(root, repo, record):
     owner = repo / 'hardware/gpu/collector/gpu-two-step.sh'
     assert digest(owner) == gpu['owner_script_sha256'], 'owner GPU script changed after the pin'
     hooks = repo / 'image/component-inputs/gpu-state-hooks.sh'
+    transform = repo / 'image/component-inputs/gpu-two-step-patch.awk'
+    assert digest(transform) == gpu['transform_sha256'], 'GPU two-step awk transform changed after the pin'
     assert digest(hooks) == gpu['hooks_sha256'], 'GPU hook file changed after the pin'
     installed = root / 'usr/libexec/sp11-gpu-two-step'
     assert digest(installed) == gpu['installed_script_sha256'] and installed.stat().st_mode & 0o111, 'installed GPU script'
     text = installed.read_text()
     assert hooks.read_text() + '\n' in text, 'hook functions are not in the installed GPU script'
     back = text.replace(hooks.read_text() + '\n', '')
-    for line in ('sp11_gpu_hook_report\n', '[ "$limit" -ge 1 ] && { sp11_gpu_hook_arm || { mark \'ABORT GPU test: boot-medium state was not persisted\'; pkill -P "$KMSG_PID" 2>/dev/null; kill "$KMSG_PID" 2>/dev/null; exit 0; }; }\n', '[ "$limit" -ge 2 ] && sp11_gpu_hook_ok\n'):
+    for line in ('sp11_gpu_hook_report\n', '[ "$limit" -ge 1 ] && { sp11_gpu_hook_arm || { mark "ABORT GPU test: boot-medium state was not persisted"; pkill -P "$KMSG_PID" 2>/dev/null; kill "$KMSG_PID" 2>/dev/null; exit 0; }; }\n', '[ "$limit" -ge 2 ] && sp11_gpu_hook_ok\n'):
         assert back.count(line) == 1, f'call line missing or duplicated: {line.strip()}'
         back = back.replace(line, '')
     back, n = re.subn(r'^if sp11_gpu_hook_skip; then sp11_gpu_note [^\n]*; mark SKIP_GPU_TEST; mark DONE; flush; exit 0; fi\n', '', back, flags=re.M)
