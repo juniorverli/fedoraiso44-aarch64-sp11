@@ -257,6 +257,7 @@ rec = {
   'm13': json.load(open("$CK/m13.json")) if os.path.exists("$CK/m13.json") else None,
   'm14': json.load(open("$CK/m14.json")) if os.path.exists("$CK/m14.json") else None,
   'm15': json.load(open("$CK/m15.json")) if os.path.exists("$CK/m15.json") else None,
+  'm16': json.load(open("$CK/m16.json")) if os.path.exists("$CK/m16.json") else None,
   'boot_diag_config': json.load(open("$CK/boot-diag-config.json")),
   'rpms': rpms,
 }
