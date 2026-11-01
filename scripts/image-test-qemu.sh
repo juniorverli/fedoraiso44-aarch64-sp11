@@ -14,10 +14,10 @@
 # --no-display-files, --legacy-menu: for ISOs older than M3 (no D19 display files; five-entry menu).
 #
 # QEMU system emulation, machine virt, TCG (the WSL2 host has no /dev/kvm), edk2 firmware,
-# the ISO attached as a raw USB disk, a second small FAT disk labelled SP11LOGS, serial
+# a writable ISO copy with its embedded FAT ESP on the boot disk, serial
 # console on a pty. It selects the non-default "VM test (no devicetree)" GRUB entry.
 # Pass: GRUB menu lists every entry, GDM starts, /sys/kernel/btf/vmlinux exists, the log
-# collector wrote a complete <boot-id>/ to SP11LOGS, no unit failed outside the allow-list.
+# collector wrote a complete <boot-id>/ and both sessions to the ESP, no unit failed outside the allow-list.
 #
 # CPU model: neoverse-n1 by default. Reason (Inference): the X1P64100 is a 64-bit Armv8.x
 # core without SVE as far as the project knows (not verified here, no CPU feature data in
@@ -28,7 +28,7 @@
 # Slow: TCG with 8 threads needs 30-90 min for a GNOME boot. Run unattended.
 # Refuses to start while out/.kernel-build.lock is held (RAM). Re-executes itself in the
 # container of scripts/image-container.sh. Report: out/iso/<name>.l1.txt (+ .l1.json),
-# logs read back from the SP11LOGS disk: out/image-work/l1-<name>/collected/.
+# logs read back from the boot-disk ESP: out/image-work/l1-<name>/collected/.
 set -uo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -79,7 +79,15 @@ name=$(basename "$iso" .iso)
 W=$OUT/image-work/l1-$name
 mkdir -p "$W"
 
-# the second disk: FAT labelled SP11LOGS, like the partition the operator creates on the stick.
+# S4 requires the target to be on the boot disk. A separate FAT disk is not
+# an eligible target, so normal L1 uses the writable ISO copy and its ESP.
+case " ${extra[*]:-} " in
+*" --until-session "* | *" --esp-fallback "* | *" --initrd-fail "*) ;;
+*" --early "*) extra+=(--esp-fallback) ;;
+*) extra+=(--until-session) ;;
+esac
+
+# Legacy separate-disk setup (normal invocations select the boot-disk ESP above).
 # --esp-fallback has no such disk: the collector must use the embedded ESP (label BOOT) of the ISO.
 logs=$W/sp11logs.img
 rm -f "$logs"
