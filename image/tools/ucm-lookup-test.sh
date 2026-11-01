@@ -8,6 +8,32 @@ command -v alsaucm >/dev/null 2>&1 || dnf -y -q install alsa-ucm-utils >/dev/nul
 rm -rf "$W"; mkdir -p "$W"
 cp -a "$R/usr/share/alsa/ucm2" "$W/ucm2"
 O=$W/ucm2/Qualcomm/x1e80100
+# The DP route layer gates its two DisplayPort devices on card controls ("DP0 Jack"/"DP1 Jack",
+# Type ControlExists). alsaucm has no sound card here, so it cannot resolve a control device and
+# aborts the whole verb parse ("cannot determine control device" then "failed to import ... -22"),
+# hiding the Mic/HiFi lookup this test is about. Drop only those two If blocks from the COPY; the
+# shipped UCM files are not touched and the DP outputs are covered by the ucm-routes-test.
+python3 -I - "$O/SP11-Routes.conf" <<'PY'
+import re, sys
+path = sys.argv[1]
+text = open(path).read()
+for name in ('sp11dp0', 'sp11dp1'):
+    while True:
+        m = re.search(r'^[ \t]*If\.' + re.escape(name) + r'\s*\{', text, re.M)
+        if not m:
+            break
+        start, depth, i = m.start(), 0, m.end() - 1
+        while i < len(text):
+            if text[i] == '{':
+                depth += 1
+            elif text[i] == '}':
+                depth -= 1
+                if depth == 0:
+                    break
+            i += 1
+        text = text[:start] + text[i + 1:]
+open(path, 'w').write(text)
+PY
 # a virtual card has no CardId: substitute the real card id literally (X1E80100Microso)
 sed -i 's/\${CardId}/X1E80100Microso/g' "$O/Surface11-HiFi.conf"
 mkdir -p "$W/ucm2/conf.virt.d"

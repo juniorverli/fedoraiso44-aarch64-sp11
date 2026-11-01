@@ -8,7 +8,7 @@
 #   sp11_gpu_state=failed    written by the skip hook on a boot carrying sp11.gpu_dtb=skip (an operator edit of the line; never in the menu)
 # On the next boot the report hook says `GPU test: died during step N` or `survived` from the owner's markers.
 # THE RESET CANNOT BE PREVENTED FROM USERSPACE: the first DRM open loads the zap shader and the GMU and can reset the machine (M5 evidence).
-# The only way to a stable session is line 2 (`SP11 debug, safe (no GPU, no cameras)`, DTB m15-safe, no sp11.gpu_diag). The loop guard of the
+# The only way to a stable session is line 2 (`SP11 debug, safe (no GPU)`, DTB m15-safe, no sp11.gpu_diag). The loop guard of the
 # two steps themselves is the owner's (`limit`: a step that killed the previous boot is skipped).
 # Every function returns 0 so the owner's flow is never changed; the only exit is the skip of a boot that has no GPU node.
 SP11_ESPENV=${SP11_BOOT_STATE:-/usr/libexec/sp11-boot-state}
@@ -24,7 +24,7 @@ sp11_gpu_note() { # sp11_gpu_note TEXT: one result line for the collector (file 
 sp11_gpu_hook_report() { # after report_previous: what the previous boot's test did, and the opt-in re-arm
 	local last res
 	: >/run/sp11/gpu-test 2>/dev/null
-	sp11_gpu_note "WARNING: this line (SP11 debug, m15 with the GPU) may RESET THE MACHINE at the first DRM open (zap shader and GMU load); Linux userspace cannot prevent it. If it resets, boot line 2 'SP11 debug, safe (no GPU, no cameras)' for a stable session."
+	sp11_gpu_note "WARNING: this line (SP11 debug, m15 with the GPU) may RESET THE MACHINE at the first DRM open (zap shader and GMU load); Linux userspace cannot prevent it. If it resets, boot line 2 'SP11 debug, safe (no GPU)' for a stable session."
 	last=$(grep '^boot ' "$OUT/previous-boot-report.txt" 2>/dev/null | tail -n1)
 	case $last in
 	*"died during step "*) res="GPU test: died during step $(echo "$last" | sed -n 's/.*died during step \([0-9]\).*/\1/p') (previous boot; the state stays failed until cleared with /usr/libexec/sp11/gpu-retry)" ;;

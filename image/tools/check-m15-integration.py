@@ -20,6 +20,9 @@ def check(root, repo, record):
     kver = record['kernel_nevra'].replace('kernel-core-', '')
     rpm = lambda *a: subprocess.run(['rpm', '--root', str(root), *a], capture_output=True, text=True)
     # ---- packages: sensors, Spectra, libcamera (local or stock, as recorded), audio helpers
+    # out/ is shared by all worktrees and mounted at $SP11_OUT in the L0 container; in a worker
+    # worktree the repo's out/ is a symlink to the main checkout and does not resolve there.
+    out = Path(os.environ.get('SP11_OUT') or (repo / 'out'))
     for nevra in pins['local_rpms']['sensors'] + pins['local_rpms']['spectra']:
         r = rpm('-q', nevra)
         assert r.returncode == 0, f'package {nevra} missing'
@@ -29,7 +32,7 @@ def check(root, repo, record):
         assert rpm('-q', nevra).returncode == 0, f'libcamera package {nevra} missing'
     if src == 'local':
         assert 'sp11' in rpm('-q', '--qf', '%{release}', 'libcamera').stdout, 'libcamera is not the local build'
-        lc = repo / 'out/rpms-local/libcamera/libcamera-sp11-build.json'
+        lc = out / 'rpms-local/libcamera/libcamera-sp11-build.json'
         lrec = json.loads(lc.read_text())
         assert lrec['patches']['libcamera-sp11.patch'] == digest(repo / 'hardware/cameras/userspace/quality/libcamera-sp11.patch'), 'libcamera patch changed after the build'
         assert lrec['patches']['libcamera-sp11-imx681-helper.patch'] == digest(repo / 'hardware/cameras/userspace/quality/libcamera-sp11-imx681-helper.patch'), 'imx681 helper patch changed after the build'
@@ -37,7 +40,7 @@ def check(root, repo, record):
         assert rpm('-q', pkg).returncode == 0, f'package {pkg} missing'
     # the local RPMs in the image are the files of out/rpms-local (hash recorded at build)
     for name, h in record['local_rpm_sha256'].items():
-        cands = list((repo / 'out/rpms-local').rglob(name)) + list((repo / 'out/rpms').glob(name))
+        cands = list((out / 'rpms-local').rglob(name)) + list((out / 'rpms').glob(name))
         assert cands and digest(cands[0]) == h, f'local RPM {name}: file differs from the build record'
     # ---- sensors: units, rules, permissions
     unit = (root / 'usr/lib/systemd/system/hexagonrpcd-sensors.service').read_text()
@@ -49,10 +52,20 @@ def check(root, repo, record):
     assert 'enable hexagonrpcd-sensors.service' in (root / 'usr/lib/systemd/system-preset/50-sp11-sensors.preset').read_text(), 'sensors preset'
     rule = (root / 'usr/lib/udev/rules.d/61-sp11-fastrpc-adsp.rules').read_text()
     assert 'MODE="0660"' in rule and 'GROUP="fastrpc"' in rule and 'fastrpc-adsp' in rule, 'ADSP node rule is not fastrpc 0660'
+    # Only SP11-owned udev files are ours to police: the sensor RPMs ship
+    # 61-sp11-fastrpc-adsp.rules and 81-sp11-iio-sensor-proxy-ssc.rules, and every other *sp11*
+    # rule belongs to the image. Fedora's packaged 50-udev-default.rules legitimately contains 0666
+    # and is not ours, so restrict the scan instead of weakening the 0666 assertion below.
+    sp11_udev = []
     for d in ('usr/lib/udev', 'etc/udev'):
         for f in (root / d).rglob('*'):
-            if f.is_file() and not f.is_symlink() and f.suffix in ('.rules', '.conf'):
-                assert '0666' not in f.read_text(errors='replace'), f'0666 in udev file {f.name}'
+            if f.is_file() and not f.is_symlink() and f.suffix in ('.rules', '.conf') and 'sp11' in f.name.lower():
+                sp11_udev.append(f)
+                # effective rule lines only: a comment such as "never 0666" is not a rule
+                text = '\n'.join(l for l in f.read_text(errors='replace').splitlines()
+                                 if not l.lstrip().startswith('#'))
+                assert '0666' not in text, f'0666 in SP11 udev file {f.name}'
+    assert sp11_udev, 'no SP11-owned udev rule found to check'
     for n in ('adsprpcd', 'adsprpcd_audiopd', 'cdsprpcd', 'sdsprpcd'):
         for d in ('etc/systemd/system', 'usr/lib/systemd/system'):
             p = root / d / f'{n}.service'

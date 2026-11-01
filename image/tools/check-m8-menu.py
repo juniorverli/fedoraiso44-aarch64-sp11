@@ -7,7 +7,7 @@ M15 policy (image/README.md, "M15 menu"):
   * the file has NO function except load_video, NO load_env/save_env/grubenv, NO variable assignment except the standard header ones,
     NO submenu, NO GRUB variable inside any entry except the template's own ($root); every entry has a fixed DTB (or none for the VM test);
   * line 1 `SP11 debug` = m15 (microphones + camera nodes + GPU/GMU/zap) with the constant `sp11.gpu_diag=1` (on no other line);
-    line 2 `safe (no GPU, no cameras)` = m15-safe (always-booting fallback, no gpu_diag); no separate GPU or camera entry;
+    line 2 `safe (no GPU)` = m15-safe (always-booting fallback, cameras on, no gpu_diag); no separate GPU or camera entry;
   * no per-variant SAM/CDSP entries (those are Linux-side rotors);
   * the main-entry diagnostic arguments are the M13 ones with the corrected trace string; nothing variable; the command line never carries
     rotor, SAM, GPU or firmware_class arguments.

@@ -2,7 +2,7 @@
  "note": "M15 inputs of the image layer; hashes of the owner files as installed (image/README.md, M15)",
  "speaker_ucm_overlay": {
   "MICROSOFT-Surface-Pro-11.conf": "20672b687d2b43853d0b9b88baac3d2ce6c8cac44c840cea09065e4f859ea80f",
-  "Surface11-HiFi.conf": "488084256e15b00bdaf544401896cd710740fc7714802e0252ce5d270d2cd598",
+  "Surface11-HiFi.conf": "08fba12baf11be8e67e283df51c96b6f364946638a4175a0402858e5075fe3cb",
   "Surface11-SpeakerSeq.conf": "bbd0dc058041e780d4d33aa226c3c315eb6edbb7a0c5216238cd4693d9a6df88",
   "Surface11-WsaInit.conf": "854cbef603b57d3b09fded0f98fa6b27f1907d3050fb466d81e41c78fcde4593"
  },
@@ -11,8 +11,8 @@
  },
  "gpu_two_step": {
   "owner_script_sha256": "e705df29564fd6d61add0f08a76ffcab0f21b79b93f69380cfee4bd14e19c6f6",
-  "hooks_sha256": "7d09951617b8666e0b182e70243b49920e52e988bd5eeab40e48e78ffe9cb2e4",
-  "installed_script_sha256": "edcdbcfea694c5837bf69075db546eb5a056167621e53e0e77cff3d1d9063caa",
+  "hooks_sha256": "0e9831e0b3b1bd60de54e26c136dadec5a233bb2d9ceaf7874e0bdbf08e29b03",
+  "installed_script_sha256": "6dd82cc198b8372d445ec072aa08172162a6109189c6e64f96a1085339657788",
   "unit_sha256": "5f4e927db1f0e6713346c1882239dbd0f7527f591adaf1fad2cce6ad96192d3a",
   "image_changes": "label list gains BOOT; hook functions inserted before the main section; the GPU test aborts before power-up if its testing marker cannot be persisted; state-helper lock wait is bounded to 10 seconds; four hook call sites; forced-quote awk transformation is pinned and executed in builder preflight; M15: ENABLED only through sp11.gpu_diag=1 on line 1; state uses plain files on boot medium (S4)",
   "transform_sha256": "5117534060903f51b92ebf31f131df0fd1fa055811cdb779a457df43de785f55"
