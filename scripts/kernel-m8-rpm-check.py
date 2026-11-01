@@ -38,7 +38,7 @@ def elf_symbol(data, wanted):
 
 checks, kver, rpmdir = Path(sys.argv[1]), sys.argv[2], Path(sys.argv[3])
 milestone = sys.argv[4] if len(sys.argv) > 4 else 'm8'
-require(milestone in ('m8', 'm9', 'm10', 'm11', 'm12', 'm13', 'm14', 'm15'), 'Expected m8, m9, m10, m11, m12, m13, m14 or m15')
+require(milestone in ('m8', 'm9', 'm10', 'm11', 'm12', 'm13', 'm14', 'm15', 'm16'), 'Expected m8 through m16')
 root = checks / 'root/lib/modules' / kver
 payloads = {}
 for rpm in sorted(rpmdir.glob(f'kernel-*{kver}.rpm')):
@@ -50,18 +50,21 @@ for rpm in sorted(rpmdir.glob(f'kernel-*{kver}.rpm')):
 records = {}
 names = ['spi-hid', 'spi-hid-of', 'spi-hid-acpi', 'spi-geni-qcom', 'gpi',
          'fixed', 'hid-multitouch', 'uinput']
-if milestone in ('m9', 'm10', 'm11', 'm12', 'm13', 'm14', 'm15'):
+if milestone in ('m9', 'm10', 'm11', 'm12', 'm13', 'm14', 'm15', 'm16'):
     names += ['ath12k', 'ps883x', 'pmic_glink_altmode']
-if milestone in ('m10', 'm11', 'm12', 'm13', 'm14', 'm15'):
+if milestone in ('m10', 'm11', 'm12', 'm13', 'm14', 'm15', 'm16'):
     names += ['qcom_glink']
-if milestone in ('m11', 'm12', 'm13', 'm14', 'm15'):
+if milestone in ('m11', 'm12', 'm13', 'm14', 'm15', 'm16'):
     names += ['snd-soc-wsa884x', 'snd-soc-x1e80100']
-if milestone in ('m12', 'm13', 'm14', 'm15'):
+if milestone in ('m12', 'm13', 'm14', 'm15', 'm16'):
     names += ['snd-soc-lpass-wsa-macro']
-if milestone in ('m14', 'm15'):
+if milestone in ('m14', 'm15', 'm16'):
     # M13 set plus the closed-loop guard module (sp11), the front IMX681 sensor and the x1e80100 gate from 0015.
     names += ['apr', 'snd-q6apm', 'qcom_q6v5_pas', 'surface_aggregator', 'ov13858', 'qcom-camss',
               'i2c-qcom-cci', 'camcc-x1e80100', 'leds-gpio', 'imx681', 'sp11']
+if milestone == 'm16':
+    # M16 adds core privacy LED arbitration and the opt-in GPU phase trace.
+    names += ['videodev', 'msm']
 if milestone == 'm13':
     # audio GPR fix (apr, snd-q6apm), DSP 0003, ec-sam 0007, rear camera chain (all DT-disabled by default).
     names += ['apr', 'snd-q6apm', 'qcom_q6v5_pas', 'surface_aggregator', 'ov13858', 'qcom-camss',
@@ -78,13 +81,13 @@ diagnostics = {
         b'set: mode=%lu svid=%04x orientation=%u in_reset=%u ret=%d\n'],
     'qcom_glink': [
         b'sp11-glink: tx VERSION ', b'sp11-glink: tx OPEN ', b'sp11-glink: tx OPEN_ACK ']}
-if milestone in ('m11', 'm12', 'm13', 'm14', 'm15'):
+if milestone in ('m11', 'm12', 'm13', 'm14', 'm15', 'm16'):
     diagnostics['qcom_glink'] += [b'sp11-glink: FIFO tx head=%u tail=%u rx head=%u tail=%u\n']
-if milestone in ('m14', 'm15'):
+if milestone in ('m14', 'm15', 'm16'):
     diagnostics['qcom_q6v5_pas'] = [b'parm=keep_proxy_pds:']
     diagnostics['surface_aggregator'] = [b'parm=shutdown_mode:']
     diagnostics['sp11'] = [b'parm=nospk:', b'parm=allow_nominal:']
-if milestone == 'm15':
+if milestone in ('m15', 'm16'):
     # audio 0018: the generic module blob path refuses malformed records and guard-owned instances.
     diagnostics['snd-q6apm'] = [b'record for guarded instance 0x%x refused\n', b'bad record (instance 0x%x, size %u)\n']
 if milestone == 'm13':
@@ -125,6 +128,8 @@ for name in names:
                 'Packaged ath12k lacks the machine-compatible rfkill test call')
         (checks / 'ath12k.disassembly.txt').write_text(disassembly)
         (checks / 'ath12k.symbols.txt').write_text(symbols)
+    if name == 'msm' and milestone == 'm16':
+        require(b'GPU_BOOT_TRACE' in data, 'Packaged msm module lacks M16 GPU phase markers')
     if name == 'snd-soc-wsa884x':
         defaults = elf_symbol(data, 'wsa884x_defaults')
         values = [value for reg, value in struct.iter_unpack('<II', defaults) if reg == 0x34b1]
@@ -153,14 +158,14 @@ for name in names:
         if name == 'snd-soc-lpass-wsa-macro':
             pass
         elif name == 'snd-soc-wsa884x':
-            if milestone in ('m12', 'm13', 'm14', 'm15'):
+            if milestone in ('m12', 'm13', 'm14', 'm15', 'm16'):
                 # audio 0004: explicit DRE_CTL_1 (0x34b1) read-back and write at attach.
                 text = subprocess.run(['objdump', '-dr', str(obj)], check=True, capture_output=True, text=True).stdout
                 require(re.search(r'#0x34b1\b', text), 'Release WSA object lacks the explicit DRE_CTL_1 write (0004)')
             defaults = elf_symbol(object_data, 'wsa884x_defaults')
             require([v for r, v in struct.iter_unpack('<II', defaults) if r == 0x34b1] == [0x32],
                     'Release WSA object lacks safe PA reset')
-            if milestone == 'm15':
+            if milestone in ('m15', 'm16'):
                 # audio 0012-0015 (flash review): the amplifier is where the speaker gate is enforced.
                 text = subprocess.run(['objdump', '-dr', str(obj)], check=True, capture_output=True, text=True).stdout
                 require(re.search(r'R_AARCH64_CALL26\s+sp11_guard_unmute_check\b', text),
@@ -185,7 +190,7 @@ for name in names:
                         'Release machine object lacks the WSA playback gate (0009)')
                 require(b'microsoft,denali\0' in object_data, 'Gate lacks the denali compatible string')
                 (checks / 'x1e80100-startup-gate.disassembly.txt').write_text(gate)
-            if milestone in ('m14', 'm15'):
+            if milestone in ('m14', 'm15', 'm16'):
                 # audio 0015: the unconditional refusal is replaced by sp11_guard_check (denali only).
                 gate = subprocess.run(['objdump', '-dr', str(obj)], check=True, capture_output=True, text=True).stdout
                 require(re.search(r'R_AARCH64_CALL26\s+sp11_guard_check\b', gate),
@@ -202,7 +207,7 @@ for name in names:
         records[name]['pa_mixer_value'] = 6
     if name == 'snd-soc-x1e80100':
         records[name]['mix_volume_controls'] = 4
-    if name == 'qcom_q6v5_pas' and milestone == 'm15':
+    if name == 'qcom_q6v5_pas' and milestone in ('m15', 'm16'):
         # dsp-subsystems 0003 amended: keep_proxy_pds is writable at runtime (struct kernel_param.perm at offset 24).
         perm = struct.unpack_from('<H', elf_symbol(data, '__param_keep_proxy_pds'), 24)[0]
         require(perm == 0o644, f'keep_proxy_pds permission is {perm:#o}, expected 0644')
@@ -213,7 +218,7 @@ for name in names:
         records[name]['disassembly_sha256'] = hashlib.sha256(disassembly.encode()).hexdigest()
 
 dtb = root / 'dtb/qcom/x1p64100-microsoft-denali.dtb'
-if milestone in ('m14', 'm15'):
+if milestone in ('m14', 'm15', 'm16'):
     # modinfo depends (what depmod turns into modules.dep): the machine driver needs the guard, so the guard loads first.
     deps = subprocess.run(['modinfo', '-F', 'depends', str(next(root.rglob('snd-soc-x1e80100.ko.xz')))],
                           check=True, capture_output=True, text=True).stdout.strip().split(',')
@@ -226,7 +231,7 @@ record = dict(packaged_dtb_sha256=hashlib.sha256(dtb.read_bytes()).hexdigest(),
               touch_modules={name: records[name] for name in names[:8]},
               qspi_protocol_guard=True, gpi_qspi_tre_path=True,
               rfc0014_removed=True)
-if milestone in ('m9', 'm10', 'm11', 'm12', 'm13', 'm14', 'm15'):
+if milestone in ('m9', 'm10', 'm11', 'm12', 'm13', 'm14', 'm15', 'm16'):
     record['new_modules'] = {name: records[name] for name in names[8:]}
     record['cma_dma32'] = record['wiring']['cma_dma32']
 (checks / f'{milestone}.json').write_text(json.dumps(record, indent=2) + '\n')

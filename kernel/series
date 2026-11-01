@@ -110,3 +110,7 @@ hardware/cameras/patches/0019-arm64-dts-qcom-x1-microsoft-denali-describe-the-IR
 hardware/audio-speakers/patches/0017-arm64-dts-qcom-x1-microsoft-denali-add-DisplayPort-a.patch
 hardware/audio-speakers/patches/0018-ASoC-qcom-audioreach-send-the-private-data-of-generi.patch
 hardware/ec-sam/patches/0005-arm64-dts-qcom-x1p64100-microsoft-denali-Add-the-vol.patch
+# M16: shared V4L2 privacy LED arbitration and opt-in GPU stage trace. The camera
+# graph remains disabled by default; trace is enabled only in this diagnostic build.
+hardware/cameras/patches/0020-media-v4l2-core-refcount-shared-privacy-leds.patch
+hardware/gpu/patches/0001-drm-msm-add-opt-in-gpu-boot-phase-trace.patch

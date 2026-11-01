@@ -104,6 +104,10 @@ if int(sys.argv[3]) >= 12:
               'BATTERY_SURFACE', 'CHARGER_SURFACE', 'SENSORS_SURFACE_FAN', 'SENSORS_SURFACE_TEMP', 'HID_GENERIC',
               'HID_MULTITOUCH', 'SURFACE_AGGREGATOR'):
         any_of['CONFIG_' + k] = ('m', 'y')
+if int(sys.argv[3]) >= 14:
+    # M16 controlled diagnostic kernel: opt-in phase trace and fake-LED KUnit test module.
+    want.update({'CONFIG_DRM_MSM_GPU_BOOT_TRACE': 'm', 'CONFIG_KUNIT': 'y',
+                 'CONFIG_VIDEO_V4L2_SUBDEV_PRIVACY_LED_KUNIT_TEST': 'm'})
 have = {}
 for line in open(sys.argv[1]):
     if line.startswith('CONFIG_') and '=' in line:
@@ -166,7 +170,7 @@ fi
 
 # M8 checks the packaged LCD DT and the actual RPM payloads for the new
 # transport. The full BTF audit above covers every extracted touch module.
-if [[ $KERNEL_SERIES_REV == 5 || $KERNEL_SERIES_REV == 6 || $KERNEL_SERIES_REV == 7 || $KERNEL_SERIES_REV == 8 || $KERNEL_SERIES_REV == 9 || $KERNEL_SERIES_REV == 10 || $KERNEL_SERIES_REV == 11 || $KERNEL_SERIES_REV == 12 || $KERNEL_SERIES_REV == 13 ]]; then
+if [[ $KERNEL_SERIES_REV == 5 || $KERNEL_SERIES_REV == 6 || $KERNEL_SERIES_REV == 7 || $KERNEL_SERIES_REV == 8 || $KERNEL_SERIES_REV == 9 || $KERNEL_SERIES_REV == 10 || $KERNEL_SERIES_REV == 11 || $KERNEL_SERIES_REV == 12 || $KERNEL_SERIES_REV == 13 || $KERNEL_SERIES_REV == 14 ]]; then
   milestone=m8; cma_args=(); usb_args=()
   if [[ $KERNEL_SERIES_REV == 6 ]]; then milestone=m9; cma_args=(--cma-dma32); fi
   if [[ $KERNEL_SERIES_REV == 7 ]]; then milestone=m10; cma_args=(--cma-dma32); fi
@@ -180,11 +184,12 @@ if [[ $KERNEL_SERIES_REV == 5 || $KERNEL_SERIES_REV == 6 || $KERNEL_SERIES_REV =
     # M14 adds only DT-disabled camera nodes (rear refinement, front, IR) and an unused closed-loop dtsi: same M12 comparison.
     milestone=m14; cma_args=(--cma-dma32 --parity-in-base --previous-m12 "$SP11_OUT/dtb-variants/7.3.0-65.sp11.9.fc44.aarch64/qcom/x1p64100-microsoft-denali-m12.dtb")
   fi
-  if [[ $KERNEL_SERIES_REV == 12 || $KERNEL_SERIES_REV == 13 ]]; then
+  if [[ $KERNEL_SERIES_REV == 12 || $KERNEL_SERIES_REV == 13 || $KERNEL_SERIES_REV == 14 ]]; then
     # M15 adds the volume-key nodes (ec-sam 0005) on top of the M14 content; the DP audio links are in /sound only for
     # the sound variants. Same M12 comparison, with the volume-key nodes allowed (kernel-m8-check.py, m15).
     usb_args=(--usb-orientation-dropped)
-    milestone=m15; cma_args=(--cma-dma32 --parity-in-base --previous-m12 "$SP11_OUT/dtb-variants/7.3.0-65.sp11.9.fc44.aarch64/qcom/x1p64100-microsoft-denali-m12.dtb")
+    milestone=m15; ((KERNEL_SERIES_REV == 14)) && milestone=m16
+    cma_args=(--cma-dma32 --parity-in-base --previous-m12 "$SP11_OUT/dtb-variants/7.3.0-65.sp11.9.fc44.aarch64/qcom/x1p64100-microsoft-denali-m12.dtb")
   fi
   packaged="$CK/root/lib/modules/$kver/dtb/$dtb"
   dt-validate -s "$D/Documentation/devicetree/bindings/processed-schema.json" \
