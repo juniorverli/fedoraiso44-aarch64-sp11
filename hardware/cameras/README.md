@@ -89,7 +89,7 @@ Why CAMSS cannot do the RGB stage on this SoC (Verified, 2026-10-24):
 | no IMX681 driver | New driver needed (C-PHY, register tables derived on the device, not in git, S5) |
 | C-PHY support for the front camera | Not in v7.3. Backport the posted `phy: qcom-mipi-csi2` C-PHY and CAMSS PHY-type series (request R5); CSIPHY v2.1.2 C-PHY tables and CSID `CFG0` bit 24 are confirmed by the camera-kernel reference |
 | sensor power/reset/clock wiring from ACPI | Rear: patch 0005 (Windows sequence). Front and IR: after the IMX681 and VD55G0 drivers exist |
-| privacy LED binding | `leds`/`led-names = "privacy"` through the V4L2 core; GPIO225 LED node in patch 0004 (disabled); GPIO105 function Unknown (REA question 1) |
+| privacy LED binding/arbitration | Patch 0020 adds shared `led_classdev` user counting in the V4L2 core; GPIO225 LED node remains disabled; exact GPIO-to-camera mapping remains inference pending independent cross-check (see `evidence/2026-11-01-shared-privacy-led.md`) |
 | RAW Bayer frames need an RGB stage (demosaic, AWB, CCM, gamma) | libcamera Software ISP with per-sensor tuning; Spectra hardware ISP later |
 | VD55G0 support in `vd55g1.c` unknown | Check chip ID handling; patch if the register map matches |
 | IR illuminator safety (risk S2) | Never described in any DT; stays off |
@@ -121,6 +121,8 @@ Why CAMSS cannot do the RGB stage on this SoC (Verified, 2026-10-24):
 - R6 (firmware): none for the CAMSS path (CAMSS needs no firmware). `CAMERA_ICP.mbn` is only for the unusable Spectra stack and is not staged.
 - R8 (kernel, M15): patches 0013 (per-mode media bus code) and 0016 (gain law, digital gain, line-length clock) were amended in place on 2026-10-31; rebuild from the files, nothing else in `patches/` changed. The libcamera image patch set is `userspace/quality/libcamera-sp11.patch` then `libcamera-sp11-imx681-helper.patch`.
 - R9 (image): `test-plan.md` and the OV13858 tuning must expect SBGGR10 for blob modes and SGRBG10 for built-in modes.
+- R10 (kernel): integrate `patches/0020-media-v4l2-core-refcount-shared-privacy-leds.patch`; the KUnit suite compiled in enabled/disabled configurations but still needs runtime execution.
+- R11 (orchestrator): independently cross-check camera-to-privacy-LED GPIO mapping before enabling camera DT nodes; patch 0020 intentionally contains no GPIO values.
 
 ## 9. Log
 
@@ -129,3 +131,4 @@ Why CAMSS cannot do the RGB stage on this SoC (Verified, 2026-10-24):
 - 2026-10-30: REA of the Windows camera stack: per-camera CCI, lanes, PHY, reset, clocks, supplies and power-up order recorded in `evidence/2026-10-30-rea-windows.md`; front is C-PHY (unsupported by CAMSS in 7.3).
 - 2026-10-30: Qualcomm camera-kernel reference cross-check (CSIPHY v2.1.2, CSID 680 layout, CCI v2, C-PHY register sequence, ICP firmware names, Spectra not usable); Sol patches reviewed and replaced by five checked patches (binding, ov13858 OF power, hamoa DT, Denali LED, Denali rear camera), diagnostic DTB variant, test plan; status `designed`.
 - 2026-10-31: patches 0013 and 0016 amended (per-mode bus code, verified IMX681 gain law, digital gain, line-length clock), IMX681 libcamera helper patch made real; see `evidence/2026-10-31-bayer-units-gain-crosscheck.md` section 7.
+- 2026-11-01: confirmed V4L2 privacy LED arbitration is per-subdevice, added generic shared-classdev refcount patch 0020 and KUnit lifecycle coverage; enabled/disabled ARM64 object builds and module link pass, suite not runtime-executed; GPIO mapping remains unverified.
