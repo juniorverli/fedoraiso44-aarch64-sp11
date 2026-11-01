@@ -160,8 +160,9 @@ manifest = ''.join(f'{p} {sha(repo / p)}\n' for p in patches)
 assert release['series_hash_sha256'] == hashlib.sha256(manifest.encode()).hexdigest()
 assert release['config']['fragment_check'] == 'ok' and release['dtb_in_kernel_core'] == 'ok'
 assert release['dtb_check']['rc'] == '0' and release['dtb_check']['warning_lines'] == 0
-assert release['m15']['s1_effective_status']['s1_ok'] and not release['m15']['wiring']['gpu_enabled']
-assert release['m15']['cma_dma32']['allocation_end_exclusive'] == 0x100000000
+m_record = release.get('m16') or release.get('m15')
+assert m_record and m_record['s1_effective_status']['s1_ok'] and not m_record['wiring']['gpu_enabled']
+assert m_record['cma_dma32']['allocation_end_exclusive'] == 0x100000000
 def canonical(name):
     return [line for line in (checks / f'x1p64100-microsoft-denali{name}.source.dts').read_text().splitlines()
             if line.strip() and not re.match(r'\s*phandle = ', line)]
