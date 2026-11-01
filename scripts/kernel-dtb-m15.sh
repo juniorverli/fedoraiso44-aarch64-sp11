@@ -80,7 +80,7 @@ canonical_source x1p64100-microsoft-denali
 # order matters: later variants use earlier source DTBs as baselines.
 #   variant       baseline (diff recorded; notouch must change only touch)   M12 DTB it must equal apart from disabled camera nodes
 declare -A baseline_of=( [m15-nosnd]="" [m15-safe]="" [m15]=m15-safe [m15-notouch]=m15-safe [m15-spk]="" [m15-spectra]=m15-safe )
-declare -A m12_of=( [m15-nosnd]=m12 [m15-safe]=m12-audio [m15]="" [m15-notouch]="" [m15-spk]="" [m15-spectra]="" )
+declare -A m12_of=( [m15-nosnd]=m12 [m15-safe]="" [m15]="" [m15-notouch]="" [m15-spk]="" [m15-spectra]="" )
 # m15-spectra needs Qualcomm's hamoa-camera.dtsi (BSD-3-Clause) and msm-camera.h (GPL-2.0-only) in the kernel tree
 # include path. Both licences are GPL-2.0 compatible, so the unmodified files are kept in git under
 # hardware/cameras/spectra/dt/ (cameras worker; pinned by SOURCE.txt and SHA256SUMS) and copied into the scratch tree
@@ -109,7 +109,7 @@ for name in m15-nosnd m15-safe m15 m15-notouch m15-spk m15-spectra; do
   extra_args=()
   [[ -z ${m12_of[$name]} ]] || extra_args+=(--previous-m12 "$m12dir/x1p64100-microsoft-denali-${m12_of[$name]}.dtb")
   case $name in
-    m15-spk) profile=d26 ;;
+    m15-spk|m15|m15-safe|m15-notouch) profile=d26 ;;
     *) profile=default ;;
   esac
   "$KERNEL_REPO/scripts/kernel-container.sh" run bash -e -c '
@@ -119,7 +119,7 @@ for name in m15-nosnd m15-safe m15 m15-notouch m15-spk m15-spectra; do
       # Qualcomm unbound qcom,cam-* nodes only: every line must belong to a node added by hamoa-camera.dtsi.
       python3 -I "$repo/scripts/kernel-dtb-spectra-lines.py" "$dtb" "$checks/x1p64100-microsoft-denali-m15-safe.source.dtb" \
         "$checks/$name.dt-validate.log" "$checks/$name.build.log" > "$checks/$name.spectra-lines.json"
-    elif [ "$name" = m15-spk ]; then
+    elif [ "$name" = m15-spk ] || [ "$name" = m15 ] || [ "$name" = m15-safe ] || [ "$name" = m15-notouch ]; then
       # The d26 marker has no binding: accept exactly its schema complaints, nothing else.
       ! grep -v "from schema" "$checks/$name.dt-validate.log" | grep -v "sp11,speaker-policy" | grep -q .
       grep -q "sp11,speaker-policy" "$checks/$name.dt-validate.log"
@@ -186,7 +186,7 @@ for name, previous in [('m15-nosnd', ''), ('m15-safe', ''), ('m15', '-m15-safe')
     if name == 'm15-spectra':
         includes += ['hardware/cameras/spectra/dt/qcl/hamoa-camera.dtsi',
                      'hardware/cameras/spectra/dt/include/dt-bindings/camera/msm-camera.h']
-    profile = 'd26' if name == 'm15-spk' else 'default'
+    profile = 'd26' if name in ('m15-spk', 'm15', 'm15-safe', 'm15-notouch') else 'default'
     log = (checks / f'{name}.build.log').read_text()
     timing = re.search(r'kernel-dev: m15 variant .* took (\d+) s', log)
     warnings = len([l for l in log.splitlines() if l.startswith(('arch/arm64/boot/dts/qcom/' + full + '.dtb:', full + '.dtb:'))
@@ -210,8 +210,8 @@ for name, previous in [('m15-nosnd', ''), ('m15-safe', ''), ('m15', '-m15-safe')
         patch_subjects=subjects, patch_sha256={p: sha(repo / p) for p in patches},
         release_record=release_path, release_record_sha256=sha(Path(release_path)),
         build_seconds=int(timing[1]), dt_validate_warning_lines='0' if name != 'm15-spectra' else 'accepted Qualcomm lines only',
-        checks=dict(dt_validate=dict(exit_code=0, diagnostic_lines=0 if name not in ('m15-spk', 'm15-spectra') else
-                                     'marker-only (sp11,speaker-policy has no binding)' if name == 'm15-spk' else 'Qualcomm qcom,cam-* nodes only'),
+        checks=dict(dt_validate=dict(exit_code=0, diagnostic_lines=0 if name not in ('m15-spk', 'm15', 'm15-safe', 'm15-notouch', 'm15-spectra') else
+                                     'marker-only (sp11,speaker-policy has no binding)' if name in ('m15-spk', 'm15', 'm15-safe', 'm15-notouch') else 'Qualcomm qcom,cam-* nodes only'),
                     check_dtbs=dict(exit_code=0, diagnostic_lines=warnings, marker_only_diagnostic_lines=marker_lines),
                     spectra_accepted_diagnostics=spectra,
                     source_recompiled_dtb_identical=True, packaged_source_recompiled_dtb_identical=True,

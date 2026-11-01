@@ -116,8 +116,8 @@ def main():
     def phandle(label):
         return cells(node(label)['phandle'])[0]
 
-    # The only enabled-card exceptions are the microphone DTs and, under the d26 profile, m13-spk.
-    spk = args.variant in ('m13-spk', 'm14-spk', 'm15-spk')
+    # The only enabled-card exceptions are the microphone DTs and, under the d26 profile, speaker DTBs.
+    spk = args.variant in ('m13-spk', 'm14-spk', 'm15-spk', 'm15', 'm15-safe', 'm15-notouch')
     profile = 'd26' if spk else 'default'
     safety_tool = str(Path(__file__).with_name('kernel-dtb-safety.py'))
     safety = subprocess.run(['python3', '-I', safety_tool, '/dev/stdin', '--profile', profile],
@@ -126,21 +126,21 @@ def main():
     safety_json = json.loads(safety.stdout)
     watched = safety_json['watched']
     if spk:
-        # m13-spk must be refused by the default profile, and pass d26 only through the marker.
+        # speaker DTB must be refused by the default profile, and pass d26 only through the marker.
         denied = subprocess.run(['python3', '-I', safety_tool, '/dev/stdin', '--profile', 'default'],
                                 input=source, capture_output=True, text=True)
-        require(denied.returncode != 0, 'm13-spk unexpectedly passes the default profile')
+        require(denied.returncode != 0, f'{args.variant} unexpectedly passes the default profile')
         require(safety_json['speaker_marker'] == '"d26-open-loop-v1"' and safety_json['d26_speaker_paths'],
-                'm13-spk lacks the d26 marker or speaker paths')
-        require(enabled(symbols['swr0']), 'm13-spk: swr0 not enabled')
+                f'{args.variant} lacks the d26 marker or speaker paths')
+        require(enabled(symbols['swr0']), f'{args.variant}: swr0 not enabled')
     else:
         require(len(watched) == 3, 'Unexpected S1 watched-node count')
         require(safety_json['speaker_marker'] is None, 'Speaker policy marker in a non-speaker DTB')
         require(node('swr0').get('status') == '\"disabled\"', 'swr0 is not disabled')
     mic_variants = ('m11-audio', 'm12-audio', 'm13', 'm13-notouch', 'm13-cam', 'm14', 'm14-safe', 'm14-notouch',
-                    'm15', 'm15-safe', 'm15-notouch', 'm15-spectra')
+                    'm15-spectra')
     if spk:
-        require(enabled('/sound'), 'm13-spk: sound card disabled')
+        require(enabled('/sound'), f'{args.variant}: sound card disabled')
     elif args.variant in mic_variants:
         require(enabled('/sound'), 'Microphone sound card disabled')
         require('/sound/wsa-dai-link' not in nodes, 'WSA playback link retained')
@@ -228,7 +228,7 @@ def main():
         require(enabled('/camera-leds'), 'm13-cam: indicator LED bank disabled')
         for label in ('cci1', 'cci0_i2c0', 'cci1_i2c0', 'cci1_i2c1'):
             require(not enabled(symbols[label]), f'm13-cam: {label} must stay disabled')
-    elif args.variant in ('m14', 'm15'):
+    elif args.variant in ('m14', 'm15', 'm15-safe', 'm15-notouch'):
         # Combined diagnostic default: rear, front and IR chains all effectively enabled.
         front = [p for p in nodes if 'sony,imx681' in nodes[p].get('compatible', '')]
         ir = [p for p in nodes if 'st,vd55g0' in nodes[p].get('compatible', '')]

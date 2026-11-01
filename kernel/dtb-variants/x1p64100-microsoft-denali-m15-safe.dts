@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * M15 fallback (automatic entry): the M14 fallback plus the DisplayPort audio back ends. M12 board DT
- * (touch on, GPU off, D20 parity) plus the sound card with the digital microphones and the two DisplayPort
- * links (audio-speakers patch 0017, included by x1-microsoft-denali-audio-mics.dtsi). GPU off, no camera node
- * enabled, speakers off (S1). The volume keys (ec-sam 0005) are in the packaged board DT.
+ * M15 fallback / safe mode (no GPU): complete functional system with
+ * audio (speakers with D26 open-loop protection, microphones, DisplayPort audio),
+ * cameras (rear OV13858, front IMX681, IR VD55G0), LCD, Wi-Fi, and Bluetooth.
+ * GPU disabled (safe from GPU bring-up resets / hangs).
  * Built by the kernel DTB variants script; not a patch, not part of the RPM.
  */
 #include "x1p64100-microsoft-denali-m12.dts"
-#include "x1-microsoft-denali-audio-mics.dtsi"
+#include "x1-microsoft-denali-audio-d26.dtsi"
+#include "x1-microsoft-denali-audio-dp.dtsi"
+#include "x1-microsoft-denali-audio-closedloop.dtsi"
 
 /*
  * usb-typec patch 0003 (experiment) deletes `orientation-switch` from both QMP combo PHYs in the PACKAGED board DT.
@@ -20,4 +22,42 @@
 
 &usb_1_ss1_qmpphy {
 	orientation-switch;
+};
+
+&apps_rsc {
+	regulators-8 {
+		status = "okay";
+	};
+};
+
+&vreg_l7b_2p8 {
+	status = "okay";
+};
+
+&{/camera-leds} {
+	status = "okay";
+};
+
+&camss {
+	status = "okay";
+};
+
+&cci0 {
+	status = "okay";
+};
+
+&cci0_i2c0 {
+	status = "okay";
+};
+
+&cci0_i2c1 {
+	status = "okay";
+};
+
+&cci1 {
+	status = "okay";
+};
+
+&cci1_i2c1 {
+	status = "okay";
 };
