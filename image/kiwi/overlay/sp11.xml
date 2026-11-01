@@ -31,9 +31,24 @@
 		<package name="v4l-utils"/>
 		<package name="qrtr"/>
 		<!-- M14 (d), npu/sensors Requests: Fedora's FastRPC runtime and daemons. Its udev rule gives the device nodes to root:fastrpc 0640
-		     (no 0666, no image rule). A test transaction with qrtr completes (image/component-inputs/m15.json). No QAIRT, no hexagonrpcd. -->
+		     (no 0666, no image rule). A test transaction with qrtr completes (image/component-inputs/m15.json). No QAIRT. -->
 		<package name="fastrpc"/>
 		<package name="fastrpc-services"/>
+		<!-- M15 integration (sensors dossier build evidence section 6): the five local sensor RPMs of out/rpms-local, served by the local repository with priority 10
+		     (iio-sensor-proxy 3.9 with SSC replaces Fedora's 3.8). Units, udev rules (fastrpc group 0660, never 0666) and the collector drop-in come from sp11-sensors;
+		     adsprpcd* is NOT masked. The Windows-derived data is private-mode only. -->
+		<package name="hexagonrpcd"/>
+		<package name="libssc"/>
+		<package name="libssc-tools"/>
+		<package name="iio-sensor-proxy"/>
+		<package name="sp11-sensors"/>
+		<!-- M15 integration (audio-mics Requests and quality-parity Asks): alsaucm for the collector and the route layer, the limiter (ladspa-swh-plugins, Fedora's
+		     name of the swh-plugins source) and WebRTC audio processing for the private PipeWire quality configs; pipewire's own libs carry filter-chain and echo-cancel. -->
+		<package name="alsa-ucm-utils"/>
+		<package name="ladspa-swh-plugins"/>
+		<package name="webrtc-audio-processing"/>
+		<!-- M15 integration (Spectra test entry): the out-of-tree downstream camera module, built against this kernel-devel; loaded only by sp11-spectra-load.service -->
+		<package name="sp11-camera-spectra"/>
 		<package name="dtc"/>
 		<package name="pciutils"/>
 		<package name="usbutils"/>
@@ -43,8 +58,9 @@
 		<!-- ec-sam R3 and Bluetooth boot-time configuration / masked capture. -->
 		<package name="libinput-utils"/>
 		<package name="evtest"/>
-		<!-- M13 (cameras R4): Fedora libcamera with the RGB software ISP, and cam/qcam. A test transaction of exactly these two
-		     (libcamera-ipa comes in as a dependency) completes against Fedora 44 aarch64. No tuning file and no Windows data. -->
+		<!-- M13 (cameras R4): libcamera with the RGB software ISP, and cam/qcam. M15: the local build of Fedora's libcamera 0.7.2 source package plus the cameras
+		     owner's two patches (gamma key, OV13858 black level, IMX681 helper) wins in the local repository when out/rpms-local/libcamera exists (scripts/image-build-libcamera.sh);
+		     otherwise Fedora's stock package is installed. The tuning YAMLs are private-mode data. -->
 		<package name="libcamera"/>
 		<package name="libcamera-tools"/>
 		<!-- Local Fedora-native RPM; upstream udev rule activates iptsd@.service. -->

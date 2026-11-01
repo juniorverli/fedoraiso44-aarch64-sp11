@@ -1,0 +1,36 @@
+#!/usr/bin/bash
+# Spectra camera test, boot 2: load camera_x1e80100 when (and only when) the marker file sp11/spectra-load exists on the boot medium (S4: plain file,
+# read through sp11-boot-state). Runs only on the Spectra entry (unit condition) and again checks the entry here. Never loads anything else.
+set -u
+export LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin
+CMDLINE=${SP11_CMDLINE:-/proc/cmdline}
+BS=${SP11_BOOT_STATE:-/usr/libexec/sp11-boot-state}
+NOTICE=${SP11_NOTICE:-/usr/libexec/sp11/operator-notice}
+MODPROBE=${SP11_MODPROBE:-modprobe}
+RUN=${SP11_RUN:-/run/sp11}
+STATE=$RUN/spectra-load
+KMSG=${SP11_KMSG:-/dev/kmsg}
+mkdir -p "$RUN"
+log() { echo "$(date +%T) $*" >>"$STATE"; echo "sp11-spectra-load: $*" >&2; echo "sp11-spectra-load: $*" >"$KMSG" 2>/dev/null; return 0; }
+notice() { "$NOTICE" add 30-spectra "$*" || true; }
+: >"$STATE"
+tr ' ' '\n' <"$CMDLINE" | grep -qx 'sp11.entry=spectra' || { log "not run: not the Spectra entry"; exit 0; }
+if ! "$BS" marker spectra-load 2>/dev/null; then
+	log "marker sp11/spectra-load absent: camera_x1e80100 is NOT loaded (boot 1 of the Spectra test)"
+	notice "Spectra camera test, boot 1: camera_x1e80100 is not loaded. For boot 2 create the empty file sp11/spectra-load on the boot medium (SP11LOGS partition or the ESP), power off and boot this entry again."
+	exit 0
+fi
+if lsmod | grep -q '^camera_x1e80100 '; then log "already loaded"; notice "Spectra camera test: camera_x1e80100 is already loaded."; exit 0; fi
+if tr ' ' '\n' <"$CMDLINE" | sed -n 's/^module_blacklist=//p' | tr ',' '\n' | grep -qx 'camera_x1e80100'; then
+	log "marker present but module_blacklist=camera_x1e80100 is on the command line: the kernel refuses the load (core param, not writable): nothing done"
+	notice "Spectra camera test, boot 2: the marker sp11/spectra-load exists, but this entry's command line has module_blacklist=camera_x1e80100 and the kernel refuses every load of that module. Reboot, press e on 'SP11 debug, Spectra camera test', delete module_blacklist=camera_x1e80100 from the linux line, boot with Ctrl-x. Stop criteria: any Internal error, SError, SMMU fault or hang."
+	exit 0
+fi
+log "marker present, module_blacklist absent: loading camera_x1e80100"
+notice "Spectra camera test, boot 2: loading camera_x1e80100 now. A hang or reset here is a result: the logs on the boot medium are kept."
+sync
+timeout 60 "$MODPROBE" camera_x1e80100 >>"$STATE" 2>&1
+rc=$?
+log "modprobe camera_x1e80100 rc=$rc"
+notice "Spectra camera test, boot 2: modprobe camera_x1e80100 returned $rc (see /run/sp11/spectra-load and the collector file extra-spectra.txt)."
+exit 0

@@ -55,7 +55,7 @@ mkcd() { # NAME-of-dir: build a fake sysfs under $T/sys
 	echo cdsp >"$T/sys/class/remoteproc/remoteproc0/name"; echo adsp >"$T/sys/class/remoteproc/remoteproc1/name"
 	echo running >"$T/sys/class/remoteproc/remoteproc0/state"; echo running >"$T/sys/class/remoteproc/remoteproc1/state"
 	echo qcom/x1e80100/microsoft/Denali/qccdsp8380.mbn >"$T/sys/class/remoteproc/remoteproc0/firmware"
-	echo N >"$T/sys/module/qcom_q6v5_pas/parameters/keep_proxy_pds"; : >"$T/sys/module/firmware_class/parameters/path"
+	echo -1 >"$T/sys/module/qcom_q6v5_pas/parameters/keep_proxy_pds"; : >"$T/sys/module/firmware_class/parameters/path"
 	[ "${1:-}" = ro ] && chmod 444 "$T/sys/module/qcom_q6v5_pas/parameters/keep_proxy_pds"
 	: >"$T/sys/class/remoteproc/remoteproc0/log"
 }
@@ -85,9 +85,11 @@ runcd() { # ARGS: cmdline text ; runs the script once, with the fake kernel
 	kill $k 2>/dev/null; wait $k 2>/dev/null
 }
 R1=$T/sys/class/remoteproc/remoteproc0
-mkcd ro; bs unset sp11_cdsp_counter
+mkcd; bs unset sp11_cdsp_counter
 runcd "sp11.entry=debug"
-grep -q 'variant: 0 (fw=c1-00078 keep_proxy_pds=0)' "$T/run/cdsp-experiment" && ok "CDSP experiment: variant 0 first (default firmware)" || bad "CDSP variant 0 first"
+grep -q 'variant: 0 (fw=c1-00078 keep_proxy_pds=0 forced)' "$T/run/cdsp-experiment" && ok "CDSP experiment: variant 0 first (shipped firmware, keep_proxy_pds forced 0)" || bad "CDSP variant 0 first"
+grep -q '^keep=0 path=$' "$R1/log" && ok "CDSP experiment: keep_proxy_pds forced to 0 during start, default firmware path" || bad "CDSP keep=0 during start: $(cat $R1/log)"
+eq "CDSP experiment: keep_proxy_pds restored to the default (-1) afterwards" "$(cat $T/sys/module/qcom_q6v5_pas/parameters/keep_proxy_pds)" -1
 eq "CDSP experiment: remoteproc restarted (running again)" "$(cat $R1/state)" running
 eq "CDSP experiment: counter advanced to 1 before the restart" "$(bs get sp11_cdsp_counter)" 1
 grep -q 'rx OPEN_ACK lines 1' "$T/notice/20-cdsp.txt" && ok "CDSP experiment: result and OPEN_ACK count in the notice" || bad "CDSP result notice"
@@ -96,23 +98,25 @@ grep -q 'rx OPEN_ACK lines 1' "$T/notice/20-cdsp.txt" && ok "CDSP experiment: re
 echo "sp11.entry=debug" >"$T/cdsp-cmd"
 SP11_SYS=$T/sys SP11_RUN=$T/run SP11_CDSP_CMDLINE=$T/cdsp-cmd SP11_KMSG=$T/kmsg bash "$L/sp11/cdsp-experiment" 2>/dev/null
 grep -q 'second start on this boot' "$T/run/cdsp-experiment" && eq "CDSP experiment: never twice per boot (counter unchanged)" "$(bs get sp11_cdsp_counter)" 1 || bad "CDSP: second start not refused"
-# keep_proxy_pds read-only (0444): variants 2 and 3 are skipped; with no alternate pair variants 1 and 3 too -> always 0
-mkcd ro; runcd "sp11.entry=debug"
-grep -q 'variant: 0' "$T/run/cdsp-experiment" && ok "CDSP experiment: only variant 0 realisable (no pair, keep read-only): skipped the rest" || bad "CDSP skip of unrealisable variants"
-# writable keep, no pair: rotation 0 -> 2 -> 0 ; the parameter is set during the restart and restored afterwards
+# keep_proxy_pds not writable and no alternate pair: only variant 3 (the default) is realisable
+mkcd ro; bs set sp11_cdsp_counter=0; runcd "sp11.entry=debug"
+grep -q 'variant: 3 (fw=c1-00078 keep_proxy_pds=default)' "$T/run/cdsp-experiment" && ok "CDSP experiment: no pair, keep not writable: only the default variant 3 realisable, the rest skipped" || bad "CDSP skip of unrealisable variants"
+# writable keep, no pair: counter 1 skips 1 and 2 and lands on the default variant 3; the parameter is written -1 for the start
 mkcd; bs set sp11_cdsp_counter=1; runcd "sp11.entry=debug"
-grep -q 'variant: 2 (fw=c1-00078 keep_proxy_pds=1)' "$T/run/cdsp-experiment" && ok "CDSP experiment: counter 1 without the alternate pair lands on variant 2" || bad "CDSP variant 2 selection"
-grep -q '^keep=1 path=$' "$R1/log" && ok "CDSP experiment: keep_proxy_pds=1 during start, default firmware path" || bad "CDSP keep=1 during start: $(cat $R1/log)"
-eq "CDSP experiment: keep_proxy_pds restored afterwards" "$(cat $T/sys/module/qcom_q6v5_pas/parameters/keep_proxy_pds)" N
-eq "CDSP experiment: counter now 3" "$(bs get sp11_cdsp_counter)" 3
-# alternate pair present: variant 1 sets firmware_class.path for the start and restores it, and says FULL POWER-OFF for the next one only when it is alternate
+grep -q 'variant: 3 (fw=c1-00078 keep_proxy_pds=default)' "$T/run/cdsp-experiment" && ok "CDSP experiment: counter 1 without the alternate pair lands on variant 3 (default)" || bad "CDSP variant 3 selection"
+grep -q '^keep=-1 path=$' "$R1/log" && ok "CDSP experiment: keep_proxy_pds default (-1) during start, default firmware path" || bad "CDSP keep=-1 during start: $(cat $R1/log)"
+eq "CDSP experiment: keep_proxy_pds restored afterwards" "$(cat $T/sys/module/qcom_q6v5_pas/parameters/keep_proxy_pds)" -1
+eq "CDSP experiment: counter now 4" "$(bs get sp11_cdsp_counter)" 4
+# alternate pair present: variant 1 (c1-00046.1, default keep) sets firmware_class.path for the start and restores it; FULL POWER-OFF text only when the NEXT variant is alternate
 mkdir -p "$T/fw46/qcom/x1e80100/microsoft/Denali"; echo x >"$T/fw46/qcom/x1e80100/microsoft/Denali/qccdsp8380.mbn"; echo x >"$T/fw46/qcom/x1e80100/microsoft/Denali/cdsp_dtb.mbn"
 mkcd; bs set sp11_cdsp_counter=1; runcd "sp11.entry=debug"
-grep -q "^keep=0 path=$T/fw46\$" "$R1/log" && ok "CDSP experiment: variant 1 starts with firmware_class.path at the alternate directory" || bad "CDSP variant 1 path: $(cat $R1/log)"
+grep -q "^keep=-1 path=$T/fw46\$" "$R1/log" && ok "CDSP experiment: variant 1 starts with firmware_class.path at the alternate directory and the default keep_proxy_pds" || bad "CDSP variant 1 path: $(cat $R1/log)"
 eq "CDSP experiment: firmware_class.path restored to empty afterwards" "$(cat $T/sys/module/firmware_class/parameters/path)" ""
 grep -q 'ALTERNATE firmware' "$T/notice/20-cdsp.txt" && ok "CDSP experiment: alternate firmware flagged in the notice" || bad "alternate firmware not flagged"
-bs set sp11_cdsp_counter=2; mkcd; runcd "sp11.entry=debug"
-grep -q 'FULL POWER-OFF' "$T/notice/20-cdsp.txt" && grep -q 'NOT a reboot' "$T/notice/20-cdsp.txt" && ok "CDSP experiment: variant 2 -> next 3 uses the alternate firmware: FULL POWER-OFF, NOT a reboot" || bad "power-off text missing for next=3"
+mkcd; bs set sp11_cdsp_counter=2; runcd "sp11.entry=debug"
+grep -q "^keep=0 path=$T/fw46\$" "$R1/log" && ok "CDSP experiment: variant 2 is c1-00046.1 with keep_proxy_pds forced 0" || bad "CDSP variant 2: $(cat $R1/log)"
+mkcd; bs set sp11_cdsp_counter=0; runcd "sp11.entry=debug"
+grep -q 'FULL POWER-OFF' "$T/notice/20-cdsp.txt" && grep -q 'NOT a reboot' "$T/notice/20-cdsp.txt" && ok "CDSP experiment: variant 0 -> next 1 uses the alternate firmware: FULL POWER-OFF, NOT a reboot" || bad "power-off text missing for next=1"
 # guards: other entry, marker, bad state, crash
 mkcd; bs set sp11_cdsp_counter=0; runcd "sp11.entry=safe"
 grep -q 'not run: entry' "$T/run/cdsp-experiment" && [ "$(bs get sp11_cdsp_counter)" = 0 ] && ok "CDSP experiment: not on a recovery entry, counter untouched" || bad "CDSP ran on a non-main entry"
@@ -127,7 +131,7 @@ grep -q 'result state: crashed' "$T/run/cdsp-experiment" && eq "CDSP experiment:
 # the stop that never completes: nothing else is touched
 mkcd; echo "sp11.entry=debug" >"$T/cdsp-cmd"; rm -rf "$T/run"
 SP11_SYS=$T/sys SP11_RUN=$T/run SP11_CDSP_CMDLINE=$T/cdsp-cmd SP11_KMSG=$T/kmsg SP11_DMESG=$T/fake-dmesg SP11_CDSP_WAIT_UP=3 SP11_CDSP_WAIT_STATE=2 SP11_CDSP_SETTLE=0 SP11_CDSP_PRESETTLE=0 bash "$L/sp11/cdsp-experiment" 2>/dev/null
-grep -q 'stop did not reach offline' "$T/run/cdsp-experiment" && eq "CDSP experiment: a stop that hangs times out, keep_proxy_pds untouched" "$(cat $T/sys/module/qcom_q6v5_pas/parameters/keep_proxy_pds)" N || bad "stop timeout"
+grep -q 'stop did not reach offline' "$T/run/cdsp-experiment" && eq "CDSP experiment: a stop that hangs times out, keep_proxy_pds untouched" "$(cat $T/sys/module/qcom_q6v5_pas/parameters/keep_proxy_pds)" -1 || bad "stop timeout"
 
 # --- cpufreq cap
 mkpol() { rm -rf "$T/cpu"; for p in 0 4 8; do d=$T/cpu/policy$p; mkdir -p "$d"; echo "$p" >"$d/related_cpus"; echo "400000 800000 1200000 1600000 2000000 2400000 3400000" >"$d/scaling_available_frequencies"

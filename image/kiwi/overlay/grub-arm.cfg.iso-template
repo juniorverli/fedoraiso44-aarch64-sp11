@@ -13,7 +13,7 @@
 #   - every device entry has a `devicetree` line (GRUB 2 command, D9); the VM test entry has none;
 #     every device entry names an M15 DTB: m15 (microphones + rear/front/IR camera nodes + GPU/GMU/zap, the content of the former m14.dtb) on line 1,
 #     m15-safe (microphones only, GPU and cameras off, the M13/M14-safe content) on line 2 as the always-booting fallback; speakers only in the `spk`
-#     entry (m15-spk, D26 profile); there is no separate GPU or camera entry;
+#     entry (m15-spk, D26 profile); there is no separate GPU or camera entry except the Spectra test entry (m15-spectra, module_blacklist=camera_x1e80100);
 #   - every entry has sp11.entry=<id>; only the VM entry adds the serial console (D15);
 #   - the common kernel arguments are kiwi's boot options: its live options (root=live:CDLABEL, rd.live.image)
 #     plus the verbose kernelcmdline patched into components/liveinstall.xml (patch 0002).
@@ -102,6 +102,14 @@ menuentry 'SP11 debug nomodeset' --id sp11-nomodeset --class fedora --class gnu-
 menuentry 'SP11 debug, stop in initramfs' --id sp11-initramfs --class fedora --class gnu-linux --class gnu --class os {
 	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr rd.break=pre-mount sp11.entry=initramfs
 	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m15-safe.dtb
+	initrd ($$root)${bootpath}/${initrd_file}
+}
+menuentry 'SP11 debug, Spectra camera test' --id sp11-spectra --class fedora --class gnu-linux --class gnu --class os {
+	# Qualcomm Spectra camera path test (hardware/cameras/evidence/2026-10-31-spectra-integration.md): m15-spectra DTB, the same static arguments as `safe`,
+	# and module_blacklist=camera_x1e80100 so the downstream module never loads from GRUB's choice. Linux loads it only when the marker file
+	# /sp11/spectra-load exists on the boot medium (sp11-spectra-load.service). Never the main entry.
+	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr pmic_glink_altmode.dyndbg=+p ps883x.dyndbg=+p phy_qcom_qmp_combo.dyndbg=+p ucsi_glink.dyndbg=+p typec_ucsi.dyndbg=+p dwc3.dyndbg=+p dwc3_qcom.dyndbg=+p qcom_pd_mapper.dyndbg=+p pdr_interface.dyndbg=+p trace_event=:mod:qcom_glink,:mod:smp2p,:mod:qcom_aoss,rpmh:rpmh_send_msg trace_buf_size=16M module_blacklist=camera_x1e80100 sp11.entry=spectra
+	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m15-spectra.dtb
 	initrd ($$root)${bootpath}/${initrd_file}
 }
 menuentry 'VM test (no devicetree)' --id sp11-vmtest --class fedora --class gnu-linux --class gnu --class os {

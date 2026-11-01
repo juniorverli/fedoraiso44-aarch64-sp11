@@ -2,10 +2,12 @@
 # CDSP experiment at runtime (M15). Replaces the M14 GRUB rotor: the menu is static, so the variant is chosen here, after the ADSP and the
 # CDSP are up, by restarting the CDSP with another configuration (hardware/dsp-subsystems evidence 2026-10-31-denisix-comparison.md E1/E2/H-3,
 # README R-I6):
-#   variant 0  firmware c1-00078 (the shipped pair)                     keep_proxy_pds=0
-#   variant 1  firmware c1-00046.1 (/usr/lib/firmware-sp11-cdsp46)      keep_proxy_pds=0
-#   variant 2  firmware c1-00078                                        keep_proxy_pds=1
-#   variant 3  firmware c1-00046.1                                      keep_proxy_pds=1
+# Since kernel 7.3.0-65.sp11.12 (dsp-subsystems patch 0003) keep_proxy_pds is a tri-state whose DEFAULT (-1) keeps the proxy votes for the Surface
+# CDSP, so the plain boot already runs with the votes kept. The experiment variants (counter order) are:
+#   variant 0  firmware c1-00078 (the shipped pair)                     keep_proxy_pds forced 0 (the former default behaviour)
+#   variant 1  firmware c1-00046.1 (/usr/lib/firmware-sp11-cdsp46)      keep_proxy_pds default (-1: votes kept)
+#   variant 2  firmware c1-00046.1                                      keep_proxy_pds forced 0
+#   variant 3  firmware c1-00078                                        keep_proxy_pds default (-1: votes kept) = what a normal boot does
 # The counter is a plain file on the boot medium (sp11-boot-state, name sp11_cdsp_counter; S4). One variant per boot, advanced BEFORE the
 # restart so a hang or reset does not repeat it. Mechanics: /sys/module/qcom_q6v5_pas/parameters/keep_proxy_pds, the remoteproc `firmware`
 # file of the cdsp (found by the name attribute) and `echo stop` / `echo start` on its `state`. The alternate pair is found by the loader
@@ -13,8 +15,7 @@
 # Guards: runs only on the main entry (sp11.entry=debug), never twice per boot (mkdir lock in /run), not when the marker sp11/disable-cdsp-experiment
 # exists on the boot medium, not when the ADSP or the CDSP is not in a stable state, a timeout on every wait and on stop/start (each in a
 # background write: a hung write cannot hang this script), everything logged to /run/sp11/cdsp-experiment and the kernel log.
-# A variant that cannot be realised here (alternate pair absent on a public image, keep_proxy_pds read-only: it is 0444 in dsp-subsystems
-# patch 0003, a kernel request) is skipped and the counter moves on to the next realisable one.
+# A variant that cannot be realised here (alternate pair absent on a public image, keep_proxy_pds not writable (it is 0644 since patch 0003)) is skipped and the counter moves on to the next realisable one.
 set -u
 export LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin
 SYS=${SP11_SYS:-/sys}
@@ -36,7 +37,7 @@ DMESG=${SP11_DMESG:-dmesg}
 mkdir -p "$RUN"
 log() { local t; t="$(date +%T) $*"; echo "$t" >>"$STATE"; echo "sp11-cdsp-experiment: $*" >&2; echo "sp11-cdsp-experiment: $*" >"$KMSG" 2>/dev/null; return 0; }
 arg() { tr ' ' '\n' <"$CMDLINE" | sed -n "s/^$1=//p" | tail -n1; }
-desc() { case $1 in 0) echo "fw=c1-00078 keep_proxy_pds=0" ;; 1) echo "fw=c1-00046.1 keep_proxy_pds=0" ;; 2) echo "fw=c1-00078 keep_proxy_pds=1" ;; 3) echo "fw=c1-00046.1 keep_proxy_pds=1" ;; esac; }
+desc() { case $1 in 0) echo "fw=c1-00078 keep_proxy_pds=0 forced" ;; 1) echo "fw=c1-00046.1 keep_proxy_pds=default" ;; 2) echo "fw=c1-00046.1 keep_proxy_pds=0 forced" ;; 3) echo "fw=c1-00078 keep_proxy_pds=default" ;; esac; }
 notice() { "$NOTICE" add 20-cdsp "$*" || true; }
 rproc_by_name() { local d; for d in "$RPROC"/remoteproc*; do [ "$(cat "$d/name" 2>/dev/null)" = "$1" ] && { echo "$d"; return 0; }; done; return 1; }
 rstate() { cat "$1/state" 2>/dev/null || echo unreadable; }
@@ -79,7 +80,7 @@ alt_ok=no; [ -s "$FWDIR/$FWREL/qccdsp8380.mbn" ] && [ -s "$FWDIR/$FWREL/cdsp_dtb
 keep_ok=no; [ -w "$KEEP" ] && keep_ok=yes
 fwp_ok=no; [ -w "$FWPATH" ] && fwp_ok=yes
 realisable() { # variant
-	case $1 in 0) return 0 ;; 1) [ "$alt_ok" = yes ] && [ "$fwp_ok" = yes ] ;; 2) [ "$keep_ok" = yes ] ;; 3) [ "$alt_ok" = yes ] && [ "$fwp_ok" = yes ] && [ "$keep_ok" = yes ] ;; esac
+	case $1 in 0) [ "$keep_ok" = yes ] ;; 1) [ "$alt_ok" = yes ] && [ "$fwp_ok" = yes ] ;; 2) [ "$alt_ok" = yes ] && [ "$fwp_ok" = yes ] && [ "$keep_ok" = yes ] ;; 3) return 0 ;; esac
 }
 c=$("$BS" get sp11_cdsp_counter 2>/dev/null); case $c in '' | *[!0-9]*) c=0 ;; esac
 v=
@@ -89,8 +90,8 @@ saved=yes; "$BS" set "sp11_cdsp_counter=$next" 2>/dev/null || saved=no
 log "counter $c, variant $v ($(desc "$v")); alternate pair present: $alt_ok; keep_proxy_pds writable: $keep_ok; firmware_class.path writable: $fwp_ok; counter saved: $saved"
 nextv=; for ((k = 0; k < 4; k++)); do realisable $(((next + k) % 4)) && { nextv=$(((next + k) % 4)); break; }; done
 needoff=
-case $nextv in 1 | 3) needoff=" The NEXT boot uses the ALTERNATE firmware: do a FULL POWER-OFF first (shut down, wait 10 s, power on), NOT a reboot." ;; esac
-case $v in 1 | 3) pre=" This boot uses the ALTERNATE firmware c1-00046.1; the result is clean only if the previous shutdown was a FULL power-off, not a reboot." ;; *) pre= ;; esac
+case $nextv in 1 | 2) needoff=" The NEXT boot uses the ALTERNATE firmware: do a FULL POWER-OFF first (shut down, wait 10 s, power on), NOT a reboot." ;; esac
+case $v in 1 | 2) pre=" This boot uses the ALTERNATE firmware c1-00046.1; the result is clean only if the previous shutdown was a FULL power-off, not a reboot." ;; *) pre= ;; esac
 notice "CDSP experiment starting: variant $v ($(desc "$v")), CDSP restart in about a minute. Next boot: variant ${nextv:-none}.${pre}${needoff}$([ "$saved" = no ] && echo ' WARNING: the counter could not be saved on the boot medium; the next boot repeats this variant.')"
 
 # ---- run it
@@ -100,10 +101,10 @@ log "before: cdsp state $cs, firmware '$fw0', firmware_class.path '$fwp0', keep_
 twrite "$cd_dir/state" stop
 s=$(wait_state "$cd_dir" '^offline$' "$WAIT_STATE") || { log "stop did not reach offline within ${WAIT_STATE}s (state $s): nothing else touched"; notice "CDSP experiment: stop timed out (state $s). Nothing else changed."; exit 0; }
 log "stopped: $s"
-want_keep=0; case $v in 2 | 3) want_keep=1 ;; esac
+want_keep=-1; case $v in 0 | 2) want_keep=0 ;; esac   # -1 = the kernel default (votes kept for the Surface CDSP)
 [ "$keep_ok" = yes ] && printf '%s' "$want_keep" >"$KEEP" 2>/dev/null
 [ -n "$fw0" ] && [ -w "$cd_dir/firmware" ] && printf '%s' "$fw0" >"$cd_dir/firmware" 2>/dev/null
-case $v in 1 | 3) printf '%s' "$FWDIR" >"$FWPATH" 2>/dev/null ;; esac
+case $v in 1 | 2) printf '%s' "$FWDIR" >"$FWPATH" 2>/dev/null ;; esac
 log "set: keep_proxy_pds '$(cat "$KEEP" 2>/dev/null)', firmware '$(cat "$cd_dir/firmware" 2>/dev/null)', firmware_class.path '$(cat "$FWPATH" 2>/dev/null)'"
 twrite "$cd_dir/state" start
 s=$(wait_state "$cd_dir" '^(running|crashed|invalid)$' "$WAIT_STATE"); rc=$?

@@ -87,6 +87,8 @@ def main():
         "firmware_class.path": cfg.replace("sp11.entry=notouch", "firmware_class.path=/x sp11.entry=notouch", 1),
         "m15 DTB on a second entry": cfg.replace("denali-m15-notouch.dtb", "denali-m15.dtb", 1),
         "allow_nominal outside spk": cfg.replace("sp11.entry=nosnd", "sp11.allow_nominal=1 sp11.entry=nosnd", 1),
+        "module_blacklist outside the Spectra entry": cfg.replace("sp11.entry=nosnd", "module_blacklist=camera_x1e80100 sp11.entry=nosnd", 1),
+        "m15-spectra DTB on a second entry": cfg.replace("denali-m15-notouch.dtb", "denali-m15-spectra.dtb", 1),
         "quiet": cfg.replace("sp11.entry=safe", "quiet sp11.entry=safe", 1),
     }
     for name, text in mutants.items():

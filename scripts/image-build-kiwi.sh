@@ -47,6 +47,9 @@ scrub_private() {
 		"$work/description/root/usr/lib/firmware/updates/"*.bin "$work/description/root/etc/dracut.conf.d/93-sp11-cdsp46.conf" \
 		"$work/description/root/usr/lib/firmware/qcom/x1e80100/"*-sp11c*.bin "$work/description/root/usr/lib/firmware/qcom/x1e80100/"*-tplg.bin
 	rm -rf "$work/description/root/usr/lib/firmware-sp11-cdsp46" "$work/description/root/usr/share/qcom" "$work/description/root/usr/libexec/sp11/sp11-npu-install-private"
+	rm -rf "$work/description/root/var/lib/hexagonrpcd/registry" "$work/description/root/usr/share/sp11/pipewire-gated" "$work/description/root/usr/share/licenses/sp11-camera-icp"
+	rm -f "$work/description/root/usr/lib/firmware/qcom/x1e80100/CAMERA_ICP.mbn" "$work/description/root/usr/share/libcamera/ipa/simple/"{ov13858,imx681}.yaml \
+		"$work/description/root/etc/pipewire/pipewire.conf.d/"sp11-*.conf "$work/description/root/usr/lib/firmware/qcom/x1e80100/"*-sp11q*.bin
 }
 [ "$private" = 1 ] && trap scrub_private EXIT
 
@@ -86,19 +89,19 @@ if [ "$(rpm --eval "%{lua:print(rpm.vercmp('$newest_vr', '$min'))}")" -le 0 ]; t
 fi
 log "kernel $kver_full (newer than $min, the only kernel NEVRA at the top level of out/rpms)"
 
-# M15 requires revision-12 RPMs and all five atomically published DTB/JSON pairs (m15, m15-safe, m15-nosnd, m15-notouch, m15-spk).
-[ "$kver_full" = 7.3.0-65.sp11.12.fc44.aarch64 ] || {
-	log "REFUSED: M15 requires kernel 7.3.0-65.sp11.12.fc44.aarch64, found $kver_full"; exit 6;
+# M15 requires revision-12/13 RPMs and all six atomically published DTB/JSON pairs (m15, m15-safe, m15-nosnd, m15-notouch, m15-spk, m15-spectra).
+[ "$kver_full" = 7.3.0-65.sp11.13.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.12.fc44.aarch64 ] || {
+	log "REFUSED: M15 requires kernel 7.3.0-65.sp11.12 or 7.3.0-65.sp11.13.fc44.aarch64, found $kver_full"; exit 6;
 }
 patch_series_sha=$( . "$REPO/scripts/kernel-common.sh"; kernel_series_hash )
-for v in m15 m15-safe m15-nosnd m15-notouch m15-spk; do
+for v in m15 m15-safe m15-nosnd m15-notouch m15-spk m15-spectra; do
 	vsrc=$OUT/dtb-variants/$kver_full/qcom/x1p64100-microsoft-denali-$v
 	[ -s "$vsrc.dtb" ] && [ -s "$vsrc.json" ] || {
 		log "REFUSED: $v DTB and JSON not yet published by the kernel worker"; exit 6;
 	}
 	[ "$(sha256sum "$vsrc.dtb" | cut -d' ' -f1)" = "$(jq -r .sha256 "$vsrc.json")" ] &&
 	[ "$(jq -r .kver "$vsrc.json")" = "$kver_full" ] &&
-	[ "$(jq -r .series_rev "$vsrc.json")" = 12 ] &&
+	{ [ "$(jq -r .series_rev "$vsrc.json")" = 12 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 13 ]; } &&
 	[ "$(jq -r .series_hash_sha256 "$vsrc.json")" = "$patch_series_sha" ] || {
 		log "REFUSED: $v DTB hash/release/series differs from the kernel worker JSON"; exit 6;
 	}
@@ -163,6 +166,21 @@ done
 # M11: R10 collector snapshot and microphone-only public upstream payloads.
 install -m 0644 "$inputs/ec-sam/collector/ec-sam.sh" "$desc/root/etc/sp11-log-collector.d/ec-sam.sh"
 cp -a "$REPO/hardware/audio-speakers/userspace/overlay/." "$desc/root/"
+# M15 integration of the finished component pieces (each dossier's Requests; pins in image/component-inputs/m15-integration.json, L0 8.44).
+# (2) audio: UCM route layer (DisplayPort HDMI0/HDMI1, SP11-Audio, capture gain step 98 capped at 108), WirePlumber priorities, dconf, audio-routes collector.
+cp -a "$REPO/hardware/audio-mics/userspace/overlay-audio-routes/." "$desc/root/"
+# (3) cameras: the owner collectors (the image drop-in is the owner file), the Spectra collector, and the Spectra test loader (marker sp11/spectra-load)
+install -m 0644 "$REPO/hardware/cameras/collector/cameras.sh" "$desc/root/etc/sp11-log-collector.d/cameras.sh"
+install -m 0644 "$REPO/hardware/cameras/spectra/collector/spectra.sh" "$desc/root/etc/sp11-log-collector.d/spectra.sh"
+chmod 0755 "$desc/root/usr/libexec/sp11/spectra-load"
+mkdir -p "$desc/root/etc/systemd/system/multi-user.target.wants"
+ln -sf /usr/lib/systemd/system/sp11-spectra-load.service "$desc/root/etc/systemd/system/multi-user.target.wants/sp11-spectra-load.service"
+# (4) volume buttons: the on-demand collector of the ec-sam owner (never run automatically)
+install -D -m 0755 "$REPO/hardware/ec-sam/tools/collect-volume-buttons.sh" "$desc/root/usr/libexec/sp11/ec-sam/collect-volume-buttons.sh"
+# (1) sensors: units of package sp11-sensors, enabled explicitly as well as by the package preset (Fedora's preset-all would otherwise decide); adsprpcd* stays unmasked
+ln -sf /usr/lib/systemd/system/hexagonrpcd-sensors.service "$desc/root/etc/systemd/system/multi-user.target.wants/hexagonrpcd-sensors.service"
+mkdir -p "$desc/root/etc/systemd/system/sleep.target.wants"
+ln -sf /usr/lib/systemd/system/hexagonrpcd-sensors-sleep.service "$desc/root/etc/systemd/system/sleep.target.wants/hexagonrpcd-sensors-sleep.service"
 # M14: the microphone UCM fix (audio-mics evidence 2026-10-31-m13-mic.md): Fedora's x1e80100.conf plus one DMI branch for the Surface Pro 11,
 # without it alsa-ucm never finds a profile (the long card name is cut at 31 characters). Replaces the file the conf.d link points to.
 cp -a "$REPO/hardware/audio-mics/userspace/overlay-ucm-fix/." "$desc/root/"
@@ -263,7 +281,7 @@ if [ "$private" = 1 ]; then
 	# M14: camera blobs, the alternate CDSP pair (also in the initramfs), the closed-loop speaker files (they replace the public topology of the
 	# same name), the staged sensor configuration and the NPU installer. Verified here with the owners' checks; names and counts only in the log.
 	python3 -I "$REPO/image/tools/private-m14.py" stage --fp "$OUT/firmware-private" --root "$desc/root" --repo "$REPO" \
-		--record "$work/private-m14-record.json" ${ps:+--sensors "$ps/sensors"} >"$work/private-m14-stage.txt" 2>&1 || { cat "$work/private-m14-stage.txt" >&2; log "REFUSED: private M14 staging failed"; exit 6; }
+		--record "$work/private-m14-record.json" >"$work/private-m14-stage.txt" 2>&1 || { cat "$work/private-m14-stage.txt" >&2; log "REFUSED: private M14 staging failed"; exit 6; }
 	cat "$work/private-m14-stage.txt" >&2
 	log "PRIVATE build: staged device settings copied into the root (values not logged)"
 fi
@@ -284,6 +302,28 @@ for n in kernel kernel-core kernel-modules kernel-modules-core kernel-modules-ex
 	cp "$f" "$OUT/repo/"
 done
 cp "$iptsd_rpm" "$OUT/repo/"
+# M15 integration: the local sensor RPMs, the Spectra module RPM (rebuilt against this kernel-devel) and the local libcamera set (Fedora source + the cameras patches)
+sensors_rpms="hexagonrpcd libssc libssc-tools iio-sensor-proxy sp11-sensors"
+for n in $sensors_rpms; do
+	f=$(ls "$OUT"/rpms-local/$n-[0-9]*.rpm | grep -v -E '\.src\.rpm$|debuginfo|debugsource' | head -n1)
+	[ -f "$f" ] || { log "REFUSED: local sensor RPM $n missing in out/rpms-local (hardware/sensors/userspace/build-sensors-rpms.sh)"; exit 6; }
+	cp "$f" "$OUT/repo/"
+done
+spectra_rpm=$(ls "$OUT"/rpms-local/sp11-camera-spectra-1.0-*.aarch64.rpm 2>/dev/null | head -n1)
+[ -f "$spectra_rpm" ] && [ "$(jq -r .kver "${spectra_rpm%.rpm}.json")" = "$kver_full" ] && [ "$(sha256sum "$spectra_rpm" | cut -d' ' -f1)" = "$(jq -r .rpm_sha256 "${spectra_rpm%.rpm}.json")" ] || {
+	log "REFUSED: sp11-camera-spectra RPM missing or not built for $kver_full (hardware/cameras/spectra/rpm/build-spectra-rpm.sh $kver_full)"; exit 6; }
+cp "$spectra_rpm" "$OUT/repo/"
+libcamera_dir=$OUT/rpms-local/libcamera
+if [ -s "$libcamera_dir/libcamera-sp11-build.json" ]; then
+	for f in "$libcamera_dir"/*.rpm; do
+		case $f in *.src.rpm | *debuginfo* | *debugsource*) continue ;; esac
+		[ "$(sha256sum "$f" | cut -d' ' -f1)" = "$(jq -r --arg n "$(basename "$f")" '.rpms[$n]' "$libcamera_dir/libcamera-sp11-build.json")" ] || { log "REFUSED: $f differs from its build record"; exit 6; }
+		cp "$f" "$OUT/repo/"
+	done
+	echo local >"$work/libcamera-source.txt"
+else
+	echo stock >"$work/libcamera-source.txt"
+fi
 createrepo_c -q "$OUT/repo"
 kcore=$(ls "$OUT"/repo/kernel-core-*.rpm)
 kver=$(rpm -qp --qf '%{version}-%{release}.%{arch}' "$kcore")
@@ -298,7 +338,7 @@ rpm2cpio "$kcore" | cpio -i --quiet --to-stdout "./lib/modules/$kver/dtb/qcom/x1
 # M11: the kernel worker variants next to the packaged DTB. The build fails without
 # it; with --smoke a copy of the packaged DTB stands in (recorded, never for the device).
 variants_smoke_copy=0
-for v in m15 m15-safe m15-nosnd m15-notouch m15-spk; do
+for v in m15 m15-safe m15-nosnd m15-notouch m15-spk m15-spectra; do
 	vf=x1p64100-microsoft-denali-$v.dtb
 	vsrc=$OUT/dtb-variants/$kver/qcom/$vf
 	if [ -s "$vsrc" ]; then
@@ -404,11 +444,11 @@ for f in "$chk"/_* "$chk/esp-grub.cfg"; do
 	# kernel arguments only: a menu title or a parameter value such as shutdown_mode=quiet is not the kernel argument `quiet`
 	if grep -E '^[[:space:]]*(linux|linuxefi)[[:space:]]' "$f" | tr -s ' \t' '\n\n' | grep -x -E 'quiet|rhgb|splash' >/dev/null; then log "FAIL: quiet/rhgb/splash argument in $f"; exit 1; fi
 done
-n=$(grep -c "^menuentry '" "$chk/_boot_grub2_grub.cfg"); [ "$n" = 11 ] || { log "FAIL: $n top-level menu entries, expected 11 (M15: flat static menu)"; exit 1; }
-[ "$(grep -c "submenu" "$chk/_boot_grub2_grub.cfg")" = 0 ] || { log "FAIL: submenu in the M15 menu"; exit 1; }
-for e in debug safe nosnd notouch spk usbdbg nodsp wifi-unblock nomodeset initramfs vmtest; do grep -q "sp11.entry=$e\$" "$chk/_boot_grub2_grub.cfg" || { log "FAIL: no entry with sp11.entry=$e"; exit 1; }; done
+n=$(grep -c "^menuentry '" "$chk/_boot_grub2_grub.cfg"); [ "$n" = 12 ] || { log "FAIL: $n top-level menu entries, expected 12 (M15: flat static menu)"; exit 1; }
+[ "$(grep -c -E '^[[:space:]]*submenu[[:space:]]' "$chk/_boot_grub2_grub.cfg")" = 0 ] || { log "FAIL: submenu command in the M15 menu"; exit 1; }
+for e in debug safe nosnd notouch spk usbdbg nodsp wifi-unblock nomodeset initramfs spectra vmtest; do grep -q "sp11.entry=$e\$" "$chk/_boot_grub2_grub.cfg" || { log "FAIL: no entry with sp11.entry=$e"; exit 1; }; done
 python3 -I "$REPO/image/tools/check-m8-menu.py" "$chk/_boot_grub2_grub.cfg"
-for f in x1p64100-microsoft-denali-m15 x1p64100-microsoft-denali-m15-safe x1p64100-microsoft-denali-m15-nosnd x1p64100-microsoft-denali-m15-notouch x1p64100-microsoft-denali-m15-spk; do
+for f in x1p64100-microsoft-denali-m15 x1p64100-microsoft-denali-m15-safe x1p64100-microsoft-denali-m15-nosnd x1p64100-microsoft-denali-m15-notouch x1p64100-microsoft-denali-m15-spk x1p64100-microsoft-denali-m15-spectra; do
 	xorriso -indev "$iso" -find "/boot/dtb/qcom/$f.dtb" -type f 2>/dev/null | grep -q . || { log "FAIL: /boot/dtb/qcom/$f.dtb not on the ISO"; exit 1; }
 done
 
@@ -477,21 +517,25 @@ record = {
     "module_policy": {"qcom_battmgr": "blacklist + install false + dracut omit_drivers (D23)",
                       "ucsi_glink": "retained early", "ath12k.debug_mask": "0x70; CONFIG_ATH12K_DEBUG=y; output checked by L0",
                       "scmi_cpufreq": "modules-load.d/sp11-cpufreq.conf (soc-boot R-I2); cap by default, lifted only by the boot-medium marker sp11/cpufreq-uncapped"},
-    "menu": "M15 flat static menu, 11 entries, no GRUB function except load_video, no grubenv, no variable: debug (m15 with GPU and cameras), safe (m15-safe), nosnd, notouch, spk, usbdbg, nodsp, wifi-unblock, nomodeset, initramfs, vmtest",
+    "menu": "M15 flat static menu, 12 entries, no GRUB function except load_video, no grubenv, no variable: debug (m15 with GPU and cameras), safe (m15-safe), nosnd, notouch, spk, usbdbg, nodsp, wifi-unblock, nomodeset, initramfs, spectra, vmtest",
     "diagnostic_args_reason": {"debug": "M15 line 1: m15 DTB (microphones + rear/front/IR camera nodes + GPU/GMU/zap), the constant sp11.gpu_diag=1 (two-step before gdm; may reset the machine), USB dynamic debug (usb-typec R-I1), PDR dynamic debug, DSP trace string without power:power_domain_target; nothing variable",
                                "safe": "m15-safe: microphones only, camera and GPU nodes off (the M13/M14-safe content); the always-booting fallback, line 1 arguments without sp11.gpu_diag",
                                "nosnd": "m15-nosnd: sound card off", "notouch": "touch-pen section 8: m15-notouch, touch child disabled",
                                "spk": "speaker FIRST TEST (D26): m15-spk, speaker UCM overlay, sp11.allow_nominal=1 on this entry only; kill switch sp11.nospk (operator edit)",
+                               "spectra": "Qualcomm Spectra camera test: m15-spectra DTB, the safe arguments plus module_blacklist=camera_x1e80100 (the kernel then refuses every load of that module); sp11-spectra-load.service loads it only with the marker sp11/spectra-load on the boot medium and without that argument",
                                "usbdbg": "M13 USB + DSP trace (8M buffer) on m15-safe", "nodsp": "qcom_q6v5_pas blacklisted (no early DSP) on m15-safe",
                                "wifi-unblock": "sp11.wifi_unblock=1 on m15-safe", "nomodeset": "nomodeset on m15-safe", "initramfs": "rd.break=pre-mount on m15-safe", "vmtest": "L1 only, no devicetree"},
     "linux_side_experiments": {"sam_mode_order": "silent, clean, quiet, default (sp11-sam-mode-rotor.service; counter sp11_sam_counter in sp11/state/ on the boot medium)",
-               "cdsp_variants": ["fw=c1-00078 keep=0", "fw=c1-00046.1 keep=0", "fw=c1-00078 keep=1", "fw=c1-00046.1 keep=1"],
+               "cdsp_variants": ["fw=c1-00078 keep_proxy_pds=0 forced", "fw=c1-00046.1 keep_proxy_pds=default (-1: votes kept)", "fw=c1-00046.1 keep_proxy_pds=0 forced", "fw=c1-00078 keep_proxy_pds=default (-1: votes kept)"],
                "cdsp_mechanism": "sp11-cdsp-experiment.service: main entry only, once per boot, restart of the cdsp remoteproc with keep_proxy_pds and the firmware directory; counter sp11_cdsp_counter",
                "identity_switch": "marker sp11/identity-none on the boot medium (private ISO); sp11-identity-switch.service",
                "cpufreq_cap": "cap applies BY DEFAULT (schedutil, median scaling_max_freq); marker sp11/cpufreq-uncapped lifts it (S6); sp11-cpufreq-cap.service",
                "gpu_two_step": "enabled; runs only with sp11.gpu_diag=1 (line 1 only); plain-file markers on the boot medium"},
     "collector_sources": {c: sha256(f"{repo}/hardware/{c}/collector/{c}.sh") for c in ("dsp-subsystems", "wifi")},
     "m15_inputs": json.load(open(f"{repo}/image/component-inputs/m15.json")),
+    "m15_integration": json.load(open(f"{repo}/image/component-inputs/m15-integration.json")),
+    "libcamera_source": read(f"{work}/libcamera-source.txt").strip(),
+    "local_rpm_sha256": {os.path.basename(f): sha256(f) for f in sorted(__import__("glob").glob(f"{out}/repo/*.rpm")) if not os.path.basename(f).startswith("kernel")},
     "touch_collector_sha256": sha256(f"{repo}/hardware/touch-pen/collect-read-only.sh"),
     "touch_userspace_collector_sha256": sha256(f"{repo}/image/overlay/usr/libexec/sp11-touch-userspace-collect"),
     "iptsd": json.load(open(f"{out}/rpms/iptsd-3.1.0-1.fc44.aarch64.json")),

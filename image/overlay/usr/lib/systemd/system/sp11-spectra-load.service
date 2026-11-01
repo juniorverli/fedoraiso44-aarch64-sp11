@@ -1,0 +1,18 @@
+[Unit]
+Description=SP11 Spectra camera test: load camera_x1e80100 only when the boot-medium marker sp11/spectra-load exists
+# Spectra test entry only (sp11.entry=spectra, DTB m15-spectra, which carries Qualcomm's qcom,cam-cpas node). Boot 1 of the test never loads the module;
+# boot 2 creates the marker file sp11/spectra-load on the boot medium (hardware/cameras/evidence/2026-10-31-spectra-integration.md section 4).
+# NOTE: the entry's module_blacklist=camera_x1e80100 makes the kernel refuse every load of that module (core param, 0400); the script says so in the
+# operator notice and loads only when the operator removed that argument for this boot (GRUB 'e').
+After=local-fs.target systemd-udevd.service sp11-log-collector.service
+ConditionKernelCommandLine=sp11.entry=spectra
+ConditionPathExistsGlob=/proc/device-tree/soc@0/qcom,cam-cpas*
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/sp11/spectra-load
+TimeoutStartSec=90
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target

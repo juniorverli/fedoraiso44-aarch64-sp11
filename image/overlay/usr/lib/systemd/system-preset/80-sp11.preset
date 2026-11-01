@@ -23,3 +23,4 @@ enable sp11-suspend-policy.service
 enable sp11-wakeup-policy.service
 enable sp11-suspend-diag.service
 enable sp11-thermal-sample.service
+enable sp11-spectra-load.service

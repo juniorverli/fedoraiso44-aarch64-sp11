@@ -35,11 +35,12 @@ ENTRIES = {
     "wifi-unblock": ("SP11 debug, Wi-Fi unblock probe", "m15-safe", set(BASE) | {"sp11.wifi_unblock=1"}),
     "nomodeset": ("SP11 debug nomodeset", "m15-safe", set(BASE) | {"nomodeset"}),
     "initramfs": ("SP11 debug, stop in initramfs", "m15-safe", set(BASE) | {"rd.break=pre-mount"}),
+    "spectra": ("SP11 debug, Spectra camera test", "m15-spectra", DEFAULT | {"module_blacklist=camera_x1e80100"}),
     "vmtest": ("VM test (no devicetree)", None, {"console=ttyAMA0,115200"}),
 }
-COMMON_KIWI = {"printk.devkmsg=on", "log_buf_len=16M"}
+COMMON_KIWI = {"printk.devkmsg=on", "log_buf_len=16M", "console=tty0"}   # kiwi boot options (liveinstall.xml)
 FORBIDDEN_WORDS = {"quiet", "rhgb", "splash"}
-SPECIAL_PREFIX = ("modprobe.blacklist=", "rd.driver.blacklist=", "trace_", "drm.debug=", "sp11.allow_nominal", "sp11.nospk", "sp11.gpu_diag", "sp11.wifi_unblock",
+SPECIAL_PREFIX = ("module_blacklist=", "modprobe.blacklist=", "rd.driver.blacklist=", "trace_", "drm.debug=", "sp11.allow_nominal", "sp11.nospk", "sp11.gpu_diag", "sp11.wifi_unblock",
                   "systemd.unit=", "nomodeset", "rd.break=", "console=")
 NEVER_PREFIX = ("surface_aggregator.", "qcom_q6v5_pas.", "firmware_class.", "sp11.gpu_dtb", "sp11.gpu_retry", "sp11.cdsp_", "sp11.ssam_", "sp11.identity", "sp11.cpufreq")
 DTB_RE = "($root)/boot/dtb/qcom/x1p64100-microsoft-denali-{}.dtb"
@@ -111,7 +112,10 @@ def check(cfg):
             used.setdefault(d, []).append(ident)
     assert used["m15-spk"] == ["spk"], f"m15-spk used by {used['m15-spk']}"
     assert used["m15"] == ["debug"], f"m15 (GPU and camera nodes) used by {used['m15']}: only line 1"
-    assert set(used) == {"m15", "m15-safe", "m15-nosnd", "m15-notouch", "m15-spk"}, f"DTB set differs: {sorted(used)}"
+    assert used["m15-spectra"] == ["spectra"], f"m15-spectra used by {used['m15-spectra']}"
+    assert [i for i, a in arglists.items() if "module_blacklist=camera_x1e80100" in a] == ["spectra"], "module_blacklist=camera_x1e80100 only on the Spectra entry"
+    assert sorted(strip("spectra")) == sorted(line1 + ["module_blacklist=camera_x1e80100"]), "spectra: arguments differ from safe beyond module_blacklist"
+    assert set(used) == {"m15", "m15-safe", "m15-nosnd", "m15-notouch", "m15-spk", "m15-spectra"}, f"DTB set differs: {sorted(used)}"
     # the speaker entry keeps the first-test notice
     spk = [b for _, i, b in entries if i == "spk"][0]
     assert "kill switch" in spk.lower() and "sleep 3" in spk, "spk: first-test notice missing"

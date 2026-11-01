@@ -74,9 +74,10 @@ if [ "$inside" = 0 ]; then
 	if [ "$builder" = kiwi ]; then
 		ls "$out"/rpms/kernel-core-*.rpm >/dev/null 2>&1 || { echo "image-build: no kernel-core RPM in $out/rpms/" >&2; exit 1; }
 		[ -d "$out/firmware-root/lib/firmware" ] || { echo "image-build: $out/firmware-root missing; run scripts/firmware-stage.sh" >&2; exit 1; }
-		for v in m15 m15-safe m15-nosnd m15-notouch m15-spk; do
+		kver_check=$( . "$here/scripts/kernel-common.sh"; echo "$KERNEL_KVER" )
+		for v in m15 m15-safe m15-nosnd m15-notouch m15-spk m15-spectra; do
 			for ext in dtb json; do
-				[ -s "$out/dtb-variants/7.3.0-65.sp11.12.fc44.aarch64/qcom/x1p64100-microsoft-denali-$v.$ext" ] || {
+				[ -s "$out/dtb-variants/$kver_check/qcom/x1p64100-microsoft-denali-$v.$ext" ] || {
 					echo "image-build: REFUSED: kernel worker has not published the M15 $v $ext" >&2; exit 6;
 				}
 			done
@@ -101,9 +102,11 @@ if [ "$inside" = 0 ]; then
 			trap 'exit 129' HUP
 			echo "image-build: PRIVATE build: embeds device addresses; never share the ISO"
 			python3 -I "$here/image/tools/private-stage.py" stage --mac-conf "$macconf" "${board_args[@]}" --out "$out/private-stage" || exit 6
-			# M14: the sensor configuration derives from the Windows driver store (S5): staged here on the host, copied by the container side
-			bash "$here/hardware/sensors/userspace/sp11-sensors-stage.sh" --windows "$here/sources/windows" --out "$out/private-stage/sensors" >"$out/private-stage/sensors-stage.log" 2>&1 \
-				|| { echo "image-build: REFUSED: sensor staging failed (names only: $(tail -n 2 "$out/private-stage/sensors-stage.log" | cut -c1-160))" >&2; exit 6; }
+			# M15: the sensor tree is the sensors owner's stage in out/firmware-private/sensors (checked against its SHA256SUMS by the container side with
+			# sp11-sensors-install-private.sh, registry route A); CAMERA_ICP.mbn is fetched here with both of its pins (idempotent, cache in out/ref)
+			[ -s "$out/firmware-private/sensors/SHA256SUMS" ] || { echo "image-build: REFUSED: out/firmware-private/sensors is not staged (hardware/sensors/userspace/sp11-sensors-stage.sh)" >&2; exit 6; }
+			bash "$here/hardware/cameras/spectra/rpm/fetch-camera-icp.sh" >"$out/private-stage/icp-fetch.log" 2>&1 \
+				|| { echo "image-build: REFUSED: CAMERA_ICP.mbn fetch failed ($(tail -n 1 "$out/private-stage/icp-fetch.log" | cut -c1-160))" >&2; exit 6; }
 			for f in "$out/firmware-private/audio/qcom/x1e80100/X1E80100-Microsoft-Surface-Pro-11-"{tplg,sp11cl,sp11cal}.bin; do
 				[ -s "$f" ] || { echo "image-build: REFUSED: missing private audio file $(basename "$f") (hardware/audio-speakers/userspace/build-topology/build-closedloop.sh, SP11_TOPOLOGY=1, --nominal-cal)" >&2; exit 6; }
 			done

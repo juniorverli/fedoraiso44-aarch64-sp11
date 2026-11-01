@@ -32,6 +32,7 @@ ENTRIES = [   # M15: one flat static menu (M13 style); the VM entry is the LAST 
     "SP11 debug, Wi-Fi unblock probe",
     "SP11 debug nomodeset",
     "SP11 debug, stop in initramfs",
+    "SP11 debug, Spectra camera test",
     "VM test (no devicetree)",
 ]
 # GRUB shows only the first entries of a long menu on a 24-row serial terminal; the rest appears while scrolling.

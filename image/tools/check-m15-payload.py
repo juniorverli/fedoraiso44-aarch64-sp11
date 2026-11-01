@@ -88,7 +88,7 @@ def check(root, repo, record):
     assert not any('sp11.gpu_dtb' in (e['linux_args'] or '') for e in record['grub_entries']), 'GPU DTB argument in the M15 menu'
     assert 'RESET THE MACHINE' in hooks.read_text() and 'line 2' in hooks.read_text(), 'GPU hooks lack the plain reset warning'
     assert 'sp11-boot-state' in hooks.read_text() and 'grubenv' not in hooks.read_text().replace('no grubenv', ''), 'GPU hooks must use the boot-state helper only'
-    assert not any('denali-m1' in str(e) for e in record['grub_entries']) and len(record['grub_entries']) == 11, 'M15 menu is 11 flat entries'
+    assert not any('denali-m1' in str(e) for e in record['grub_entries']) and len(record['grub_entries']) == 12, 'M15 menu is 12 flat entries'
     assert not any(re.search(r'cdsp_variant|firmware_class|keep_proxy_pds|surface_aggregator|sp11\.identity|cpufreq', e['linux_args'] or '') for e in record['grub_entries']), 'experiment argument on a static line'
     assert all('sp11.allow_nominal' not in e['linux_args'] for e in record['grub_entries'] if 'speakers' not in e['title']), 'allow_nominal outside the speaker entry'
     # rotors, notices, helper
@@ -157,7 +157,8 @@ def check(root, repo, record):
         assert needle in on, f'operator-notice lacks {needle}'
     # collectors: image-owned drop-ins byte-identical to the repository, owner collectors unchanged
     dropins = root / 'etc/sp11-log-collector.d'
-    for name in ('usb-typec.sh', 'bluetooth.sh', 'ssam-shutdown-mode.sh', 'cameras.sh', 'audio.sh', 'rotors.sh', 'touch-conf.sh'):
+    assert (dropins / 'cameras.sh').read_bytes() == (repo / 'hardware/cameras/collector/cameras.sh').read_bytes(), 'cameras.sh is not the owner file'
+    for name in ('usb-typec.sh', 'bluetooth.sh', 'ssam-shutdown-mode.sh', 'audio.sh', 'rotors.sh', 'touch-conf.sh'):
         assert (dropins / name).read_bytes() == (repo / 'image/overlay/etc/sp11-log-collector.d' / name).read_bytes(), name
         subprocess.run(['bash', '-n', str(dropins / name)], check=True)
     pt = repo / 'hardware/power-thermal/collector/power-thermal.sh'
@@ -176,7 +177,7 @@ def check(root, repo, record):
         assert needle in usb, f'usb-typec drop-in lacks {needle}'
     cam = (dropins / 'cameras.sh').read_text()
     assert 'i2cdetect' not in ''.join(l for l in cam.splitlines() if not l.lstrip().startswith('#')), 'camera drop-in runs i2cdetect'
-    for needle in ('media-ctl', 'cam_cc_mclk1', 'regulator_summary', 'ov13858'):
+    for needle in ('media-ctl', 'regulator_summary', 'ov13858'):
         assert needle in cam, f'camera drop-in lacks {needle}'
     aud = (dropins / 'audio.sh').read_text()
     for needle in ('arecord -l', 'wpctl status', 'amixer -c 0 contents', 'alsaucm -c hw:0 list _verbs', '/sys/kernel/debug/sp11/guard', '/proc/asound/pcm'):

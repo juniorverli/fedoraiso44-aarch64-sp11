@@ -1,0 +1,60 @@
+{
+ "note": "M15 integration pins (sensors, audio routes, cameras, Spectra, volume buttons); hashes of the owner files as installed, NEVRAs of the local RPMs",
+ "audio_routes_overlay": {
+  "etc/dconf/db/distro.d/91-sp11-audio-routes": "3f26813431849eb67b133dd1b37260be88ab0dfd76349afb2366d8469c4e48ff",
+  "etc/sp11-log-collector.d/audio-routes.sh": "1c5b71a9c8ee70be067ff3cf101cae877dbd5d21234847926b990f404d056065",
+  "usr/share/alsa/ucm2/Qualcomm/x1e80100/SP11-Audio.conf": "6e245b6bc65921a92d4be17ced681c2c15d68898f7a1503d3c61d289cabf5e71",
+  "usr/share/alsa/ucm2/Qualcomm/x1e80100/SP11-DP0.conf": "0049f5a9be9661c08dde37cc32fdab2902f14a50cd8d1a57154152329b05d8f4",
+  "usr/share/alsa/ucm2/Qualcomm/x1e80100/SP11-DP1.conf": "989504d47364e430cbd6955f7992c432a953937f54a639c6fd0a7cec3d04ff3b",
+  "usr/share/alsa/ucm2/Qualcomm/x1e80100/SP11-HiFi.conf": "e82c947e6bafa4b007e60d16d00cf68604b9901a924a78cf4a030b8ba4fc5637",
+  "usr/share/alsa/ucm2/Qualcomm/x1e80100/SP11-MicGain.conf": "bd4c02d1f459c9ba5e5332f59be3e23b186af0ff2e28f81aef81c2271f5c4fe3",
+  "usr/share/alsa/ucm2/Qualcomm/x1e80100/SP11-Routes.conf": "b893ff6c6d7a155875454dad25ec3692e0db270b9bddc3b381ef16761edae07f",
+  "usr/share/wireplumber/wireplumber.conf.d/52-sp11-audio-routes.conf": "f3bb74e221b68bdff93560c98cfe60ce906866cbc8454710a2bcf8d1f334c574"
+ },
+ "collectors": {
+  "etc/sp11-log-collector.d/cameras.sh": "bc7be127324ca4777e7c586dd63561ae655d5a4f71b22638db9ecee2a0c2e0f6",
+  "etc/sp11-log-collector.d/spectra.sh": "9672153dc7f65897c13681f3318cc2277d4bc5e91fdfb3d83795a80624b928e9",
+  "usr/libexec/sp11/ec-sam/collect-volume-buttons.sh": "53f9fa9cbff4f4c96f282fe798522cf4375004e082b91f8240c62c5170331a73"
+ },
+ "image_files": {
+  "usr/libexec/sp11/spectra-load": "620575e020ed7086cd4f4c9d290fcbde3b1130b7aa8dfc2896b4264542082b77",
+  "usr/lib/systemd/system/sp11-spectra-load.service": "9e70091f433341dba6f5866e5e58752ea8e4d1b6b230669021f90be5f0dc65a9"
+ },
+ "local_rpms": {
+  "sensors": [
+   "hexagonrpcd-0.5.0-1.sp11.fc44.aarch64",
+   "libssc-0.4.4-1.sp11.fc44.aarch64",
+   "libssc-tools-0.4.4-1.sp11.fc44.aarch64",
+   "iio-sensor-proxy-3.9-1.sp11.fc44.aarch64",
+   "sp11-sensors-1.0-1.fc44.noarch"
+  ],
+  "spectra": [
+   "sp11-camera-spectra-1.0-1.git08171dd.sp11.fc44.aarch64"
+  ],
+  "libcamera_local": [
+   "libcamera-0.7.2-2.sp11.fc44.aarch64",
+   "libcamera-ipa-0.7.2-2.sp11.fc44.aarch64",
+   "libcamera-tools-0.7.2-2.sp11.fc44.aarch64"
+  ],
+  "libcamera_stock": [
+   "libcamera",
+   "libcamera-ipa",
+   "libcamera-tools"
+  ]
+ },
+ "extra_packages": [
+  "alsa-ucm-utils",
+  "ladspa-swh-plugins",
+  "webrtc-audio-processing"
+ ],
+ "units": [
+  "hexagonrpcd-sensors.service",
+  "hexagonrpcd-sensors-sleep.service"
+ ],
+ "cdsp_variants": [
+  "fw=c1-00078 keep_proxy_pds=0 forced",
+  "fw=c1-00046.1 keep_proxy_pds=default",
+  "fw=c1-00046.1 keep_proxy_pds=0 forced",
+  "fw=c1-00078 keep_proxy_pds=default"
+ ]
+}

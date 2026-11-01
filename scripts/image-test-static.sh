@@ -189,14 +189,14 @@ else
 fi
 titles=$(grep -o -E "^[[:space:]]*(menuentry|submenu) '[^']*'" "$cfg_esp" | sed -E "s/^[[:space:]]*(menuentry|submenu) '//;s/'\$//")
 if [ "$builder" = kiwi ]; then
-	# M15: one FLAT static menu (M13 style), eleven entries, no submenu
-	expect=$'SP11 debug\nSP11 debug, safe (no GPU, no cameras)\nSP11 debug, no sound\nSP11 debug, touch off\nSP11 debug, speakers (gated)\nSP11 debug, USB + DSP trace\nSP11 debug, no early DSP\nSP11 debug, Wi-Fi unblock probe\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)'
-	nentries=11
+	# M15: one FLAT static menu (M13 style), twelve entries, no submenu
+	expect=$'SP11 debug\nSP11 debug, safe (no GPU, no cameras)\nSP11 debug, no sound\nSP11 debug, touch off\nSP11 debug, speakers (gated)\nSP11 debug, USB + DSP trace\nSP11 debug, no early DSP\nSP11 debug, Wi-Fi unblock probe\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nSP11 debug, Spectra camera test\nVM test (no devicetree)'
+	nentries=12
 else
 	expect=$'SP11 debug\nSP11 debug + DRM trace\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)'
 	nentries=5
 fi
-[ "$titles" = "$expect" ] && pass 2.5 "exactly the M15 flat menu in order: debug, safe, no sound, touch off, speakers, USB + DSP trace, no early DSP, Wi-Fi unblock, nomodeset, stop in initramfs, VM test" || fail 2.5 "entries differ: $(echo "$titles" | tr '\n' '|')"
+[ "$titles" = "$expect" ] && pass 2.5 "exactly the M15 flat menu in order: debug, safe, no sound, touch off, speakers, USB + DSP trace, no early DSP, Wi-Fi unblock, nomodeset, stop in initramfs, Spectra camera test, VM test" || fail 2.5 "entries differ: $(echo "$titles" | tr '\n' '|')"
 [ "$(grep -c '^set default=0' "$cfg_esp")" = 1 ] && pass 2.6 "default entry is the first (SP11 debug, the main entry)" || fail 2.6 "default is not entry 0"
 bad=0
 # M15: every devicetree line is a fixed path (no GRUB variable anywhere); the file must exist on the ISO
@@ -214,7 +214,7 @@ ids_ok=1
 awk '/^[ \t]*menuentry /{t=$0} /^[[:space:]]+linux /{print t "\t" $0}' "$cfg_esp" >"$W/linux-lines.txt"
 while IFS=$'\t' read -r t l; do
 	id=$(echo "$t" | sed -n "s/.*--id sp11-\([a-z0-9-]*\).*/\1/p")
-	case $id in debug | safe | nosnd | notouch | spk | usbdbg | nodsp | wifi-unblock | nomodeset | initramfs | vmtest) ;; *) ids_ok=0; fail 2.12 "unknown entry id '$id' ($t)" ;; esac
+	case $id in debug | safe | nosnd | notouch | spk | usbdbg | nodsp | wifi-unblock | nomodeset | initramfs | spectra | vmtest) ;; *) ids_ok=0; fail 2.12 "unknown entry id '$id' ($t)" ;; esac
 	want=$id
 	case $l in *" sp11.entry=$want"*) ;; *) ids_ok=0; fail 2.12 "entry '$t' lacks sp11.entry=$want" ;; esac
 	case $l in *console=ttyAMA0*) [ "$id" = vmtest ] || { ids_ok=0; fail 2.12 "serial console on a device entry: $t"; } ;; *) [ "$id" != vmtest ] || { ids_ok=0; fail 2.12 "VM entry lacks the serial console"; } ;; esac
@@ -226,7 +226,7 @@ vm=$(awk '/^[ \t]*menuentry /{f=0} /^[ \t]*menuentry .VM test/{f=1} f&&/^[[:spac
 [ "$(grep -c -E "^[[:space:]]*menuentry '" "$cfg_esp")" = "$nentries" ] && [ "$(grep '^set default' "$cfg_esp")" = "set default=0" ] && pass 2.9 "VM test entry is not the default"
 if [ "$builder" = kiwi ]; then
 	if python3 -I "$REPO/image/tools/check-m8-menu.py" "$cfg_esp" >"$W/m8-menu.txt" 2>&1; then
-		pass 2.17 "M15 flat static menu: 11 entries, no function except load_video, no load_env/save_env/grubenv/variable/submenu, fixed DTB per entry (line 1 m15 with GPU and cameras and the constant sp11.gpu_diag=1 (line 1 only), line 2 m15-safe fallback), exact diagnostic arguments, allow_nominal on spk only, no rotor/GPU/SAM/firmware_class argument on any line"
+		pass 2.17 "M15 flat static menu: 12 entries, no function except load_video, no load_env/save_env/grubenv/variable/submenu, fixed DTB per entry (line 1 m15 with GPU and cameras and the constant sp11.gpu_diag=1 (line 1 only), line 2 m15-safe fallback), exact diagnostic arguments, allow_nominal on spk only, no rotor/GPU/SAM/firmware_class argument on any line"
 	else
 		fail 2.17 "M15 menu: $(cat "$W/m8-menu.txt")"
 	fi
@@ -345,7 +345,7 @@ fi
 if [ "$builder" = kiwi ]; then
 	# D19: DTB variants next to the packaged one. Same SoC and board (root compatible), different from the
 	# packaged DTB, hashes as in the build record and as in out/dtb-variants (the kernel worker's output).
-	m13v="m15 m15-safe m15-nosnd m15-notouch m15-spk"
+	m13v="m15 m15-safe m15-nosnd m15-notouch m15-spk m15-spectra"
 	for v in $m13v; do x "/boot/dtb/qcom/x1p64100-microsoft-denali-$v.dtb" "$W/x1p64100-microsoft-denali-$v.dtb"; done
 	m12dir=$OUT/dtb-variants/7.3.0-65.sp11.9.fc44.aarch64/qcom   # the M12 DTBs the M15 variants are compared with (kernel worker scripts/kernel-dtb-m15.sh)
 	for v in $m13v; do
@@ -365,7 +365,7 @@ if [ "$builder" = kiwi ]; then
 		# the exact baselines and M12 comparison DTBs of scripts/kernel-dtb-m13.sh
 		base=$dtbf extra=()
 		case $v in
-		m15 | m15-notouch) base=$W/x1p64100-microsoft-denali-m15-safe.dtb ;;
+		m15 | m15-notouch | m15-spectra) base=$W/x1p64100-microsoft-denali-m15-safe.dtb ;;
 		esac
 		case $v in
 		m15-nosnd) extra=(--previous-m12 "$m12dir/x1p64100-microsoft-denali-m12.dtb") ;;
@@ -374,6 +374,9 @@ if [ "$builder" = kiwi ]; then
 		if python3 -I "$REPO/scripts/kernel-m8-check.py" "$vd" --variant "$v" --cma-dma32 --parity-in-base --baseline "$base" "${extra[@]}" >"$W/$v-wiring.json" 2>"$W/$v-wiring.err"; then
 			pass 3.13 "$v: S1 profile, parity, wiring, QSPI touch, camera and GPU placement (kernel-m8-check)"
 		else fail 3.13 "$v: $(cat "$W/$v-wiring.err")"; fi
+		# usb-typec 0003 (M15 experiment): the QMP PHY orientation-switch property is ABSENT in m15 only and present in every other variant
+		if [ "$v" = m15 ]; then want_os=false; else want_os=true; fi
+		[ "$(jq -c '[.usb_orientation_switch[]] | unique' "$W/$v-wiring.json" 2>/dev/null)" = "[$want_os]" ] && pass 3.16 "USB-C property rule: $v has orientation-switch $([ "$want_os" = false ] && echo absent || echo present) on both QMP combo PHYs (absent in m15 only)" || fail 3.16 "USB-C property rule: $v orientation-switch state differs from the rule (absent in m15 only)"
 		rc=$(fdtget "$vd" / compatible 2>/dev/null)
 		case " $rc " in *" microsoft,denali-lcd "*) pass 3.7 "variant $v root compatible has microsoft,denali-lcd" ;; *) fail 3.7 "variant $v root compatible is '$rc'" ;; esac
 		vsha=$(sha256sum "$vd" | cut -d' ' -f1)
@@ -391,7 +394,7 @@ if [ "$builder" = kiwi ]; then
 		if [ -n "$rsha" ]; then [ "$vsha" = "$rsha" ] && pass 3.11 "variant $v SHA-256 equals the kernel worker's JSON record" || fail 3.11 "variant $v SHA-256 differs from the kernel worker's JSON record ($rsha)"; else fail 3.11 "no JSON record of the kernel worker for variant $v in the build record"; fi
 		vr=$OUT/dtb-variants/$kver/qcom/${vf%.dtb}.json
 		if [ -f "$vr" ] && [ "$vsha" = "$(jq -r .sha256 "$vr")" ] &&
-		   [ "$(jq -r .kver "$vr")" = "$kver" ] && [ "$(jq -r .series_rev "$vr")" = 12 ] &&
+		   [ "$(jq -r .kver "$vr")" = "$kver" ] && { [ "$(jq -r .series_rev "$vr")" = 12 ] || [ "$(jq -r .series_rev "$vr")" = 13 ]; } &&
 		   [ "$(jq -r .series_hash_sha256 "$vr")" = "$(jq_ .kernel_patch_series_sha256)" ] &&
 		   jq -e --arg f "$vf.json" --slurpfile source "$vr" '.dtb_variant_records[$f] == $source[0]' "$rec" >/dev/null; then
 			pass 3.14 "variant $v matches published JSON hash/release/series and embedded record"
@@ -413,9 +416,11 @@ if [ "$smoke" = false ]; then
 	ls "$OUT"/rpms/kernel-core-*.rpm >/dev/null 2>&1 && { rpm -qp --qf '%{name}-%{version}-%{release}.%{arch}\n' "$OUT"/rpms/kernel-core-*.rpm | grep -qx "$got_nevra" && pass 4.2 "kernel-core is the RPM of out/rpms" || fail 4.2 "kernel-core is not in out/rpms"; }
 fi
 if [ "$builder" = kiwi ] && [ "$smoke" = false ]; then
-	if [ "$kver" = 7.3.0-65.sp11.12.fc44.aarch64 ] && [ "$got_nevra" = kernel-core-7.3.0-65.sp11.12.fc44.aarch64 ] && [ "$(jq_ .milestone)" = M15 ]; then
-		pass 4.9 "M15: required revision-12 kernel release (7.3.0-65.sp11.12.fc44.aarch64) and milestone"
-	else fail 4.9 "M15 requires the revision-12 kernel and milestone (found $kver / $got_nevra)"; fi
+	if { [ "$kver" = 7.3.0-65.sp11.12.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.13.fc44.aarch64 ]; } && \
+	   { [ "$got_nevra" = kernel-core-7.3.0-65.sp11.12.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.13.fc44.aarch64 ]; } && \
+	   [ "$(jq_ .milestone)" = M15 ]; then
+		pass 4.9 "M15: required kernel release ($kver) and milestone"
+	else fail 4.9 "M15 requires the revision-12/13 kernel and milestone (found $kver / $got_nevra)"; fi
 fi
 cmp -s "$kimg" "$ROOT/lib/modules/$kver/vmlinuz" && pass 4.3 "ISO kernel image equals lib/modules/$kver/vmlinuz" || fail 4.3 "ISO kernel image differs from the package"
 kimg_ver=$(python3 -I - "$kimg" <<'PY'
@@ -532,6 +537,18 @@ if [ "$builder" = kiwi ]; then
 	if bash "$REPO/image/tools/ucm-lookup-test.sh" "$ROOT" "$W/ucm-test" >"$W/ucm-lookup.txt" 2>&1; then
 		pass 8.40 "alsaucm with the shipped UCM files: the Surface Pro 11 DMI string selects the microphone profile (verb HiFi, device Mic, capture PCM), the 12in string does not"
 	else fail 8.40 "UCM lookup failed ($(tail -n 2 "$W/ucm-lookup.txt" | tr '\n' ';' | cut -c1-200))"; fi
+	# M15 integration of the finished pieces: sensors packages/units/rules/permissions, audio route layer and gain, cameras and Spectra payloads, libcamera, volume tool, CDSP variants
+	if python3 -I "$REPO/image/tools/check-m15-integration.py" "$ROOT" "$LREPO" "$rec" >"$W/m15-integration.txt" 2>&1; then
+		pass 8.44 "M15 integration: sensor RPMs (hexagonrpcd -s as user hexagonrpcd, ADSP node fastrpc 0660, no 0666, adsprpcd not masked, iio-sensor-proxy with ssc-accel), audio route layer (HDMI0/HDMI1, SP11-Audio, gain step 98 capped, WirePlumber, dconf, alsaucm), camera and Spectra collectors, Spectra module for the image kernel (vermagic), libcamera ($(jq_ .libcamera_source)), volume tool on demand, CDSP variants for the tri-state keep_proxy_pds"
+	else fail 8.44 "M15 integration validation failed ($(tail -n1 "$W/m15-integration.txt" | cut -c1-200))"; fi
+	# audio-mics tests against the files shipped in the image: the sources the tests read are byte-identical to the ISO files (8.44), the gain check runs on the ISO's SP11-MicGain.conf
+	if cmp -s "$ROOT/usr/share/alsa/ucm2/Qualcomm/x1e80100/SP11-MicGain.conf" "$LREPO/hardware/audio-mics/userspace/overlay-audio-routes/usr/share/alsa/ucm2/Qualcomm/x1e80100/SP11-MicGain.conf" &&
+	   sh "$LREPO/hardware/audio-mics/userspace/tests/mic-gain-check.sh" >"$W/mic-gain.txt" 2>&1; then
+		ucm_ok=0
+		ln -sfn "$LREPO/hardware" /hw; mkdir -p /work
+		sh "$LREPO/hardware/audio-mics/userspace/tests/ucm-routes-test.sh" >"$W/ucm-routes.txt" 2>&1 && grep -q '^ALL PASS' "$W/ucm-routes.txt" && ucm_ok=1
+		[ "$ucm_ok" = 1 ] && pass 8.45 "audio-mics tests on the shipped route files: mic-gain-check (default +14 dB = step 98, cap 108) and ucm-routes-test ($(grep -c '^PASS' "$W/ucm-routes.txt") PASS, ALL PASS)" || fail 8.45 "ucm-routes-test failed ($(grep '^FAIL' "$W/ucm-routes.txt" | head -n 2 | tr '\n' ';' | cut -c1-200))"
+	else fail 8.45 "mic-gain-check failed or the shipped SP11-MicGain.conf differs from the source ($(tail -n 1 "$W/mic-gain.txt" | cut -c1-150))"; fi
 	# M15: the ESP carries NO environment block (GRUB is static); grub2-script-check accepts the rendered main configuration
 	if [ -n "$patched" ]; then skip 8.41 "patched test ISO keeps the ESP of its base ISO"
 	elif mdir -i "$esp_img" ::EFI/BOOT 2>/dev/null | grep -qi grubenv; then fail 8.41 "EFI/BOOT/grubenv present on the ESP (M15: GRUB is static, no environment block)"; else pass 8.41 "the ESP carries no grubenv: GRUB reads and writes no state"; fi
@@ -657,6 +674,10 @@ manifest, root, rpmlist, smoke, is_private, builder, record = sys.argv[1:8]
 private_audio = (json.load(open(record)).get('private_m14') or {}).get('audio', {}) if is_private == 'true' else {}
 private_names = {'/usr/lib/firmware/updates/ov13858-mshw0491.bin', '/usr/lib/firmware/updates/imx681-mshw0490.bin', '/usr/lib/firmware/updates/vd55g0-mshw0492.bin'} if private_audio else set()
 private_names |= {'/usr/lib/firmware/qcom/x1e80100/' + n for n in private_audio if not n.endswith('-tplg.bin')}
+if is_private == 'true':
+    pm = json.load(open(record)).get('private_m14') or {}
+    private_names |= {'/usr/lib/firmware/qcom/x1e80100/' + n for n in (pm.get('audio_quality') or {})}
+    private_names |= {'/usr/lib/firmware/qcom/x1e80100/' + n for n in (pm.get('spectra_icp') or {}) if n.endswith('.mbn')}
 m = tomllib.load(open(manifest, 'rb'))
 # merged /usr: some packages (b43-openfwwf) record /lib/firmware/..., the tree walk sees /usr/lib/...
 owned = set()

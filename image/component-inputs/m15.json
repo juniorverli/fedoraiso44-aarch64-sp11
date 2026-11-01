@@ -1,93 +1,95 @@
 {
-  "note": "M15 inputs of the image layer; hashes of the owner files as installed (image/README.md, M15)",
-  "speaker_ucm_overlay": {
-    "MICROSOFT-Surface-Pro-11.conf": "20672b687d2b43853d0b9b88baac3d2ce6c8cac44c840cea09065e4f859ea80f",
-    "Surface11-HiFi.conf": "488084256e15b00bdaf544401896cd710740fc7714802e0252ce5d270d2cd598",
-    "Surface11-SpeakerSeq.conf": "bbd0dc058041e780d4d33aa226c3c315eb6edbb7a0c5216238cd4693d9a6df88",
-    "Surface11-WsaInit.conf": "854cbef603b57d3b09fded0f98fa6b27f1907d3050fb466d81e41c78fcde4593"
-  },
-  "ucm_fix": {
-    "usr/share/alsa/ucm2/Qualcomm/x1e80100/x1e80100.conf": "4dcc631f61feb4e52a21069b1f35d64144be920f8151adec816933ef70ebe561"
-  },
-  "gpu_two_step": {
-    "owner_script_sha256": "e705df29564fd6d61add0f08a76ffcab0f21b79b93f69380cfee4bd14e19c6f6",
-    "hooks_sha256": "e164876a4ffe0f1c6c0b7d1fd13b84927fba5370d7f14191f1e56843a56e6875",
-    "installed_script_sha256": "b03ee556415743cfee2ae92b327d540056dd1823275bbfcf53d1329303c752c5",
-    "unit_sha256": "5f4e927db1f0e6713346c1882239dbd0f7527f591adaf1fad2cce6ad96192d3a",
-    "image_changes": "label list gains BOOT; hook functions inserted before the main section; four one-line calls (report, skip, arm, ok); M15: ENABLED, runs only on line 1 through the owner unit's ConditionKernelCommandLine=sp11.gpu_diag=1; markers are plain files (sp11-boot-state); the reset of the first DRM open cannot be prevented from userspace"
-  },
-  "dsp_collector_sha256": "82a1d919198f0702dc5c69998c45ca91015ab64e9212bc795119cf351fe4fb47",
-  "ec_sam_collector_sha256": "b8e07f47967215748589dce498f1897b9e49350172820fd5237a6581be0582ef",
-  "power_thermal": {
-    "collector_sha256": "e7486972bebf1ade4e309cd637f74f385a8d24e620801f2d3d3d7d59a2e72c1c",
-    "overlay": {
-      "usr/lib/systemd/logind.conf.d/50-sp11-lid.conf": "63290c6443290e3d5634458ee2f9a0e0270b46f3137c9564c39fd781cb331126",
-      "usr/lib/systemd/sleep.conf.d/50-sp11.conf": "cb1f943a3e8db6355170ddb3b522bb1f6f4f75d9d920d7487359d1d4f868bdb6",
-      "usr/lib/systemd/system/sp11-suspend-diag.service": "d871462852a2c9c269cffc8c63b81064b9eefee035d01fdbe534602d6972e891",
-      "usr/lib/systemd/system/sp11-suspend-policy.service": "6204a1ffbcf5c3764778c1411cdf1974f1c0b4f1af90001f961ddfac299941c1",
-      "usr/lib/systemd/system/sp11-thermal-sample.service": "ec5bbf030ce019e4266e8fcfd878e7425b7d29277ceb075399b6a4dac917fcc3",
-      "usr/lib/systemd/system/sp11-wakeup-policy.service": "20875cc00b8bd833fa409cde6dc5b978b5e561360ebd5ef0b29e7d8361676e13",
-      "usr/lib/systemd/system-sleep/sp11-suspend": "fec58613a4c39ff6076f552cb399a921626b3a46725d6b38ad8e88fd1ed4128d",
-      "usr/libexec/sp11/power-thermal/sp11-cpuidle-guard": "ca8fb48f73ee3b39a5dbbe03877026d1164768620f2ac471fcf3319102db7b1f",
-      "usr/libexec/sp11/power-thermal/sp11-suspend-diag": "a1ade3cd7f41de65ddae6d141709777026ee476238940076bd7a785db8612902",
-      "usr/libexec/sp11/power-thermal/sp11-suspend-policy.sh": "68de8f95d3d4513870b69efaa98dd8657bd201ee4253df0242e2b3690b40e512",
-      "usr/libexec/sp11/power-thermal/sp11-thermal-sample": "37dfb1631c5e709a3281139ea39e8d6ef78ebd4b02058b89bd5abc312999a659"
-    }
-  },
-  "libcamera": {
-    "packages": [
-      "libcamera",
-      "libcamera-tools"
-    ],
-    "fedora_release": "44",
-    "test_transaction": "dnf --setopt=tsflags=test install libcamera libcamera-tools: complete (9 packages, 12 MiB) on 2026-10-30; the compose is the real proof"
-  },
-  "fastrpc": {
-    "packages": [
-      "fastrpc",
-      "fastrpc-services",
-      "qrtr"
-    ],
-    "test_transaction": "dnf --setopt=tsflags=test install fastrpc fastrpc-services qrtr libnotify (Fedora 44 aarch64, 2026-10-31): 7 packages, transaction check complete; Fedora's own udev rule 60-fastrpc.rules gives the device nodes to root:fastrpc 0640, so no image rule is added (D12)"
-  },
-  "npu_installer_sha256": "b3ee828d99cf5373ce9a26506bc0db0bb0fe36e86f9da387160de8a937d10aa9",
-  "sensors_stage_sha256": "d0cf055315d954f5952bd5887e09554e2d5e94648caafbc99761150056be61d5",
-  "camera_verify_sha256": "d0a4b1ca045eb2ea71c9b73734549a5ad42cafbf5b06c4b7ea8b193f532fd699",
-  "linux_side": {
-    "note": "M15 Linux-side experiments and owner files installed byte for byte; sha256 of the files as installed",
-    "files": {
-      "hardware/wifi/collector/identity.sh": "6e2d2f7b0539ccdc95e3c8d0c6395272dd3b38a9098b5a53d6dcfd6ad3d19e8d",
-      "hardware/wifi/userspace/sp11-wifi-identity": "5272db22c9aa3cc01a3e27fc73b8a8225b52c34d2461d155d0208f9533bfe06b",
-      "hardware/wifi/userspace/sp11-wifi-identity.service": "d90f4056b1543c954146b275aebc4678fd72eb86e380d3424259954bd13d81c6",
-      "hardware/bluetooth/collector/identity.sh": "6f46949577ec8319e23500be41a80feb4cb1b3dbe4718770b9d419ec2e8a6956",
-      "hardware/bluetooth/collector/sp11-identity-bt": "603b99d30b4d0141b81342f77e2630781f4983b762b36139621ba5206b047197",
-      "hardware/bluetooth/collector/sp11-identity-bt-pre.service": "add8906237e990a968a2a7cb5368c3b9de339dd0eb65d7437f565feb31e43a46",
-      "image/overlay/usr/lib/systemd/system/sp11-thermal-sample.service.d/10-sp11-marker.conf": "06f082cdb338812c993c9cfcd8bbbc49e810c9babee1f1958e71ddb6ea3de6d3"
-    },
-    "cpufreq": {
-      "modules_load": "image/overlay/etc/modules-load.d/sp11-cpufreq.conf: scmi_cpufreq (soc-boot R-I2)",
-      "cap": "applies BY DEFAULT (schedutil, median scaling_max_freq); marker sp11/cpufreq-uncapped lifts it (S6)"
-    },
-    "markers": {
-      "sp11/identity-none": "identity experiment switch (private ISO)",
-      "sp11/cpufreq-uncapped": "lifts the default cpufreq cap",
-      "sp11/disable-cdsp-experiment": "turns the CDSP experiment off",
-      "sp11/touch-conf-A": "iptsd profile A (default is B)",
-      "sp11/enable-thermal-sample": "enables sp11-thermal-sample.service (drop-in; no kernel argument)"
-    },
-    "kernel_requests": [
-      "qcom_q6v5_pas keep_proxy_pds permission 0444 -> 0644 (runtime toggle; without it the CDSP experiment skips variants 2 and 3)"
-    ]
-  },
-  "menu": {
-    "line1": "SP11 debug: DTB m15 (microphones + cameras + GPU/GMU/zap), constant sp11.gpu_diag=1",
-    "line2": "SP11 debug, safe (no GPU, no cameras): DTB m15-safe",
-    "dtbs_from_kernel_worker": [
-      "m15",
-      "m15-safe",
-      "m15-nosnd",
-      "m15-notouch",
-      "m15-spk"
-    ]
+ "note": "M15 inputs of the image layer; hashes of the owner files as installed (image/README.md, M15)",
+ "speaker_ucm_overlay": {
+  "MICROSOFT-Surface-Pro-11.conf": "20672b687d2b43853d0b9b88baac3d2ce6c8cac44c840cea09065e4f859ea80f",
+  "Surface11-HiFi.conf": "488084256e15b00bdaf544401896cd710740fc7714802e0252ce5d270d2cd598",
+  "Surface11-SpeakerSeq.conf": "bbd0dc058041e780d4d33aa226c3c315eb6edbb7a0c5216238cd4693d9a6df88",
+  "Surface11-WsaInit.conf": "854cbef603b57d3b09fded0f98fa6b27f1907d3050fb466d81e41c78fcde4593"
+ },
+ "ucm_fix": {
+  "usr/share/alsa/ucm2/Qualcomm/x1e80100/x1e80100.conf": "5868b65891202ea1fe0c25ec7ccdad4813a25dbf53dbd61f4a61dce4997db65f"
+ },
+ "gpu_two_step": {
+  "owner_script_sha256": "e705df29564fd6d61add0f08a76ffcab0f21b79b93f69380cfee4bd14e19c6f6",
+  "hooks_sha256": "e164876a4ffe0f1c6c0b7d1fd13b84927fba5370d7f14191f1e56843a56e6875",
+  "installed_script_sha256": "b03ee556415743cfee2ae92b327d540056dd1823275bbfcf53d1329303c752c5",
+  "unit_sha256": "5f4e927db1f0e6713346c1882239dbd0f7527f591adaf1fad2cce6ad96192d3a",
+  "image_changes": "label list gains BOOT; hook functions inserted before the main section; four one-line calls (report, skip, arm, ok); M15: ENABLED, runs only on line 1 through the owner unit's ConditionKernelCommandLine=sp11.gpu_diag=1; markers are plain files (sp11-boot-state); the reset of the first DRM open cannot be prevented from userspace"
+ },
+ "dsp_collector_sha256": "82a1d919198f0702dc5c69998c45ca91015ab64e9212bc795119cf351fe4fb47",
+ "ec_sam_collector_sha256": "b8e07f47967215748589dce498f1897b9e49350172820fd5237a6581be0582ef",
+ "power_thermal": {
+  "collector_sha256": "e7486972bebf1ade4e309cd637f74f385a8d24e620801f2d3d3d7d59a2e72c1c",
+  "overlay": {
+   "usr/lib/systemd/logind.conf.d/50-sp11-lid.conf": "63290c6443290e3d5634458ee2f9a0e0270b46f3137c9564c39fd781cb331126",
+   "usr/lib/systemd/sleep.conf.d/50-sp11.conf": "cb1f943a3e8db6355170ddb3b522bb1f6f4f75d9d920d7487359d1d4f868bdb6",
+   "usr/lib/systemd/system/sp11-suspend-diag.service": "d871462852a2c9c269cffc8c63b81064b9eefee035d01fdbe534602d6972e891",
+   "usr/lib/systemd/system/sp11-suspend-policy.service": "6204a1ffbcf5c3764778c1411cdf1974f1c0b4f1af90001f961ddfac299941c1",
+   "usr/lib/systemd/system/sp11-thermal-sample.service": "ec5bbf030ce019e4266e8fcfd878e7425b7d29277ceb075399b6a4dac917fcc3",
+   "usr/lib/systemd/system/sp11-wakeup-policy.service": "20875cc00b8bd833fa409cde6dc5b978b5e561360ebd5ef0b29e7d8361676e13",
+   "usr/lib/systemd/system-sleep/sp11-suspend": "fec58613a4c39ff6076f552cb399a921626b3a46725d6b38ad8e88fd1ed4128d",
+   "usr/libexec/sp11/power-thermal/sp11-cpuidle-guard": "ca8fb48f73ee3b39a5dbbe03877026d1164768620f2ac471fcf3319102db7b1f",
+   "usr/libexec/sp11/power-thermal/sp11-suspend-diag": "a1ade3cd7f41de65ddae6d141709777026ee476238940076bd7a785db8612902",
+   "usr/libexec/sp11/power-thermal/sp11-suspend-policy.sh": "68de8f95d3d4513870b69efaa98dd8657bd201ee4253df0242e2b3690b40e512",
+   "usr/libexec/sp11/power-thermal/sp11-thermal-sample": "37dfb1631c5e709a3281139ea39e8d6ef78ebd4b02058b89bd5abc312999a659"
   }
+ },
+ "libcamera": {
+  "packages": [
+   "libcamera",
+   "libcamera-tools"
+  ],
+  "fedora_release": "44",
+  "test_transaction": "dnf --setopt=tsflags=test install libcamera libcamera-tools: complete (9 packages, 12 MiB) on 2026-10-30; the compose is the real proof"
+ },
+ "fastrpc": {
+  "packages": [
+   "fastrpc",
+   "fastrpc-services",
+   "qrtr"
+  ],
+  "test_transaction": "dnf --setopt=tsflags=test install fastrpc fastrpc-services qrtr libnotify (Fedora 44 aarch64, 2026-10-31): 7 packages, transaction check complete; Fedora's own udev rule 60-fastrpc.rules gives the device nodes to root:fastrpc 0640, so no image rule is added (D12)"
+ },
+ "npu_installer_sha256": "b3ee828d99cf5373ce9a26506bc0db0bb0fe36e86f9da387160de8a937d10aa9",
+ "sensors_stage_sha256": "d0cf055315d954f5952bd5887e09554e2d5e94648caafbc99761150056be61d5",
+ "camera_verify_sha256": "d0a4b1ca045eb2ea71c9b73734549a5ad42cafbf5b06c4b7ea8b193f532fd699",
+ "linux_side": {
+  "note": "M15 Linux-side experiments and owner files installed byte for byte; sha256 of the files as installed",
+  "files": {
+   "hardware/wifi/collector/identity.sh": "6e2d2f7b0539ccdc95e3c8d0c6395272dd3b38a9098b5a53d6dcfd6ad3d19e8d",
+   "hardware/wifi/userspace/sp11-wifi-identity": "5272db22c9aa3cc01a3e27fc73b8a8225b52c34d2461d155d0208f9533bfe06b",
+   "hardware/wifi/userspace/sp11-wifi-identity.service": "d90f4056b1543c954146b275aebc4678fd72eb86e380d3424259954bd13d81c6",
+   "hardware/bluetooth/collector/identity.sh": "6f46949577ec8319e23500be41a80feb4cb1b3dbe4718770b9d419ec2e8a6956",
+   "hardware/bluetooth/collector/sp11-identity-bt": "603b99d30b4d0141b81342f77e2630781f4983b762b36139621ba5206b047197",
+   "hardware/bluetooth/collector/sp11-identity-bt-pre.service": "add8906237e990a968a2a7cb5368c3b9de339dd0eb65d7437f565feb31e43a46",
+   "image/overlay/usr/lib/systemd/system/sp11-thermal-sample.service.d/10-sp11-marker.conf": "06f082cdb338812c993c9cfcd8bbbc49e810c9babee1f1958e71ddb6ea3de6d3"
+  },
+  "cpufreq": {
+   "modules_load": "image/overlay/etc/modules-load.d/sp11-cpufreq.conf: scmi_cpufreq (soc-boot R-I2)",
+   "cap": "applies BY DEFAULT (schedutil, median scaling_max_freq); marker sp11/cpufreq-uncapped lifts it (S6)"
+  },
+  "markers": {
+   "sp11/identity-none": "identity experiment switch (private ISO)",
+   "sp11/cpufreq-uncapped": "lifts the default cpufreq cap",
+   "sp11/disable-cdsp-experiment": "turns the CDSP experiment off",
+   "sp11/touch-conf-A": "iptsd profile A (default is B)",
+   "sp11/enable-thermal-sample": "enables sp11-thermal-sample.service (drop-in; no kernel argument)"
+  },
+  "kernel_requests": [
+   "qcom_q6v5_pas keep_proxy_pds permission 0444 -> 0644 (runtime toggle; without it the CDSP experiment skips variants 2 and 3)"
+  ]
+ },
+ "menu": {
+  "line1": "SP11 debug: DTB m15 (microphones + cameras + GPU/GMU/zap), constant sp11.gpu_diag=1",
+  "line2": "SP11 debug, safe (no GPU, no cameras): DTB m15-safe",
+  "dtbs_from_kernel_worker": [
+   "m15",
+   "m15-safe",
+   "m15-nosnd",
+   "m15-notouch",
+   "m15-spk",
+   "m15-spectra"
+  ],
+  "line12": "SP11 debug, Spectra camera test: DTB m15-spectra, the safe arguments plus module_blacklist=camera_x1e80100"
+ }
 }
