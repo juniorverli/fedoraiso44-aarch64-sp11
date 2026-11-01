@@ -49,7 +49,7 @@ Motion, orientation and light sensors attached to the ADSP sensor core (SSC). Wi
 ## 7. Acceptance
 
 1. Screen rotates with the device
-2. Automatic brightness reacts to ambient light
+2. Ambient light is readable for diagnostics only; automatic brightness is disabled by operator decision (dconf `ambient-enabled=false` and locked). Brightness must NOT change when the ALS is covered/uncovered.
 
 ## 8. Requests
 
@@ -62,7 +62,7 @@ Motion, orientation and light sensors attached to the ADSP sensor core (SSC). Wi
 - **kernel**: confirm `CONFIG_QCOM_FASTRPC`, `CONFIG_QRTR` and `CONFIG_QRTR_SMD` (or the transport that carries the ADSP SSC service), `CONFIG_SURFACE_AGGREGATOR_TABLET_SWITCH=m` in the final config; the daemon needs the FastRPC sensors-PD attach ioctl (present in 7.3, not re-read here).
 - **power-thermal**: the suspend hook with the corrected `ConditionFirmware=device-tree-compatible(qcom,x1e80100)` is `hexagonrpcd-sensors-sleep.service` (there are no Debian hook units on Fedora to override); ladder results with it enabled are welcome.
 - **ec-sam**: tablet-mode acceptance stays theirs; `sp11-sensors-test` section 6 reads the switch state read-only.
-- **display-lcd**: ALS auto-brightness acceptance needs their backlight control.
+- **display-lcd**: no action needed for this component: automatic brightness is removed by operator decision and the image locks `ambient-enabled=false` (commit `2ee4dbf`); the earlier request for backlight control for ALS auto-brightness is withdrawn. Do not wire the ALS to the backlight.
 
 ## 9. Log
 
@@ -70,3 +70,4 @@ Motion, orientation and light sensors attached to the ADSP sensor core (SSC). Wi
 - 2026-10-31: Windows sensor model read from INF and live registry mappings (config files and `soc0` identity are static package files; registry tree absent from the dump); Fedora package status checked; staging script and units written; sensors do not depend on the CDSP and can be tested as soon as the private image carries the pieces.
 - 2026-10-31: sensors build: upstream pins (hexagonrpc v0.5.0, libssc v0.4.4, iio-sensor-proxy 3.9 = first release with SSC); write-capable hexagonrpcd patch (method 24 is fremove); `sscregistrygen` found in upstream and used to generate 293 registry files from `sources/windows`; five RPMs built, linted and installed in a scratch root; units, rules, stage/install scripts, read-only test and collector written; evidence `2026-10-31-sensors-build.md`. Nothing run on the device.
 - 2026-11-01: M15.1 journal and collector evidence show repeated ENOENT at configured registry paths: seeds were installed in the parent, generator names differ from ADSP requests, and staged file ownership does not match the service user. Requested an image composition change to place new seeds at the configured nested path with service ownership; existing state must remain untouched. Daemon reaches ADSP/QRTR but sensor events and brightness response remain unverified; evidence `2026-11-01-m15.1-logs.md`.
+- 2026-11-01: automatic brightness removed by operator decision. The ALS itself remains present (Windows WinRT `LightSensor: PRESENT` on MSHW048A, TCS3430 config, `sensorsalsdriver` package) and is diagnostic only; acceptance and test plan now require no brightness change on cover/uncover. The image lock in commit `2ee4dbf` is referenced, not duplicated. Evidence `2026-11-01-auto-brightness-removed.md`.
