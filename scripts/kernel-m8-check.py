@@ -390,14 +390,36 @@ def main():
                    and c['before'] == '' and c['after'] is None]
             require(len(usb) == 2, f'Expected exactly the two orientation-switch removals relative to M12: {extra}')
             extra = [c for c in extra if c not in usb]
+        # M16 D26 speaker enablement (kernel series 1d92d8a) in m15-safe and in its m15-notouch
+        # fallback: power the SoundWire WSA884x speakers. Against the M12 audio DTB these exact
+        # (path, property) changes are the only existing-node changes the D26 patches make; any
+        # other path, property or change still fails below.
+        speaker_props = ('#sound-dai-cells', 'qcom,battery-stack-cells', 'qcom,internal-boost',
+                         'qcom,isense-gain-db', 'qcom,load-ohms', 'qcom,vsense-attenuation-db')
+        d26 = {('/chosen', 'sp11,speaker-policy'), ('/sound', 'audio-routing'),
+               ('/soc@0/soundwire@6b10000', 'pinctrl-0'), ('/soc@0/soundwire@6b10000', 'status'),
+               ('/soc@0/soundwire@6b10000/speaker@0,1', 'reset-gpios')}
+        for speaker in ('speaker@0,0', 'speaker@0,1'):
+            d26 |= {('/soc@0/soundwire@6b10000/' + speaker, p) for p in speaker_props}
+        d26_variant = args.variant in ('m15-safe', 'm15-notouch')
+        if d26_variant:
+            d26_changes = [c for c in extra if (c['path'], c['property']) in d26]
+            require(len(d26_changes) == len(extra) == len(d26),
+                    f'Expected exactly the M16 D26 speaker changes relative to M12: {extra}')
+            extra = []
         allowed = ('/volume-keys', '/sound/dp0-dai-link', '/sound/dp1-dai-link', '/camera-leds', '/soc@0/cci@', '/soc@0/isp@', '/soc@0/rsc@17500000/regulators-8',
                    '/soc@0/rsc@17500000/regulators-0/ldo7', '/soc@0/rsc@17500000/regulators-0/ldo16')
+        if d26_variant:
+            # The same D26 enablement adds the three WSA DAI links and the speaker reset pinctrl state.
+            allowed += ('/sound/wsa-cps-dai-link', '/sound/wsa-dai-link', '/sound/wsa-vi-dai-link',
+                        '/soc@0/pinctrl@6e80000/spkr-02-sd-n-active-state')
         require(not extra, f'Existing nodes changed relative to M12: {extra}')
         require(all(n.startswith(allowed) or ('/pinctrl@f100000/' in n and n.rsplit('/', 1)[-1].startswith(('cam-', 'cci')))
                     or n.rsplit('/', 1)[-1] in ('vol-up-n-state', 'vol-down-n-state')
                     for n in added), f'Nodes added relative to M12 outside the camera chain: {added}')
         m12_changes = dict(added_nodes=added, changed_properties=extra,
-                           added_symbols=[c['property'] for c in changed if c not in extra])
+                           added_symbols=[c['property'] for c in changed
+                                          if c['path'] == '/__symbols__' and c['before'] is None])
     print(json.dumps(dict(variant=args.variant, s1_ok=True, s1_profile=profile,
                           camera_nodes_enabled=camera_on, diff_vs_m12=m12_changes, watched_count=len(watched),
                           wifi=dict(perst_gpio=146, wake_gpio=148, active_low=True, pinctrl='pcie4_default'),
