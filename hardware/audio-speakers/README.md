@@ -2,7 +2,7 @@
 
 ## 1. Summary
 
-Two WSA8845 smart amplifiers on SoundWire, driven by the ADSP through AudioReach. Safe use requires speaker protection: a thermal and excursion model fed by voltage/current (VI) sense from the amplifiers. A closed-loop topology, calibration loader and fail-closed kernel guard are prepared and parser-checked, but ADSP graph start, live VI feedback and per-unit calibration remain unverified on the device. Status: `designed`; speakers stay off under S1.
+Two WSA8845 smart amplifiers on SoundWire, driven by the ADSP through AudioReach. Safe use requires speaker protection: a thermal and excursion model fed by voltage/current (VI) sense from the amplifiers. A closed-loop topology, calibration loader and fail-closed kernel guard are prepared and parser-checked, but ADSP graph start, live VI feedback and per-unit calibration remain unverified on the device. Status: `designed`; S1 requires a speaker-off fallback, but the published M16 safe DTB enables the speaker bus and needs correction (see M16 incident evidence).
 
 ## 2. Hardware
 
@@ -90,7 +90,12 @@ Two WSA8845 smart amplifiers on SoundWire, driven by the ADSP through AudioReach
 - orchestrator: S1 stays; decide whether the operator wants Path E (exception) or waits for Path P (`evidence/2026-10-30-audio-plan.md` section 8). Run REA R6 and R7 first, then R1 to R5, when REA is free. Cross-check (`agents/protocol.md` §5.1) any value that enters a patch or safety decision: the ceilings 81 and 6 and the WSA port map.
 - kernel: after the flash review, add `patches/0004` (wsa884x: write the cached PA gain at attach) and `patches/0005` (wsa macro: EAR SPKR PA Gain stays below the user volume) to `kernel/series` after `0003`. Latent while speakers are off; both must be in any kernel that boots a speaker-enabled DTB. Apply-checked on the full series, checkpatch clean, not built. See `hardware/ec-sam/evidence/2026-10-30-flash-review-verdicts.md`.
 
+- **kernel (M16 incident):** restore a speaker-off m15-safe while retaining microphone and DP links; exact three-include replacement, compiled-DTB assertions and isolation plan are in [M16 evidence](evidence/2026-11-01-m16-safe-audio-die.md). The missing oops header prevents assigning cause; do not change GPIOs, regulators or drivers on this evidence.
+- **image / audio-mics:** use microphone-only UCM on the speaker-off fallback and capture the first complete oops, active PCM and UCM state; validate microphone signal only after a stable boot. See [M16 evidence](evidence/2026-11-01-m16-safe-audio-die.md).
+
 ## 9. Log
+
+- 2026-11-01 (M16 incident): reviewed the published safe DTB and audio probe paths; 0xe4 is a GPIO phandle, actual offsets 12/13 are in range; cause of DIE remains unknown. Requested a speaker-off fallback and controlled audio isolation; no kernel fix or build. See [M16 evidence](evidence/2026-11-01-m16-safe-audio-die.md).
 
 - 2026-10-30 (closed-loop session): REA of `qcaucd8380.sys` (amplifier init, sense gain table, interrupts); patches 0010 to 0016 (binding, amplifier settings, `sp11` guard, V/I and CPS capture, AudioReach control links and calibration, machine driver gate, DT fragment); generator `userspace/build-topology/` for the private supplement files; stage 4 plan. Offline only. See `evidence/2026-10-30-closed-loop.md`.
 - 2026-10-30 (D26 session): GPR callback race verified and fixed (0006, 0007); D26 marker fragment (0008) and WSA playback gate (0009); variants `m13` (mics) and `m13-spk` (marked, gated); `kernel-dtb-safety.py --profile`; `userspace/overlay-speakers/`; closed-loop V/I design from the ACDB. Stages 0 and 1 done, 2 to 5 open. See `evidence/2026-10-30-d26-audio.md`.
