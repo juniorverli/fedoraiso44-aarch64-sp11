@@ -266,3 +266,13 @@ Decision: the main entry (`SP11 debug`) uses a DTB with microphones AND speakers
   - Collect the SBSA watchdog `bootstatus/status/timeleft`, a bounded tracefs snapshot of `power:runtime_*` and `drm_msm_gpu:msm_gpu_suspend/resume`, and reset/watchdog dmesg lines. Do not read `dri/*/gpu` per cycle and do not claim a `gmu_log`.
   - GPU patch 0002 (gpu-prr/pld-gmu reservations) remains part of the rev19/rev20 baseline and is listed as a baseline variable; only the default-off phase trace 0001 is instrumentation.
   - No pstore/ramoops node until a fixed region is proven against the EFI map and retention; the earlier D30 wording is superseded by D32/D33.
+
+## D34 (2026-11-02): audio fail-safe, sink selection and the minimum-volume first test
+
+- **Evidence:** the audio review found three fail-safe gaps: (1) `hardware/audio-speakers/userspace/overlay/.../51-sp11-audio-safety.conf` sets the global sink default to 0.05, so if the per-device `53` rule or the startup helper misses the sink, it starts unmuted at 5 %; (2) `sp11-audio-safety` selects sinks by scraping `wpctl status -n` for `alsa_output.platform-sound`, but `-n` is the nickname view and the sink node name is not guaranteed; (3) the helper's 100 % normal level is not a D26 first test, and the post-session `arecord` computes a combined RMS without per-channel values or the recorder exit status.
+- **Decision:**
+  - Set the global WirePlumber sink default to 0.0 as well (or remove the 0.05 drop-in and rely on the 0.0 device/global rules); add an L0 assertion for the global fallback. A helper failure or a device-name mismatch must leave the sink silent.
+  - Select the built-in sink from `pw-dump` JSON by `media.class = Audio/Sink` and `node.name`/`device.name` matching the platform card, or from `wpctl inspect @DEFAULT_AUDIO_SINK@`, not from `wpctl status -n`. Add a fixture test with realistic output and verify the selected ID is muted before the helper exits successfully.
+  - Add the `sp11.audio_first_test=1` marker: the helper mutes and sets the minimum usable level (5 %), not 100 %. The first audible test plays a short tone at that level, checks both channels, distortion and heat, then stops. Normal boots use the 100 % muted start and raise stepwise. D26's first-test-at-minimum-volume is preserved.
+  - The post-session collector must use `set -o pipefail`, capture `PIPESTATUS[0]`, compute per-channel RMS and peak, test both `hw:0,1` and `default`/PipeWire, record the default-source volume/mute, and fail on zero samples or a nonzero recorder exit.
+  - Designate `image/component-inputs/d28/audio` as the canonical UCM source; update or remove the stale `hardware/audio-speakers/userspace/overlay-d28` copy, and add an L0 comparison if both remain.
