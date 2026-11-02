@@ -2,7 +2,7 @@
 
 ## 1. Summary
 
-The X1P64100's Adreno X1-85 (chip ID `0x43050c01`, "C512v2") has native Linux 7.3 support, and the captured Windows configuration selects a 1.25 GHz graphics ceiling. Status: `designed`; the revision-15 debug boot reset after GPU initialization and a later successful render-node open, with the cause unresolved. Safe is the default; both GPU two-step and CDSP restart experiments are opt-in. The next comparison is the clean GPU-on debug test in [test-plan.md](test-plan.md); see [reference comparison](evidence/2026-11-02-reference-comparison.md).
+The X1P64100's Adreno X1-85 (chip ID `0x43050c01`, "C512v2") has native Linux 7.3 support, and the captured Windows configuration selects a 1.25 GHz graphics ceiling. Status: `designed`; the latest debug boot displayed fluid GNOME and then reset, with the cause unresolved. Four GMU starts reached successful HFI return; the last was close to the end of the captured log. Safe remains the default. The next discriminator holds GPU runtime PM active; see [resume evidence](evidence/2026-11-02-resume-comparison.md) and [test plan](test-plan.md).
 
 ## 2. Hardware
 
@@ -44,7 +44,7 @@ The X1P64100's Adreno X1-85 (chip ID `0x43050c01`, "C512v2") has native Linux 7.
 | Physical fuse and safe initial GPU enablement | Safe boot measured fuse 7; debug snapshot shows 1.25 GHz ceiling. Independent cross-check and stable GPU initialization remain pending; no behavioral kernel patch justified |
 | Independent cross-check | Orchestrator must reproduce the active config selection, clock table, fuse extraction and OPP arithmetic before using these safety values |
 | Mesa/image pin | Verified available `mesa-{dri,vulkan}-drivers-0:26.2.5-1.fc44.aarch64`; sources/image owners pin the actual compose. No Mesa change indicated |
-| GPU reset with concurrent diagnostics | Cause unresolved; run the clean GPU-on debug entry with both experiments off and independent durable logging, as specified in [test-plan.md](test-plan.md) |
+| GPU reset | Cause unresolved after repeated GMU starts; run the debug-only runtime-PM discriminator with independent durable logging, as specified in [test-plan.md](test-plan.md) |
 | Thermal mitigation and device behavior | `power-thermal` establishes equivalent GPU cooling; device tests confirm PAS authentication, rendering and IFPC stability |
 
 ## 6. Open questions
@@ -67,6 +67,9 @@ On the device, with logs in `evidence/`, following [test-plan.md](test-plan.md).
 5. Identified GPU devfreq `available_frequencies` and `max_freq` never exceed 1250000000 Hz; DRM chip ID is `0x43050c01`, fuse is the expected 7 (Q1). Capture any lower thermal cap without overriding it.
 
 ## 8. Requests
+
+- **image / orchestrator (2026-11-02, current):** implement and validate the early GPU platform runtime-PM-on discriminator, including timing, readback, continuous GMU start markers and matched control in [resume evidence](evidence/2026-11-02-resume-comparison.md). Safe remains default; do not treat a late or unverified write as a valid test. No kernel build requested by this worker.
+- **orchestrator / sources:** resolve the REA approval and catalog limitations for the exact GMU firmware or catalogued Windows driver, and inspect the handlers specified in [resume evidence](evidence/2026-11-02-resume-comparison.md).
 
 - **kernel (2026-11-02, reserved-memory candidate):** for the controlled comparison, add [GPU patch 0002](patches/0002-arm64-dts-qcom-reserve-gpu-firmware-memory.patch) to `kernel/series` immediately after GPU trace patch 0001. It modifies `hamoa.dtsi` itself, not a variant include, and therefore affects every hamoa DTB. Review the two ranges and independent cross-check, check integration and reservation conflicts, and compare EFI memory map and `/proc/iomem` before/after. Follow the candidate test and rejection criteria in the [reference comparison](evidence/2026-11-02-reference-comparison.md); preserve the safe default. No build is requested in this session.
 - **image / kernel (2026-11-02, D29; current):** preserve safe as default and offer the existing GPU-on debug entry with neither GPU two-step nor CDSP restart opted in; verify actual boot arguments, guard behavior, DTB, initrd/rootfs firmware placement and hashes, and independent early durable logging on the produced artifact. Capture any available reset reason, pstore, EFI memory map and first complete failure. See [clean test](test-plan.md) and [comparison](evidence/2026-11-02-reference-comparison.md). No build is requested in this worker session.
@@ -107,3 +110,5 @@ Historical requests below describe prior milestones and do not authorize the two
 - 2026-11-02: compared reference kernel, package config, compiled M15 and firmware placement; identified differing PAS API, GMU timeout, IOMMU mode and reference no-map reservations without attributing the reset. Prepared the clean GPU-on debug test; no behavioral patch or build.
 
 - 2026-11-02: prepared reserved-memory candidate 0002 from the reference, applied it to scratch v7.3 and compiled the Denali DT with dtc; documented controlled comparison and rejection criteria. No integrated build or device test.
+
+- 2026-11-02: latest kmsg contains four GMU firmware/HFI starts, all reporting success; last at 49.85 s shortly before log ends. Full requested-file comparison identifies no proven resume defect. Defined runtime-PM discriminator and REA hand-off; no behavioral patch or build.

@@ -1,5 +1,7 @@
 # GPU device acceptance plan
 
+**Current next test (2026-11-02c):** the debug-only GPU platform `power/control=on` discriminator, including early ordering, readback, full GMU-start stream, matched GNOME use, interpretation and safety gates, is specified in [resume evidence](evidence/2026-11-02-resume-comparison.md). It supersedes older isolation proposals below.
+
 These commands are **planned, not run**. Run on an approved test image/device
 only, after the orchestrator's independent cross-check of the clock limit and
 fuse extraction. Preserve logs locally, then redact unrelated identity fields
