@@ -1,0 +1,13 @@
+[Unit]
+Description=Debug diagnostic: keep Adreno GPU runtime active
+ConditionKernelCommandLine=sp11.entry=debug
+After=systemd-udevd.service
+Before=display-manager.service gdm.service graphical.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/sp11-gpu-no-runtime-pm
+TimeoutStartSec=35s
+
+[Install]
+WantedBy=multi-user.target
