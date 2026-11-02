@@ -1,0 +1,167 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Mon, 2 Nov 2026 00:00:00 +0000
+Subject: [PATCH] ASoC: qcom: degrade unsupported SP diagnostics safely
+
+The Windows miniport does not subscribe to the SP diagnostics event. When
+the DSP rejects only that optional subscription, keep the protection graph
+usable in degraded-diagnostics state instead of latching a protection
+fault. The amplifier may still unmute only after the SP module was enabled,
+closed-loop calibration was applied, VI and any required CPS streams run,
+and every existing guard check passes. Reject nominal calibration in this
+degraded mode. All other errors and actual protection events remain fatal.
+
+Add an explicit SP enable result line so a muted device boot can establish
+that prerequisite before this candidate is considered for integration.
+
+Signed-off-by: Codex <codex@openai.com>
+---
+diff --git a/include/sound/sp11-guard.h b/include/sound/sp11-guard.h
+--- a/include/sound/sp11-guard.h
++++ b/include/sound/sp11-guard.h
+@@ -45,6 +45,8 @@ void sp11_guard_loaded(bool loaded);
+ void sp11_guard_graph(bool up, bool cps_required);
+ void sp11_guard_stream(enum sp11_guard_stream stream, bool start);
+ void sp11_guard_calibrated(unsigned int ch_mask, bool nominal);
++void sp11_guard_sp_enabled(bool enabled);
++void sp11_guard_diagnostics_degraded(bool degraded);
+ void sp11_guard_fault(const char *src, u32 code);
+ void sp11_guard_set_mute(void (*mute)(void *data), void *data);
+ void sp11_guard_clear_mute(void *data);
+@@ -59,4 +61,6 @@ static inline void sp11_guard_graph(bool up, bool cps_required) { }
+ static inline void sp11_guard_stream(enum sp11_guard_stream stream, bool start) { }
+ static inline void sp11_guard_calibrated(unsigned int ch_mask, bool nominal) { }
++static inline void sp11_guard_sp_enabled(bool enabled) { }
++static inline void sp11_guard_diagnostics_degraded(bool degraded) { }
+ static inline void sp11_guard_fault(const char *src, u32 code) { }
+ static inline void sp11_guard_set_mute(void (*mute)(void *data), void *data) { }
+diff --git a/sound/soc/qcom/sp11-guard.c b/sound/soc/qcom/sp11-guard.c
+--- a/sound/soc/qcom/sp11-guard.c
++++ b/sound/soc/qcom/sp11-guard.c
+@@ -50,4 +50,6 @@ struct sp11_guard {
+ 	bool loaded;
+ 	bool graph_up;
+ 	bool cps_required;
++	bool sp_enabled;
++	bool diagnostics_degraded;
+ 	bool fault;
+@@ -80,9 +80,17 @@ static const char *sp11_guard_reason(void)
++static bool sp11_guard_degraded_fault(void);
++
+ static const char *sp11_guard_reason(void)
+ {
+ 	const char *reason = sp11_guard_open_reason();
+ 
+ 	if (reason)
+ 		return reason;
++	if (sp11_guard_degraded_fault())
++		return "degraded diagnostics prerequisites are incomplete";
+ 	if (!guard.graph_up)
+ 		return "the closed-loop graph is not up";
++	if (!guard.sp_enabled)
++		return "the speaker protection module is not enabled";
++	if (guard.diagnostics_degraded && guard.cal_nominal)
++		return "degraded diagnostics require closed-loop calibration";
+ 	if (!guard.streams[SP11_STREAM_VI])
+@@ -178,4 +188,30 @@ void sp11_guard_calibrated(unsigned int ch_mask, bool nominal)
+ }
+ EXPORT_SYMBOL_GPL(sp11_guard_calibrated);
+ 
++void sp11_guard_sp_enabled(bool enabled)
++{
++	unsigned long flags;
++	bool was_allowed;
++
++	spin_lock_irqsave(&guard.lock, flags);
++	was_allowed = !sp11_guard_reason();
++	guard.sp_enabled = enabled;
++	sp11_guard_mute_if_refused(was_allowed);
++	spin_unlock_irqrestore(&guard.lock, flags);
++}
++EXPORT_SYMBOL_GPL(sp11_guard_sp_enabled);
++
++void sp11_guard_diagnostics_degraded(bool degraded)
++{
++	unsigned long flags;
++	bool was_allowed;
++
++	spin_lock_irqsave(&guard.lock, flags);
++	was_allowed = !sp11_guard_reason();
++	guard.diagnostics_degraded = degraded;
++	sp11_guard_mute_if_refused(was_allowed);
++	spin_unlock_irqrestore(&guard.lock, flags);
++}
++EXPORT_SYMBOL_GPL(sp11_guard_diagnostics_degraded);
++
+ void sp11_guard_fault(const char *src, u32 code)
+@@ -285,5 +321,15 @@ EXPORT_SYMBOL_GPL(sp11_guard_unmute_check);
+ }
+ EXPORT_SYMBOL_GPL(sp11_guard_unmute_check);
+ 
++static bool sp11_guard_degraded_fault(void)
++{
++	return guard.diagnostics_degraded &&
++	       (!guard.loaded || !guard.graph_up || !guard.sp_enabled ||
++		!guard.streams[SP11_STREAM_VI] ||
++		(guard.cps_required && !guard.streams[SP11_STREAM_CPS]) ||
++		((guard.cal_mask & SP11_CAL_ALL_MASK) != SP11_CAL_ALL_MASK) ||
++		guard.cal_nominal);
++}
++
+ static int sp11_guard_show(struct seq_file *s, void *unused)
+ {
+@@ -296,4 +342,7 @@ static int sp11_guard_show(struct seq_file *s, void *unused)
+ 	seq_printf(s, "loaded: %d\ngraph_up: %d\nvi_streams: %u\ncps_streams: %u\ncps_required: %d\n",
+ 		   guard.loaded, guard.graph_up, guard.streams[SP11_STREAM_VI],
+ 		   guard.streams[SP11_STREAM_CPS], guard.cps_required);
++	seq_printf(s, "sp_enabled: %d\ndiagnostics_degraded: %d\n",
++		   guard.sp_enabled, guard.diagnostics_degraded);
++	seq_printf(s, "degraded_fault: %d\n", sp11_guard_degraded_fault());
+ 	seq_printf(s, "cal_mask: 0x%x\ncal_nominal: %d\n", guard.cal_mask, guard.cal_nominal);
+diff --git a/sound/soc/qcom/qdsp6/audioreach-sp11.c b/sound/soc/qcom/qdsp6/audioreach-sp11.c
+--- a/sound/soc/qcom/qdsp6/audioreach-sp11.c
++++ b/sound/soc/qcom/qdsp6/audioreach-sp11.c
+@@ -495,3 +495,7 @@ void audioreach_sp11_graph_state(struct q6apm_graph *graph, bool started)
+ 	if (q6apm_find_module_by_mid(graph, MODULE_ID_SPEAKER_PROTECTION))
+ 		sp11_guard_graph(started, cps);
++	if (!started && q6apm_find_module_by_mid(graph, MODULE_ID_SPEAKER_PROTECTION)) {
++		sp11_guard_sp_enabled(false);
++		sp11_guard_diagnostics_degraded(false);
++	}
+ 	if (q6apm_find_module_by_mid(graph, MODULE_ID_SPEAKER_PROTECTION_VI))
+diff --git a/sound/soc/qcom/qdsp6/audioreach.c b/sound/soc/qcom/qdsp6/audioreach.c
+--- a/sound/soc/qcom/qdsp6/audioreach.c
++++ b/sound/soc/qcom/qdsp6/audioreach.c
+@@ -1655,21 +1655,28 @@ int audioreach_set_media_format(struct q6apm_graph *graph,
+ 	case MODULE_ID_SPEAKER_PROTECTION:
+ 		rc = audioreach_sp11_graph_params(graph, module);
+ 		if (!rc)
+ 			rc = audioreach_speaker_protection(graph, module,
+ 							   PARAM_ID_SP_OP_MODE_NORMAL);
++		sp11_guard_sp_enabled(false);
+ 		if (!rc)
+-			rc = audioreach_module_enable(graph, module, true);
+-		if (!rc) {
++			rc = audioreach_module_enable(graph, module, true);
++		if (!rc) {
++			dev_info_once(graph->dev,
++				      "SP module enable succeeded\n");
++			sp11_guard_sp_enabled(true);
+ 			rc = audioreach_sp11_register_events(graph, module);
+ 			if (rc == -EOPNOTSUPP) {
+ 				dev_warn_once(graph->dev,
+-					      "SP diagnostics unavailable; speakers remain muted\n");
+-				sp11_guard_fault("sp-diagnostics", ADSP_EUNSUPPORTED);
++					      "SP diagnostics unavailable; protection is degraded\n");
++				sp11_guard_diagnostics_degraded(true);
+ 				rc = 0;
+ 			} else if (rc) {
++				sp11_guard_sp_enabled(false);
+ 				dev_err(graph->dev, "SP diagnostics event registration failed: %d\n",
+ 					rc);
+ 			}
+ 		}
++		if (rc)
++			sp11_guard_sp_enabled(false);
+ 
+ 		break;
