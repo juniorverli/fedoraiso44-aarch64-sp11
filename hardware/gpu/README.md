@@ -2,7 +2,7 @@
 
 ## 1. Summary
 
-The X1P64100's Adreno X1-85 (chip ID `0x43050c01`, "C512v2") has native Linux 7.3 support, and the captured Windows configuration selects a 1.25 GHz graphics ceiling. Status: `designed`; static speed-bin evidence needs no behavioral kernel patch, while the M15 debug boot now has an opt-in phase-trace patch for a controlled diagnostic build.
+The X1P64100's Adreno X1-85 (chip ID `0x43050c01`, "C512v2") has native Linux 7.3 support, and the captured Windows configuration selects a 1.25 GHz graphics ceiling. Status: `designed`; the revision-15 debug boot reset after GPU initialization and a later successful render-node open, with the cause unresolved. A GPU-disabled debug default is requested; see [M16 reset evidence](evidence/2026-11-02-m16-gpu-reset.md).
 
 ## 2. Hardware
 
@@ -14,7 +14,7 @@ The X1P64100's Adreno X1-85 (chip ID `0x43050c01`, "C512v2") has native Linux 7.
 | Zap shader | `qcom/x1e80100/microsoft/qcdxkmsuc8380.mbn` | Verified (DT) | `sources/linux/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi:723` |
 | Zap shader source | `DriverStore/qcdx8380.inf_arm64_34a2c09c0e5b25ac/qcdxkmsuc8380.mbn`, SHA-256 `950f17eb439326548cba20603b30cda653d612d1564feb397ddbd92987f0e8ac` | Verified | `MANIFEST.sha256` |
 | Windows GPU ceiling | 1250000000 Hz (1.25 GHz) | Inference from Verified configuration bytes and active base-file selection | [speed-bin evidence](evidence/2026-10-24-speedbin.md), BASE offset `0x17a45`; vendor specification agrees |
-| Expected Linux fuse / logical bin / OPP mask | 7 / 2 / `0x04` | Inference; physical fuse TBD | `sources/linux/drivers/gpu/drm/msm/adreno/a6xx_catalog.c:1608`; `sources/linux/arch/arm64/boot/dts/qcom/hamoa.dtsi:4041` |
+| Linux fuse / logical bin / OPP mask | 7 / 2 / `0x04` | Verified physical fuse and mapping; independent cross-check pending | [M16 reset evidence](evidence/2026-11-02-m16-gpu-reset.md); `sources/linux/drivers/gpu/drm/msm/adreno/a6xx_catalog.c:1608`; `sources/linux/arch/arm64/boot/dts/qcom/hamoa.dtsi:4041` |
 | Zap container / PAS | Relocatable signed ELF32 container fits reserved memory; kernel uses PAS 13 | Inference (format compatibility); Verified (kernel PAS); runtime authentication TBD | [firmware evidence](evidence/2026-10-24-firmware-mesa.md) |
 
 ## 3. Windows
@@ -41,7 +41,7 @@ The X1P64100's Adreno X1-85 (chip ID `0x43050c01`, "C512v2") has native Linux 7.
 |:--|:--|
 | Zap shader not in Fedora | Ship from the DriverStore (firmware worker, `firmware/manifest.toml`) |
 | Firmware/image pin | Verified Fedora file lists: `qcom-firmware-0:20261019-1.fc44.noarch` supplies both `gen70500_*` as `.xz`; firmware/image owners must pin actual RPMs and verify initramfs plus XZ loader support |
-| Physical fuse and safe initial GPU enablement | Read the fuse with msm blacklisted before accelerated boot, then verify 1.25 GHz ceiling; existing fuse-7 mapping suffices if observed. No kernel patch proposed |
+| Physical fuse and safe initial GPU enablement | Safe boot measured fuse 7; debug snapshot shows 1.25 GHz ceiling. Independent cross-check and stable GPU initialization remain pending; no behavioral kernel patch justified |
 | Independent cross-check | Orchestrator must reproduce the active config selection, clock table, fuse extraction and OPP arithmetic before using these safety values |
 | Mesa/image pin | Verified available `mesa-{dri,vulkan}-drivers-0:26.2.5-1.fc44.aarch64`; sources/image owners pin the actual compose. No Mesa change indicated |
 | M15 early DRM open and boot-stage failure | Stage-by-stage evidence is missing; use the default-off trace patch and fix the image firmware/hook ordering before a controlled retest |
@@ -51,7 +51,7 @@ The X1P64100's Adreno X1-85 (chip ID `0x43050c01`, "C512v2") has native Linux 7.
 
 | # | Question | Grade | What answers it |
 |:--|:--|:--|:--|
-| Q1 | Will this unit's physical fuse select the established 1.25 GHz ceiling? | Inference: expected fuse 7; observed value TBD | Static selection/table answer is in [speed-bin evidence](evidence/2026-10-24-speedbin.md). Independent cross-check, pre-probe NVMEM read, then DRM chip/fuse and devfreq readout close the remaining gap; successful reads need not appear in dmesg |
+| Q1 | Does this unit select the established 1.25 GHz ceiling? | Verified fuse 7 and sampled 1.25 GHz max; independent cross-check pending | [M16 reset evidence](evidence/2026-11-02-m16-gpu-reset.md); confirm extraction and mapping independently |
 | Q2 | Does the zap shader authenticate and run with PAS 13? | Inference: container/memory fit; runtime TBD | Header-only checks pass statically; [firmware evidence](evidence/2026-10-24-firmware-mesa.md). Device logs and hardware rendering still required |
 | Q3 | Which Windows GPU thermal limits need an equivalent Linux binding? | Verified PEP/ACPI association; policy semantics TBD | [QCOM0CF7 hand-off](evidence/2026-10-24-thermal-policy-request.md) to `power-thermal` |
 | Q4 | Is IFPC stable on this firmware? | TBD | 30 min load test; `dmesg` for GMU errors |
@@ -68,11 +68,15 @@ On the device, with logs in `evidence/`, following [test-plan.md](test-plan.md).
 
 ## 8. Requests
 
-- **orchestrator / cross-check:** independently reproduce REV 008A's selected base file, graphics clock table, fuse/OPP masks and pre-probe extraction before approving these safety values. Actual physical fuse remains TBD; no kernel patch has been written.
+- **image (2026-11-02, supersedes M16 GPU-on default below):** use a GPU-disabled DTB for normal debug and preserve a separate GPU-disabled recovery entry; remove automatic `sp11.gpu_diag=1` from the default. Offer GPU-enabled diagnostics only as an explicit non-default warned entry with no automatic retry. Audit every entry and update menu, payload and policy checks. Removing the two-step alone does not prevent the observed early DRM open. Verify both default/recovery completion and no GPU init markers. See [reset evidence](evidence/2026-11-02-m16-gpu-reset.md).
+- **kernel (2026-11-02):** no behavioral GPU patch justified. Preserve existing trace support for later isolated diagnostics; evaluate persistent reset-reason capture and explicit zap/PAS markers only when a controlled GPU-enabled test is authorized. No speculative rail, clock, thermal or zap bypass changes. Verify GPU-disabled DTB prevents early GPU initialization while retaining display.
+- **sources:** REA MCP firmware inspection was rejected by automatic approval policy; restore usable compliant access, catalog and pin any new gen70500 inputs before analysis. See [reset evidence](evidence/2026-11-02-m16-gpu-reset.md).
+
+- **orchestrator / cross-check:** independently reproduce REV 008A's selected base file, graphics clock table, fuse/OPP masks and pre-probe extraction before approving these safety values. The safe boot measured physical fuse 7; no kernel patch has been written.
 - **firmware:** mark `gen70500_*` package availability confirmed from `qcom-firmware-0:20261019-1.fc44.noarch` (source `linux-firmware-20261019-1.fc44.src.rpm`), pin the actual RPM, and retain the exact Microsoft zap mapping. See [query evidence](evidence/2026-10-24-firmware-mesa.md); no payload/signature or on-device verification is claimed.
 - **sources / image:** pin Fedora repo/compose, the above firmware RPM and `mesa-{dri,vulkan}-drivers-0:26.2.5-1.fc44.aarch64`, plus matching Mesa source inputs cited in the evidence. Do not derive aarch64 updates from older release-specific Fedora Packages web pages.
-- **kernel / image:** verify `CONFIG_NVMEM_SYSFS=y`, QFPROM and `CONFIG_FW_LOADER_COMPRESS_XZ=y` in the assembled config; verify initramfs firmware placement against the M16 isolation request below. Provide the msm-blacklisted, multi-user diagnostic entry in the test plan for the first fuse read. For a controlled GPU boot only, opt into `CONFIG_DRM_MSM_GPU_BOOT_TRACE=m` from [patch 0001](patches/0001-drm-msm-add-opt-in-gpu-boot-phase-trace.patch); it is default-off and diagnostic only.
-- **image (M16 isolation):** keep the existing recovery entry; for a controlled GPU-enabled diagnostic entry retain the M16 firmware and append `drm_client_lib.active=` to the Linux command line. Verify the empty parameter is honored, capture all DRM open/phase markers and the complete first oops, and ensure any later userspace DRM open remains subject to the GPU guard. Test `drm_kms_helper.fbdev_emulation=0` separately as a one-boot GRUB edit; it does not prevent the early internal open. As a separate comparison only, omit all three GPU firmware files from initramfs while retaining rootfs copies and verify the actual initrd. See [M16 evidence](evidence/2026-11-01-m16-vblank-loop.md); do not infer a working display or safe GPU initialization from a quiet log.
+- **kernel / image:** verify `CONFIG_NVMEM_SYSFS=y`, QFPROM and `CONFIG_FW_LOADER_COMPRESS_XZ=y` in the assembled config; verify initramfs firmware placement against the M16 isolation request below. Retain a GPU-disabled diagnostic entry for safe reads. For a controlled GPU boot only, opt into `CONFIG_DRM_MSM_GPU_BOOT_TRACE=m` from [patch 0001](patches/0001-drm-msm-add-opt-in-gpu-boot-phase-trace.patch); it is default-off and diagnostic only.
+- **image (M16 isolation, historical proposal; no test authorized):** keep the existing recovery entry; for a controlled GPU-enabled diagnostic entry retain the M16 firmware and append `drm_client_lib.active=` to the Linux command line. Verify the empty parameter is honored, capture all DRM open/phase markers and the complete first oops, and ensure any later userspace DRM open remains subject to the GPU guard. Test `drm_kms_helper.fbdev_emulation=0` separately as a one-boot GRUB edit; it does not prevent the early internal open. As a separate comparison only, omit all three GPU firmware files from initramfs while retaining rootfs copies and verify the actual initrd. See [M16 evidence](evidence/2026-11-01-m16-vblank-loop.md); do not infer a working display or safe GPU initialization from a quiet log.
 - **kernel (M16):** no vblank-skip patch requested: the atomic helper already checks active state. Preserve DRM client selection and phase tracing in the diagnostic build; help collect CRTC/plane state, DPU encoder IRQ/vblank counters and the complete first oops before proposing a targeted fix. Verify built config and `drm_client_lib.active` behavior on-device.
 - **power-thermal:** confirm active qcpep binding for `QCOM0CF7`, decode `GpuLimits_R2` CGLC/OGLC policy, map GPU cooling, and give the condition for releasing sustained GPU load. [Evidence and exact INF hashes/lines](evidence/2026-10-24-thermal-policy-request.md).
 - **image (M15 debug ordering):** the debug log records an early `msm_open()` firmware request at 5.197 s, before the GPU guard service starts at 29.462 s. `90-sp11.conf` currently omits `gen70500_*` based on the assumption that `msm_open()` happens after root is mounted. For a controlled comparison, verify the firmware actually present in the booted initramfs, then test GDM/DRM open ordering with explicit markers immediately before and after the GPU hook plus a global deadline covering helper mount/sync/unmount. Do not expose working firmware to uncontrolled early opens: first isolate those opens and verify thermal safeguards, because an early successful load can proceed into GMU/zap before the diagnostic guard. See [M15 boot evidence](evidence/2026-11-01-m15-debug-step0.md).
@@ -80,7 +84,7 @@ On the device, with logs in `evidence/`, following [test-plan.md](test-plan.md).
 
 - **kernel (new, 2026-10-30):** build DTB variant `m13-gpu` from `kernel/dtb-variants/x1p64100-microsoft-denali-m13-gpu.dts` (written; M12 plus `&gpu` okay, speakers off) and add the script wiring listed in [two-step evidence](evidence/2026-10-30-two-step.md) section 2. Optional: marker patch or `CONFIG_DYNAMIC_DEBUG=y` (section 4). No speed-bin patch is needed (section 2).
 - **image (new, 2026-10-30):** install `collector/gpu-two-step.sh` as `/usr/libexec/sp11-gpu-two-step`, `collector/sp11-gpu-two-step.service`, and the last menu entry in `collector/grub-entry.txt` (`SP11 debug, GPU diagnostic`, `sp11.gpu_diag=1`, multi-user target, never default). Collector must read the speed-bin as the aligned word at `0x118`.
-- **orchestrator:** run the device test of [test-plan.md](test-plan.md) section 0 on the operator's go; the entry may reset the machine, so it is operator-initiated only.
+- **orchestrator:** do not repeat the historical two-step; review the GPU-disabled controlled test in [test-plan.md](test-plan.md) section 0 and the reset evidence before any later GPU-enabled test.
 
 ## 9. Log
 
@@ -90,3 +94,5 @@ On the device, with logs in `evidence/`, following [test-plan.md](test-plan.md).
 - 2026-10-30: M5 GPU-on traced to DTB `m5gpu` (no `&gpu` override; patch 0002 later disabled it). Designed DTB `m13-gpu` and the reset-surviving two-step collector; found the GPU device's `power/control` is a no-op until the first render open, so step 1 powers the GMU device (CX GDSC) and step 2 is one `open()` (GMU boot and zap cannot be split from userspace). The M5 userspace speed-bin read failed on alignment, the kernel read worked (1.25 GHz ceiling, no patch). See [two-step evidence](evidence/2026-10-30-two-step.md).
 
 - 2026-11-01: traced the M16 fbdev vblank loop and early DRM client; documented the existing active check, teardown safeguards, diagnostic client selection and firmware/guard limitations; no new patch. See [M16 evidence](evidence/2026-11-01-m16-vblank-loop.md).
+
+- 2026-11-02: revision-15 initialized GPU before the diagnostic, later open returned 0 and reset occurred after step-2 sample with CDSP experiment concurrent; cause unresolved. Recorded physical fuse 7, software Vulkan and requested GPU-disabled debug default and separate recovery.
