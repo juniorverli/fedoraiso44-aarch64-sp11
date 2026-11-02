@@ -98,6 +98,8 @@ Two WSA8845 smart amplifiers on SoundWire, driven by the ADSP through AudioReach
 
 ## 9. Log
 
+- 2026-11-02: added candidate 0021 for degraded SP diagnostics, gated on explicit SP enable, non-nominal closed-loop calibration, VI/CPS and the existing amplifier guards. Windows byte-scan findings and revision-17 merge/reject criteria are in [M16 safe playback](evidence/2026-11-02-m16-safe-playback.md). No build, device test or commit.
+
 - 2026-11-02: checked firmware and miniport byte patterns; added patch 0020 to permit unsupported diagnostics registration while latching a guard fault and keeping speakers muted. No build or device test.
 
 - 2026-11-02: checked the private ISO topology and kernel parser against the SH_MEM lead; the backend does not call watermark registration, and no functional fix is supported. See [M16 safe playback](evidence/2026-11-02-m16-safe-playback.md).
