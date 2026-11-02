@@ -5,26 +5,98 @@ only, after the orchestrator's independent cross-check of the clock limit and
 fuse extraction. Preserve logs locally, then redact unrelated identity fields
 before adding selected evidence to git. Do not dump all of qfprom.
 
-## 0. Revision-15 reset: current safe test
+## 0. Clean GPU-enabled debug entry (planned; no build or device test)
 
-Do not rerun the two-step diagnostic from this historical plan: the revision-15
-run initialized the GPU before the collector and later reset with CDSP active.
-Use the GPU-disabled default/recovery verification in [M16 reset evidence](evidence/2026-11-02-m16-gpu-reset.md). Any future GPU-enabled test requires a new isolated protocol and operator authorization.
+D29 makes `safe` the default. Use the explicit GPU-on `debug` entry once; the
+last run may reset the machine. Do not add `sp11.gpu_diag=1`, do not place the
+CDSP experiment opt-in marker on any boot medium, and do not manually start
+or retry either experiment. CDSP normal startup is distinct from the experiment.
+Leave power controls, clocks, thermal policy and frequency limits unchanged.
+The test compares a GPU-on boot with both agents absent, not a completely idle
+machine; the first DRM open can occur in initramfs before userspace collection.
+Record exact image/kernel/DTB identifiers. Keep GPU-disabled safe recovery ready.
+
+Before testing, the image owner must verify on the actual artifact: safe is
+default, debug uses m15 GPU-on, both experiment guards are off, the actual
+initrd and rootfs contain the expected GPU firmware at the observed locations,
+and an independently started early persistent kmsg/journal collector has a
+working destination. Validate persistence with a known marker and `sync` on a
+safe boot. A userspace follower started after boot cannot recover an early reset;
+if persistent collection or a serial/external console is unavailable, a reset
+may remain unexplained. Keep Windows unmounted and never write its partition.
+Use a designated writable Linux/USB logging filesystem; do not write the ISO or
+UEFI variables. Preserve private raw logs separately and redact before git.
+
+1. Boot safe first to check logging/recovery and collect any existing pstore,
+   journal from the previous boot if persistent, and platform-provided reset
+   reason if exposed. Do not clear pstore before preserving it; empty pstore or
+   unavailable prior journal does not mean a clean shutdown.
+2. Boot GPU-on debug once. Observe whether it reaches a stable session. Record
+   approximate elapsed time and whether reboot, hang, screen loss, or shutdown
+   occurred; preserve all durable logs even when no command can be run. Do not
+   repeat automatically. The collector should record boot ID, kernel, cmdline,
+   timestamps, full kernel log including the *first* oops/panic, complete DRM,
+   GMU, HFI, zap/PAS, SMMU, thermal and watchdog messages, and experiment unit
+   status/markers. Verify the experiment's actual skip result; inactive or failed
+   systemd unit alone does not establish whether a restart already happened.
+3. If it survives, capture the following from a terminal, writing output to the
+   designated durable log directory (`LOGDIR` set explicitly by the operator).
+   Run graphics commands in the normal graphical session; both may open the GPU
+   and submit work, so start with the metadata and persist each step. Missing
+   commands are recorded as missing; no package installation is required here.
+
+```sh
+: "${LOGDIR:?set LOGDIR to a writable persistent log directory}"
+mkdir -p "$LOGDIR"
+uname -a > "$LOGDIR/uname.txt"
+cat /proc/cmdline /proc/sys/kernel/random/boot_id > "$LOGDIR/boot.txt"
+systemctl status sp11-gpu-two-step.service sp11-cdsp-experiment.service --no-pager > "$LOGDIR/experiment-status.txt" 2>&1 || :
+journalctl -b -o short-monotonic --no-pager > "$LOGDIR/journal.txt" 2>&1 || :
+sudo dmesg > "$LOGDIR/dmesg.txt" 2>&1 || :
+ls -l /sys/class/drm /dev/dri > "$LOGDIR/drm.txt" 2>&1 || :
+for d in /sys/class/drm/card[0-9]* /sys/class/drm/renderD*; do
+    [ -e "$d" ] || continue
+    printf '\n%s -> %s\n' "$d" "$(readlink -f "$d")" >> "$LOGDIR/drm.txt"
+    for f in status enabled modes; do
+        [ ! -r "$d/$f" ] || { printf '%s: ' "$f"; cat "$d/$f"; } >> "$LOGDIR/drm.txt"
+    done
+done
+rpm -q qcom-firmware mesa-dri-drivers mesa-vulkan-drivers > "$LOGDIR/packages.txt" 2>&1 || :
+sync
+command -v glxinfo >/dev/null && glxinfo -B > "$LOGDIR/glxinfo.txt" 2>&1 || :
+sync
+command -v vulkaninfo >/dev/null && vulkaninfo --summary > "$LOGDIR/vulkaninfo.txt" 2>&1 || :
+sync
+sudo dmesg > "$LOGDIR/dmesg-after.txt" 2>&1 || :
+sync
+```
+
+Capture GPU devfreq `available_frequencies`, `cur_freq`, `max_freq` and thermal
+zone/cooling-device names, temperatures and states following section 2, without
+changing them. Identify the GPU device by its sysfs link, not by assuming card or
+render numbering. Capture the system's disclosed reset reason and pstore if
+available, plus `/proc/iomem` and firmware-provided EFI memory map for the
+reservation question; these are evidence only, not instructions to access memory.
+Record mounted initramfs/rootfs firmware locations and package hashes separately.
+A 30-minute stress test remains gated on the independent safety cross-check and
+power-thermal release; this initial test does not prescribe one.
+
+4. On a reset or hang, recover to safe and immediately save previous-boot
+   persistent logs, pstore and any reset reason before another GPU-on attempt.
+   A complete panic, SMMU fault, GMU/HFI/PAS error or thermal event narrows the
+   subsystem; a reliable hardware watchdog/PMIC reason can narrow reset type.
+   A silent reset or absent reason is **inconclusive**, not proof of GPU power
+   collapse. If the clean boot survives and hardware GL/Turnip work, that weakens
+   but does not prove the earlier agents were responsible. If it reproduces,
+   an agent-specific trigger is less likely, but GPU power, other boot activity,
+   timing, shared domains and missing early logs remain alternatives. No
+   unobserved "under load" condition should be inferred from the prior open.
 
 ### Historical two-step diagnostic (superseded)
 
-**Warning:** this entry may reset the machine within seconds. Run it only on the live USB, with the operator present, and
-never before the cross-check of section 1's safety values. Evidence: [two-step](evidence/2026-10-30-two-step.md).
-
-1. Boot `SP11 debug, GPU diagnostic` (DTB `m13-gpu`, `sp11.gpu_diag=1`, multi-user target). Wait up to 3 minutes. If the
-   machine resets, boot the same entry again; do not boot Windows in between.
-2. Collect from the boot USB (`SP11LOGS` or `EFI/sp11-logs`) the folder `gpu-two-step/`: `state.log`, `<boot-id>/previous-boot-report.txt`,
-   `step*.dmesg`, `step*.regulators`, `step*.clocks`, `step*.genpd`, `step*.pm`, `kmsg-follow.txt`, any `pstore/`.
-3. Read the last marker of the dead boot: died in `STEP1` = CX GDSC/GMU device power (rank 2 cause not yet involved);
-   died after `STEP2_SUB open-call` and before `open-returned` = `adreno_load_gpu()` (GMU boot, AHB fence, or PAS 13 zap; the last
-   lines of `kmsg-follow.txt` tell which if the kernel markers exist); survived both = the reset needs the GNOME session
-   (GPU job, or something other than the GPU open).
-4. Record in `hardware/gpu/evidence/`. A death makes later boots skip that step; add `sp11.gpu_diag_force=1` to retry once.
+The historical procedure and its observations are retained in
+[two-step evidence](evidence/2026-10-30-two-step.md) and [reset evidence](evidence/2026-11-02-m16-gpu-reset.md).
+Do not run it or force a retry during the clean test.
 
 ## 1. Image checks and first fuse read
 
