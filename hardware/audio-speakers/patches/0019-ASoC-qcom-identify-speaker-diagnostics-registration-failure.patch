@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: SP11 audio worker <sp11-audio@localhost>
+Date: Mon, 2 Nov 2026 00:00:00 +0000
+Subject: [PATCH] ASoC: qcom: identify speaker diagnostics registration failure
+
+A rejected speaker-protection diagnostics event subscription is currently
+reported by the caller as a media format failure. Identify this particular
+failure while retaining the error and the fail-closed graph behavior.
+
+This is diagnostic only; it does not establish why the DSP rejected the
+registration or authorize bypassing the subscription.
+---
+ sound/soc/qcom/qdsp6/audioreach.c | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/sound/soc/qcom/qdsp6/audioreach.c b/sound/soc/qcom/qdsp6/audioreach.c
+--- a/sound/soc/qcom/qdsp6/audioreach.c
++++ b/sound/soc/qcom/qdsp6/audioreach.c
+@@ -1540,8 +1540,12 @@
+ 							   PARAM_ID_SP_OP_MODE_NORMAL);
+ 		if (!rc)
+ 			rc = audioreach_module_enable(graph, module, true);
+-		if (!rc)
++		if (!rc) {
+ 			rc = audioreach_sp11_register_events(graph, module);
++			if (rc)
++				dev_err(graph->dev, "SP diagnostics event registration failed: %d\n",
++					rc);
++		}
+ 
+ 		break;
+ 	case MODULE_ID_SPEAKER_PROTECTION_VI:
+-- 
+2.43.0
