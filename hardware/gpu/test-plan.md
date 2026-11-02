@@ -5,7 +5,13 @@ only, after the orchestrator's independent cross-check of the clock limit and
 fuse extraction. Preserve logs locally, then redact unrelated identity fields
 before adding selected evidence to git. Do not dump all of qfprom.
 
-## 0. Two-step diagnostic after the silent reset (M13, operator-initiated)
+## 0. Revision-15 reset: current safe test
+
+Do not rerun the two-step diagnostic from this historical plan: the revision-15
+run initialized the GPU before the collector and later reset with CDSP active.
+Use the GPU-disabled default/recovery verification in [M16 reset evidence](evidence/2026-11-02-m16-gpu-reset.md). Any future GPU-enabled test requires a new isolated protocol and operator authorization.
+
+### Historical two-step diagnostic (superseded)
 
 **Warning:** this entry may reset the machine within seconds. Run it only on the live USB, with the operator present, and
 never before the cross-check of section 1's safety values. Evidence: [two-step](evidence/2026-10-30-two-step.md).
