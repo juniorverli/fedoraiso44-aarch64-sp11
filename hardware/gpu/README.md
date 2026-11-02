@@ -2,7 +2,7 @@
 
 ## 1. Summary
 
-The X1P64100's Adreno X1-85 (chip ID `0x43050c01`, "C512v2") has native Linux 7.3 support, and the captured Windows configuration selects a 1.25 GHz graphics ceiling. Status: `designed`; the latest debug boot displayed fluid GNOME and then reset, with the cause unresolved. Four GMU starts reached successful HFI return; the last was close to the end of the captured log. Safe remains the default. The next discriminator holds GPU runtime PM active; see [resume evidence](evidence/2026-11-02-resume-comparison.md) and [test plan](test-plan.md).
+The X1P64100's Adreno X1-85 (chip ID `0x43050c01`, "C512v2") has native Linux 7.3 support, and the captured Windows configuration selects a 1.25 GHz graphics ceiling. Status: `designed`; the latest debug boot displayed fluid GNOME and then reset, with the cause unresolved. Round 3 reported two successful GMU/HFI starts and a reset after GNOME appeared; the raw capture is not available in this workspace. Safe remains the default. The next discriminator pins and monitors both GPU and GMU runtime PM; see [revision-20 evidence](evidence/2026-11-02-rev20-reset-capture.md) and [test plan](test-plan.md).
 
 ## 2. Hardware
 
@@ -44,7 +44,7 @@ The X1P64100's Adreno X1-85 (chip ID `0x43050c01`, "C512v2") has native Linux 7.
 | Physical fuse and safe initial GPU enablement | Safe boot measured fuse 7; debug snapshot shows 1.25 GHz ceiling. Independent cross-check and stable GPU initialization remain pending; no behavioral kernel patch justified |
 | Independent cross-check | Orchestrator must reproduce the active config selection, clock table, fuse extraction and OPP arithmetic before using these safety values |
 | Mesa/image pin | Verified available `mesa-{dri,vulkan}-drivers-0:26.2.5-1.fc44.aarch64`; sources/image owners pin the actual compose. No Mesa change indicated |
-| GPU reset | Cause unresolved after repeated GMU starts; run the debug-only runtime-PM discriminator with independent durable logging, as specified in [test-plan.md](test-plan.md) |
+| GPU reset | Cause unresolved after repeated GMU starts; verify ramoops memory ownership and retention, then run the debug-only GPU and GMU runtime-PM discriminator with independent durable logging ([test plan](test-plan.md)) |
 | Thermal mitigation and device behavior | `power-thermal` establishes equivalent GPU cooling; device tests confirm PAS authentication, rendering and IFPC stability |
 
 ## 6. Open questions
@@ -68,7 +68,10 @@ On the device, with logs in `evidence/`, following [test-plan.md](test-plan.md).
 
 ## 8. Requests
 
-- **image / orchestrator (2026-11-02, current):** implement and validate the early GPU platform runtime-PM-on discriminator, including timing, readback, continuous GMU start markers and matched control in [resume evidence](evidence/2026-11-02-resume-comparison.md). Safe remains default; do not treat a late or unverified write as a valid test. No kernel build requested by this worker.
+- **kernel / image (revision 20; supersedes the earlier GPU-only discriminator):** implement the precise dual-device power-control, readback, per-cycle telemetry, urgent kmsg sync, pstore archival and next-boot durable copy in [revision-20 evidence](evidence/2026-11-02-rev20-reset-capture.md). Build `CONFIG_PSTORE=y`, `CONFIG_PSTORE_RAM=y`, `CONFIG_PSTORE_CONSOLE=y`, `CONFIG_PSTORE_PMSG=y`, retaining BTF. A 2 MiB ramoops node at `0x84000000` is a **candidate only**, gated on full EFI/DT ownership checks, an independent cross-check and warm-reset retention; do not deploy it if any ownership is uncertain. No new kernel patch is supplied. Preserve safe default and thermal limits.
+- **orchestrator / sources:** provide and hash the round-3 `b1c603b5` raw kmsg and EFI map; check recovery messages and sequence gaps. A Windows programming difference is not yet identified, so REA is not requested for this round.
+
+- **image / orchestrator (historical):** the GPU-only discriminator in [resume evidence](evidence/2026-11-02-resume-comparison.md) is superseded by the dual-device revision-20 request above.
 - **orchestrator / sources:** resolve the REA approval and catalog limitations for the exact GMU firmware or catalogued Windows driver, and inspect the handlers specified in [resume evidence](evidence/2026-11-02-resume-comparison.md).
 
 - **kernel (2026-11-02, reserved-memory candidate):** for the controlled comparison, add [GPU patch 0002](patches/0002-arm64-dts-qcom-reserve-gpu-firmware-memory.patch) to `kernel/series` immediately after GPU trace patch 0001. It modifies `hamoa.dtsi` itself, not a variant include, and therefore affects every hamoa DTB. Review the two ranges and independent cross-check, check integration and reservation conflicts, and compare EFI memory map and `/proc/iomem` before/after. Follow the candidate test and rejection criteria in the [reference comparison](evidence/2026-11-02-reference-comparison.md); preserve the safe default. No build is requested in this session.
@@ -112,3 +115,5 @@ Historical requests below describe prior milestones and do not authorize the two
 - 2026-11-02: prepared reserved-memory candidate 0002 from the reference, applied it to scratch v7.3 and compiled the Denali DT with dtc; documented controlled comparison and rejection criteria. No integrated build or device test.
 
 - 2026-11-02: latest kmsg contains four GMU firmware/HFI starts, all reporting success; last at 49.85 s shortly before log ends. Full requested-file comparison identifies no proven resume defect. Defined runtime-PM discriminator and REA hand-off; no behavioral patch or build.
+
+- 2026-11-02: revision 20: traced GMU-start markers through GPU runtime resume and recovery; designed gated ramoops candidate and dual-device telemetry/persistent capture; no new kernel patch or REA.

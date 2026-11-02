@@ -1,13 +1,19 @@
 # GPU device acceptance plan
 
-**Current next test (2026-11-02c):** the debug-only GPU platform `power/control=on` discriminator, including early ordering, readback, full GMU-start stream, matched GNOME use, interpretation and safety gates, is specified in [resume evidence](evidence/2026-11-02-resume-comparison.md). It supersedes older isolation proposals below.
+**Revision 20 current test:** the dual-device diagnostic and reset-capture requirements in [revision-20 evidence](evidence/2026-11-02-rev20-reset-capture.md) supersede every earlier GPU-only or clean-boot procedure below where they conflict. No test, implementation, EFI-map qualification or memory-retention validation has yet occurred.
+
+1. Before image integration, qualify the candidate 2 MiB ramoops range against the actual EFI map, all device-tree reservations and boot allocations, with independent cross-check. Reject the candidate on unknown ownership. Verify final BTF and four built-in PSTORE config options, validated DTB and backend registration. Use a non-destructive pmsg sentinel and warm reboot to establish that the next boot's systemd-pstore archive and raw pstore copy reach durable storage, then verify content after a further reboot. An empty store is not proof of a hardware reset.
+2. Verify actual debug artifact: each exact GPU and GMU power/control path has a timestamped successful `on` write and readback or a visible failure, ordered before first possible suspend if feasible; record unit result and timing against first GMU start. Every fast and full collector cycle must record boot ID, monotonic time, `control`, `runtime_status`, and `runtime_suspended_time` for both devices, with explicit read errors. Verify urgent `KERN_ERR` and matching-line publication and actual synced destination, including under failure/lock contention. Preserve sequence gaps and loss indicators.
+3. In the explicit debug entry, record image/kernel/DTB IDs, boot ID, command line, firmware versions and hashes, exact time GNOME appears and any reset. Preserve all four GMU phase markers (firmware begin/return and HFI begin/return) for **each** start, plus recovery messages and PM tracepoints if available. A second start proves entry to the GPU runtime-resume path but can also occur during recovery. An early `on` readback alone does not establish that no transition occurred; incomplete timing, logs or failed pin makes the discriminator inconclusive.
+4. On the next safe boot, before further tests, preserve systemd-pstore archive, raw pstore if present, collector status, previous boot ID and kmsg stream on durable media. Compare reset timing and matched workload to round 3. If it survives, runtime transitions or the changed power state are implicated, not a particular driver line; if it resets despite verified pins, the autosuspend-trigger theory is weakened, not all GPU/firmware causes excluded. A hard reset may leave no record.
+5. Check the GPU devfreq ceiling remains at or below 1250000000 Hz and thermal restrictions are unchanged. Do not run sustained stress until the existing power-thermal and cross-check gates are met.
 
 These commands are **planned, not run**. Run on an approved test image/device
 only, after the orchestrator's independent cross-check of the clock limit and
 fuse extraction. Preserve logs locally, then redact unrelated identity fields
 before adding selected evidence to git. Do not dump all of qfprom.
 
-## 0. Clean GPU-enabled debug entry (planned; no build or device test)
+## 0. Historical clean GPU-enabled debug entry (superseded where conflicting)
 
 D29 makes `safe` the default. Use the explicit GPU-on `debug` entry once; the
 last run may reset the machine. Do not add `sp11.gpu_diag=1`, do not place the
