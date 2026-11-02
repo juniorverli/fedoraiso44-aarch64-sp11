@@ -1,0 +1,90 @@
+From 3c827ff42d7d08bc857bbf40f5ce93896f5d91a Mon Sep 17 00:00:00 2001
+From: juniorverli <25966843+juniorverli@users.noreply.github.com>
+Date: Mon, 2 Nov 2026 16:30:00 +0000
+Subject: [PATCH 23/23] ASoC: qcom: install Denali speaker caps at card late probe
+
+Install the Denali PA, RX and MIX caps after all card components have
+bound, before ALSA registers PCM devices. Keep the guard closed if any
+required control is absent or a limit operation fails. A positive return
+from snd_soc_limit_volume means a control value changed and is success.
+Log each installed control with its actual return value, then report when
+all required caps are ready.
+
+Signed-off-by: juniorverli <25966843+juniorverli@users.noreply.github.com>
+---
+ sound/soc/qcom/x1e80100.c | 34 +++++++++++++++++++++++++---------
+ 1 file changed, 25 insertions(+), 9 deletions(-)
+
+--- a/sound/soc/qcom/x1e80100.c
++++ b/sound/soc/qcom/x1e80100.c
+@@ -37,11 +37,16 @@
+ 		return 0;
+ 
+ 	ret = snd_soc_limit_volume(card, name, max);
+-	if (ret)
++	if (ret < 0) {
+ 		dev_err(card->dev, "speaker volume cap failed for %s: %d\n",
+ 			name, ret);
++		return ret;
++	}
++
++	dev_info(card->dev, "speaker volume cap installed for %s: %d\n",
++		 name, ret);
+ 
+-	return ret;
++	return 0;
+ }
+ 
+ static int x1e80100_install_spk_caps(struct snd_soc_card *card)
+@@ -82,6 +87,22 @@
+ 			return ret;
+ 	}
+ 	sp11_guard_caps_ready(true);
++	dev_info(card->dev, "speaker volume caps ready\n");
++	return 0;
++}
++
++static int x1e80100_card_late_probe(struct snd_soc_card *card)
++{
++	if (!of_machine_is_compatible("microsoft,denali"))
++		return 0;
++
++	/*
++	 * late_probe runs after all card components have bound and before ALSA
++	 * registers PCM devices, so WSA controls exist before caps are required.
++	 * Keep the card available for microphones/DP if a speaker control is
++	 * absent; caps_ready remains false and the amplifier stays muted.
++	 */
++	x1e80100_install_spk_caps(card);
+ 	return 0;
+ }
+ 
+@@ -92,17 +113,11 @@
+ 	struct snd_soc_card *card = rtd->card;
+ 	struct snd_soc_jack *dp_jack = NULL;
+ 	int dp_pcm_id = 0;
+-	int ret;
+ 
+ 	switch (cpu_dai->id) {
+ 	case WSA_CODEC_DMA_RX_0:
+ 	case WSA_CODEC_DMA_RX_1:
+-		if (of_machine_is_compatible("microsoft,denali")) {
+-			/* Require every applicable cap before exposing WSA playback. */
+-			ret = x1e80100_install_spk_caps(card);
+-			if (ret)
+-				break;
+-		} else {
++		if (!of_machine_is_compatible("microsoft,denali")) {
+ 			snd_soc_limit_volume(card, "WSA WSA_RX0 Digital Volume", 81);
+ 			snd_soc_limit_volume(card, "WSA WSA_RX1 Digital Volume", 81);
+ 			snd_soc_limit_volume(card, "WSA2 WSA_RX0 Digital Volume", 81);
+@@ -366,6 +381,7 @@
+ 		return ret;
+ 
+ 	card->driver_name = of_device_get_match_data(dev);
++	card->late_probe = x1e80100_card_late_probe;
+ 	x1e80100_add_be_ops(card);
+ 
+ 	if (of_machine_is_compatible("microsoft,denali") && sp11_guard_nospk())
+-- 
+2.43.0

@@ -1,6 +1,6 @@
 # audio-speakers test plan
 
-**D28 current test and prerequisites:** [public audio evidence](evidence/2026-11-02-d28-public-audio.md) supersedes historical default-path instructions below. Patch 0022 implements the requested open-loop guard but is not integrated or built. The public entry must boot software-muted with an enforced -12 dBFS ceiling and hardware PA/RX/MIX caps; the separate fallback keeps speakers off. No kernel/ISO build or device test has been run. Any audible test requires the operator present.
+**D28 current test and prerequisites:** [public audio evidence](evidence/2026-11-02-d28-public-audio.md) supersedes historical default-path instructions below. Patches 0022–0023 implement the requested open-loop guard and late-probe caps but are not integrated or built. The public entry must boot software-muted with an enforced -12 dBFS ceiling and hardware PA/RX/MIX caps; the separate fallback keeps speakers off. No kernel/ISO build or device test has been run. Any audible test requires the operator present.
 
 The public graph has no closed-loop thermal/excursion protection; D26 accepts only muted-by-default, capped open-loop use. First validate the device while muted. All commands are read-only unless stated.
 
@@ -27,13 +27,13 @@ The public graph has no closed-loop thermal/excursion protection; D26 accepts on
 ## T2c, D28 muted public-entry test (after patch and image integration)
 
 1. Verify model `X1E80100-Microsoft-Surface-Pro-11`, marker `d26-open-loop-v1`, public topology filename/hash, and guard mode `open-loop`; parsed graph has no SP module.
-2. Before opening audio, confirm the software sink is muted and its enforced maximum is -12 dBFS. Read PA (max 6), WSA RX digital and RX MIX caps (max 81); confirm cap readiness in guard debugfs.
-3. Open and prepare/start the speaker PCM while the sink remains muted. Expect success without `-22`; `sp11_guard_check` admits the stream, and the unmute gate reports open-loop allowed without VI/CPS, calibration, SP enable or diagnostics prerequisites. Confirm no SP diagnostics registration request or unsupported response and verify silence at both speakers throughout.
+2. Before opening audio, confirm the software sink is muted and its enforced maximum is -12 dBFS. After codec binding/card late probe and before opening audio, confirm there are no `speaker volume cap failed` lines; require `speaker volume cap installed for <control>: 0` or `: 1` for each of the six required WSA RX/RX MIX and left/right PA controls, plus `speaker volume caps ready`. Read PA (max 6), WSA RX digital and RX MIX caps (max 81), and confirm `caps_ready: 1` in guard debugfs. Check optional WSA2 and Woofer/Tweeter success lines when those controls are present.
+3. Open and prepare/start the speaker PCM while the sink remains muted. Expect successful muted prepare/start without `-22`; the PCM must not appear until late-probe cap installation has completed. `sp11_guard_check` admits the stream, while the amplifier remains muted until the user unmutes; the unmute gate then reports open-loop allowed without VI/CPS, calibration, SP enable or diagnostics prerequisites. Confirm no SP diagnostics registration request or unsupported response and verify silence at both speakers while muted.
 4. Capture journal timestamps, guard state before and after, active UCM verb/device, PCM, sink mute/volume and all hardware mixer values. Fail if any cap is missing, mode is unknown/refused, a diagnostic event is attempted, or sound is audible. Do not unmute during this test.
 
 ## T3, first sound (only with the operator present)
 
-Lowest step, short tones, stop on distortion or warmth. Log `hwmon` temperature before, during, after. Acceptance items 1 to 3 of the dossier apply.
+After T2c proves muted prepare with `caps_ready: 1` and all caps present, unmute deliberately and play a short, low-level tone. Confirm both speakers are audible within the enforced software ceiling and hardware caps, then stop. Stop immediately on distortion or warmth. Log `hwmon` temperature before, during and after. Acceptance items 1 to 3 of the dossier apply.
 
 ## T2b, M13 gated speaker variant (D26)
 
