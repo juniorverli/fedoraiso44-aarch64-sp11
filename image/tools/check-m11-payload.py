@@ -90,7 +90,7 @@ def check(root, repo, record, release):
     assert safety.stat().st_mode & 0o111 and 'set-mute' in safety.read_text() and '--limit 0.05' in safety.read_text()
     ceiling = root / 'usr/share/wireplumber/wireplumber.conf.d/53-sp11-audio-ceiling.conf'
     ceiling_text = ceiling.read_text()
-    assert 'api.acp.max-volume = 0.05' in ceiling_text and 'api.acp.disable-pro-audio = true' in ceiling_text
+    assert 'api.acp.max-volume = 0.251' in ceiling_text and 'api.acp.disable-pro-audio = true' in ceiling_text
     assert 'device.routes.default-sink-volume = 0.0' in ceiling_text, 'fresh sink must start at zero software volume'
     unit = root / 'usr/lib/systemd/user/sp11-audio-safety.service'
     assert 'Before=graphical-session.target' in unit.read_text() and 'Type=oneshot' in unit.read_text()
