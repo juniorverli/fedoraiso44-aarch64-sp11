@@ -3,10 +3,6 @@
  "audio_routes_overlay": {
   "etc/dconf/db/distro.d/91-sp11-audio-routes": "3f26813431849eb67b133dd1b37260be88ab0dfd76349afb2366d8469c4e48ff",
   "etc/sp11-log-collector.d/audio-routes.sh": "04535e741a1e7fe673eace5aa1a303f88d7a272cbd73779c25869f93226e1e2c",
-  "usr/share/alsa/ucm2/Qualcomm/x1e80100/SP11-Audio.conf": "6e245b6bc65921a92d4be17ced681c2c15d68898f7a1503d3c61d289cabf5e71",
-  "usr/share/alsa/ucm2/Qualcomm/x1e80100/SP11-DP0.conf": "0049f5a9be9661c08dde37cc32fdab2902f14a50cd8d1a57154152329b05d8f4",
-  "usr/share/alsa/ucm2/Qualcomm/x1e80100/SP11-DP1.conf": "989504d47364e430cbd6955f7992c432a953937f54a639c6fd0a7cec3d04ff3b",
-  "usr/share/alsa/ucm2/Qualcomm/x1e80100/SP11-HiFi.conf": "e82c947e6bafa4b007e60d16d00cf68604b9901a924a78cf4a030b8ba4fc5637",
   "usr/share/alsa/ucm2/Qualcomm/x1e80100/SP11-MicGain.conf": "7e151107f376cbf5caef38e61d9b06edd41fa68a6b8cf86284cd246556afddf5",
   "usr/share/alsa/ucm2/Qualcomm/x1e80100/SP11-Routes.conf": "b893ff6c6d7a155875454dad25ec3692e0db270b9bddc3b381ef16761edae07f",
   "usr/share/wireplumber/wireplumber.conf.d/52-sp11-audio-routes.conf": "f3bb74e221b68bdff93560c98cfe60ce906866cbc8454710a2bcf8d1f334c574"

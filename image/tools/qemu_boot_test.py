@@ -26,7 +26,7 @@ ENTRIES = [   # M16: one flat static menu (M13 style); the VM entry is the LAST 
     "SP11 debug, safe (no GPU)",
     "SP11 debug, no sound",
     "SP11 debug, touch off",
-    "SP11 debug, speakers (gated)",
+    "SP11 debug, speakers (closed-loop experiment; private)",
     "SP11 debug, USB + DSP trace",
     "SP11 debug, no early DSP",
     "SP11 debug, Wi-Fi unblock probe",

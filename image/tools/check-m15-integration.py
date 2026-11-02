@@ -83,10 +83,21 @@ def check(root, repo, record):
     gain = (root / 'usr/share/alsa/ucm2/Qualcomm/x1e80100/SP11-MicGain.conf').read_text()
     assert gain.count("VA_DEC0 Volume' 98") == 1 and gain.count("VA_DEC1 Volume' 98") == 1 and not re.search(r"Volume' (10[9]|1[1-9][0-9])\b", gain), 'capture gain step 98 (+14 dB) or cap 108'
     live = root / 'usr/share/alsa/ucm2/Qualcomm/x1e80100'
-    routes = '\n'.join(l for f in ('SP11-Routes.conf', 'SP11-Audio.conf', 'SP11-HiFi.conf', 'SP11-DP0.conf', 'SP11-DP1.conf') for l in (live / f).read_text().splitlines() if not l.lstrip().startswith('#'))
-    assert 'HDMI0' in routes and 'HDMI1' in routes, 'DisplayPort HDMI0/HDMI1 devices'
-    assert not re.search(r'WSA|SpeakerSeq|WsaInit', routes.replace('Surface11-HiFi', '')), 'route layer names a speaker sequence directly'
-    assert 'SP11-Audio' in (live / 'x1e80100.conf').read_text() or 'SP11-Audio' in routes, 'SP11-Audio not wired'
+    d28 = json.loads((repo / 'image/component-inputs/m28.json').read_text())
+    assert d28 == record['m28_inputs'], 'D28 input record differs from the build record'
+    hifi_file = live / 'Surface11-HiFi.conf'
+    assert digest(hifi_file) == d28['installed_files']['usr/share/alsa/ucm2/Qualcomm/x1e80100/Surface11-HiFi.conf'], 'D28 HiFi pin'
+    hifi = hifi_file.read_text()
+    model = (live / 'MICROSOFT-Surface-Pro-11.conf').read_text()
+    assert 'Surface11-HiFi.conf' in model, 'D28 HiFi verb not wired'
+    for name, pcm in (('Speaker', 0), ('Mic', 1), ('HDMI0', 2), ('HDMI1', 3)):
+        match = re.search(r'SectionDevice\."' + name + r'"\s*\{(.*?)(?=\nSectionDevice\.|\Z)', hifi, re.S)
+        assert match, f'D28 {name} device missing'
+        direction = 'Capture' if name == 'Mic' else 'Playback'
+        assert f'{direction}PCM "hw:${{CardId}},{pcm}"' in match.group(1), f'D28 {name} PCM'
+    for n in (0, 1):
+        assert f'JackControl "DP{n} Jack"' in hifi, f'DP{n} jack'
+        assert f'DISPLAY_PORT_RX_{n} Audio Mixer MultiMedia{n + 3}' in hifi, f'DP{n} mixer route'
     assert b'priority' in (root / 'usr/share/wireplumber/wireplumber.conf.d/52-sp11-audio-routes.conf').read_bytes(), 'WirePlumber priorities'
     assert (root / 'etc/dconf/db/distro.d/91-sp11-audio-routes').is_file() and (root / 'etc/dconf/db/distro').stat().st_size > 0, 'dconf route defaults'
     assert rpm('-q', 'alsa-ucm-utils').returncode == 0 and (root / 'usr/bin/alsaucm').exists(), 'alsaucm missing'
