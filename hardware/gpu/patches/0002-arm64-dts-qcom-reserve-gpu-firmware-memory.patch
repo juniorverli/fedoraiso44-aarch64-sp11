@@ -1,0 +1,40 @@
+Subject: [PATCH] arm64: dts: qcom: reserve GPU firmware memory on hamoa
+
+The working linux-sp11 reference at d6333a45f9bc reserves gpu-prr and
+pld-gmu as no-map ranges in hamoa.dtsi. Restore these two GPU-related
+ranges from the reference; the v7.3 base and the compiled M15 DTB omit
+them. Their role in the observed reset remains unproven.
+
+Compare the EFI memory map and /proc/iomem before and after on the same
+device, check for reservation conflicts, and confirm that the clean
+GPU-on debug entry no longer resets. Reject the candidate for no change,
+a regression, a reservation conflict, or a continuing GPU reset.
+
+The ranges total 68 KiB. If UEFI already reserves them, no additional
+RAM should be lost; otherwise up to 68 KiB may become unavailable.
+
+---
+ arch/arm64/boot/dts/qcom/hamoa.dtsi | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/hamoa.dtsi b/arch/arm64/boot/dts/qcom/hamoa.dtsi
+index 8a96ea1..24c4c94 100644
+--- a/arch/arm64/boot/dts/qcom/hamoa.dtsi
++++ b/arch/arm64/boot/dts/qcom/hamoa.dtsi
+@@ -545,6 +545,16 @@ secdata_apss_mem: secdata-apss@81cff000 {
+ 			no-map;
+ 		};
+ 
++		gpu_prr_mem: gpu-prr@81f00000 {
++			reg = <0x0 0x81f00000 0x0 0x10000>;
++			no-map;
++		};
++
++		pld_gmu_mem: pld-gmu@81f36000 {
++			reg = <0x0 0x81f36000 0x0 0x1000>;
++			no-map;
++		};
++
+ 		adsp_rpc_remote_heap_mem: adsp-rpc-remote-heap@84b00000 {
+ 			reg = <0x0 0x84b00000 0x0 0x800000>;
+ 			no-map;
