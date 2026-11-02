@@ -9,5 +9,4 @@ installed by sp11-sensors-install-private.sh from the output of sp11-sensors-sta
 
 Test (read-only, opt-in): /usr/libexec/sp11/sp11-sensors-test [SECONDS]
 Collector: /etc/sp11-log-collector.d/sensors.sh writes extra-sensors.txt.
-Reset the registry (never reset the ADSP; it crashes the SoC): stop the daemon, empty
-/var/lib/hexagonrpcd/registry, reboot.
+Preserve existing registry state. Do not stop the daemon, clear the registry, or reset the ADSP as a diagnostic.

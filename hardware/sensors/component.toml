@@ -3,7 +3,7 @@ name = "Sensors on the ADSP sensor core (SSC): accelerometer, gyroscope, magneto
 phase = 4
 status = "testing"
 depends_on = ["dsp-subsystems"]
-updated = "2026-11-01"
+updated = "2026-11-02"
 
 [windows]
 hardware_ids = ["ACPI\\VEN_MSHW&DEV_048A&SUBSYS_MSHW0487", "ACPI\\VEN_MSHW&DEV_048B&SUBSYS_MSHW0487", "Simple Device Orientation Sensor"]
@@ -13,7 +13,7 @@ packages = ["qcsensors", "surfacepro_snscfgcrd8380", "sensorshidclassdriver", "s
 drivers = ["misc/fastrpc", "userspace: hexagonrpcd, libssc, iio-sensor-proxy"]
 dt = []
 native = "none"
-gaps = ["M15.1 reached hexagonrpcd and the ADSP QRTR service, but sensor data is unverified; M15.1 seeds landed in the parent with build-user owner; image composition must relocate new files to nested output and assign target service owner without touching persisted state; seed naming compatibility is also unverified; needs a new private ISO boot", "ADSP state file creation and the remaining 20 to 25 reference registry files are unexplained; journal ENOENT does not report open mode, so missing reads and failed creates are not yet distinguished", "ALS is present (Windows WinRT LightSensor on MSHW048A, sensorsalsdriver, TCS3430 config) but automatic brightness is removed by operator decision; ALS readings are diagnostic only (dconf ambient-enabled=false, locked; image 2ee4dbf)", "tmd2755.json truncated in the Windows package (proximity)"]
+gaps = ["M16 daemon executes despite systemd seccomp rule-add EDOM warnings; effective filter coverage and exact architecture failure remain unverified", "hexagonrpcd 0.5.0 rejected an input over 256 bytes and restarted; continuation semantics and impact on SSC data need investigation", "M16 image helper reported 293 seeds in nested registry; on-device ownership and seed compatibility are unverified; daemon reported missing names and fstempfile without open modes", "Live accelerometer, orientation and ambient-light events remain unverified; collector ran at shutdown", "ALS is diagnostic only; automatic brightness is disabled and locked by image policy", "tmd2755.json truncated in the Windows package (proximity)"]
 
 [firmware]
 needs = ["ADSP sensor registry and config (from surfacepro_ext_adsp8380 / surfacepro_snscfgcrd8380)"]
