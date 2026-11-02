@@ -1068,6 +1068,8 @@ Rollback: rebuild without `--private`. Q3 of the wifi dossier (is the OTP addres
 
 ## Requests
 
+- audio-speakers owner (D34): update or remove the stale `userspace/overlay-d28` UCM copy to match canonical `image/component-inputs/d28/audio`; L0 now checks the copies while both exist.
+
 - kernel owner (revision 20): supply the EFI-vars pstore configuration and retain the PA cap at 6. Prove EFI pstore with a clean warm reboot and inspect the records before and after systemd-pstore; EFI pstore has no pmsg backend.
 - cameras/audio owners (revision 20): validate the camera stream and privacy LED, and the post-session microphone channels, levels and RMS on the device. Re-run `systemctl --user start sp11-post-session-collect.service` after a camera stream attempt to capture the later graph.
 
@@ -1176,7 +1178,7 @@ The L1 wrapper now defaults to the boot-disk ESP and waits for a complete snapsh
 
 The default remains `safe` (`m15-safe`, second GRUB entry); `debug` remains selectable. Both use the public topology at `qcom/x1e80100/X1E80100-Microsoft-Surface-Pro-11-tplg.bin`. The sound-model property selects that filename in the kernel during component probe. D28 installs the PR 847 UCM profile and driver-level DMI match on both entries, exposing Speaker (`hw:${CardId},0`), Mic (`hw:${CardId},1`), DP0 (`hw:${CardId},2`) and DP1 (`hw:${CardId},3`). Cap-aware WSA initialization remains at RX/MIX 72 and PA 0; the kernel PA ceiling remains 6 and digital/MIX ceilings remain 81. No SP/VI/CPS protection is present in the public topology.
 
-The image sets the PipeWire ALSA ACP `api.acp.max-volume` to 0.251 (-12 dBFS) and disables Pro Audio mode for the built-in card; the startup helper sets the actual sink mute before `graphical-session.target`, and the fail-safe route default is 0.0. Public (shareable) ISO builds require `out/image-inputs/audio/d28-runtime-validation.json` to prove DMI/UCM resolution, confirmed initial mute and ceiling, the Mic/DP speaker-off fallback, and both kernel guard modes. A `--private` build can proceed while runtime validation is pending when that file contains the pinned `source_commit` and `topology_sha256`; its build record marks D28 runtime safety `unvalidated`. Such an ISO is for the operator only and must never be shared. This exception does not create or claim runtime evidence. GNOME's locked above-100-percent setting and the existing WirePlumber defaults remain installed. There is no early topology selector or automatic GPU/CDSP agent.
+The image disables Pro Audio mode for the built-in card; the previously proposed `api.acp.max-volume` property is unsupported and absent; the startup helper sets the actual sink mute before `graphical-session.target`, and the fail-safe route default is 0.0. Public (shareable) ISO builds require `out/image-inputs/audio/d28-runtime-validation.json` to prove DMI/UCM resolution, confirmed initial mute and ceiling, the Mic/DP speaker-off fallback, and both kernel guard modes. A `--private` build can proceed while runtime validation is pending when that file contains the pinned `source_commit` and `topology_sha256`; its build record marks D28 runtime safety `unvalidated`. Such an ISO is for the operator only and must never be shared. This exception does not create or claim runtime evidence. GNOME's locked above-100-percent setting and the existing WirePlumber defaults remain installed. There is no early topology selector or automatic GPU/CDSP agent.
 
 The Mic UCM device sets `CaptureChannels 2` for the physical DMIC0+DMIC1 array. This fixes capture to the array's two channels; the image does not downmix it. The topology must retain S16_LE at 48 kHz with capture channel bounds min=1, max=2; L0 checks these decoded topology values, the UCM lookup, and the audio route tests.
 
@@ -1217,7 +1219,7 @@ The camera worker's `hardware/cameras/collector/cameras.sh` in main already enum
 
 ### 2026-11-02 D28 audio policy correction
 
-The unsupported ACP max-volume property is absent; Pro Audio is disabled. Kernel PA/RX/MIX caps and the UCM digital setting provide the limits, while the helper sets 100% only after muting. The fail-safe route default is 0.0. The helper matches the `alsa_output.platform-sound` node-name prefix, covering expected platform-card Speaker and DisplayPort sinks without selecting USB or Bluetooth sinks. Actual sink selection, mute, effective startup level and cap enforcement still require device verification before unmuting; kernel caps remain unchanged.
+The unsupported ACP max-volume property is absent; Pro Audio is disabled. Kernel PA/RX/MIX caps and the UCM digital setting provide the limits, while the helper sets 100% only after muting. The fail-safe route default is 0.0. The helper selects platform-card sinks through `pw-dump` or default-sink inspection and verifies their mute state. Actual sink selection, mute, effective startup level and cap enforcement still require device verification before unmuting; kernel caps remain unchanged.
 
 ### Next ISO diagnostics
 
@@ -1244,3 +1246,9 @@ The debug entry enables EFI pstore with `efi_pstore.pstore_disable=0` and reques
 The collector records bounded GPU and GMU runtime-PM attributes, watchdog identity/status attributes, reset/watchdog dmesg lines, and a trace snapshot only while tracing is enabled. It does not open the DRM GPU debug file, whose read would resume the GPU. Existing boot-medium checks and publication caps apply.
 
 - 2026-11-02: corrected the early GPU-only pin and GMU read-only observation, installed its udev helper in the initramfs, enabled debug-only EFI pstore, and added bounded reset, watchdog and trace evidence. Device reboot proof and rebuilt-image L0/L1 remain pending.
+
+### D34 audio fail-safe corrections (2026-11-02)
+
+The later global WirePlumber setting overrides the hardware overlay's 5% default with 0.0. The startup helper discovers platform-card sinks through PipeWire JSON or default-sink inspection, confirms the mute, and uses 5% when `sp11.audio_first_test=1` is present; otherwise it sets 100% while muted. Both paths require device verification. The post-session report identifies the default source and its volume/mute, records separate left/right RMS and peak for both hardware and default capture, and reports and propagates capture failures without storing samples.
+
+- 2026-11-02: added the global fail-safe, verified sink selection and first-test marker, and per-channel capture diagnostics with failure fixtures; ISO and device validation remain pending.

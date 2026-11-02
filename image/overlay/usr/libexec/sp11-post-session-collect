@@ -1,10 +1,12 @@
 #!/usr/bin/bash
 # User-session evidence only; no playback or retained microphone samples.
-set -u
+set -uo pipefail
 export LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin
 : "${XDG_RUNTIME_DIR:?user runtime directory required}"
 tmp=$(mktemp "$XDG_RUNTIME_DIR/sp11-post-session.XXXXXX") || exit 1
-trap 'rm -f "$tmp"' EXIT
+err=$(mktemp "$XDG_RUNTIME_DIR/sp11-arecord.XXXXXX") || { rm -f "$tmp"; exit 1; }
+trap 'rm -f "$tmp" "$err"' EXIT
+capture_failed=0
 {
  echo "date_utc: $(date -u +%FT%TZ)"
  echo 'Waiting 20 seconds for session devices and a possible camera stream attempt.'
@@ -14,16 +16,31 @@ trap 'rm -f "$tmp"' EXIT
  for target in '@DEFAULT_AUDIO_SINK@' '@DEFAULT_AUDIO_SOURCE@'; do
   echo "=== wpctl inspect $target"; timeout -k 1 8 wpctl inspect "$target"
  done
+ echo '=== default source volume and mute'; timeout -k 1 8 wpctl get-volume @DEFAULT_AUDIO_SOURCE@
  echo '=== amixer PA, WSA RX, VA DEC and DMIC controls'
  timeout -k 1 15 amixer -c 0 contents | awk 'BEGIN {IGNORECASE=1} /^numid=/ {show=($0 ~ /PA Volume|Speakers Volume|WSA.*RX|VA.*DEC|DMIC/)} show {print}'
  echo '=== alsaucm dump'; timeout -k 1 15 alsaucm -c hw:0 dump text
- echo '=== 2 second capture: S16_LE 48000 Hz stereo; RMS and peak relative to full scale'
- timeout -k 1 8 arecord -D default -t raw -f S16_LE -r 48000 -c 2 -d 2 2>"$XDG_RUNTIME_DIR/sp11-arecord.err" | python3 -c 'import array, math, sys
-x = array.array("h"); x.frombytes(sys.stdin.buffer.read()[:384000]);
+ for device in hw:0,1 default; do
+  echo "=== capture $device: 2 seconds S16_LE 48000 Hz stereo; per-channel RMS and peak relative to full scale"
+  timeout -k 1 8 arecord -D "$device" -t raw -f S16_LE -r 48000 -c 2 -d 2 2>"$err" | python3 -c 'import array, math, sys
+raw = sys.stdin.buffer.read()
+if len(raw) % 4 or not raw:
+    print("ERROR: zero samples or incomplete stereo frame", flush=True); sys.exit(1)
+x = array.array("h"); x.frombytes(raw)
 if sys.byteorder != "little": x.byteswap()
-print("samples=%d rms=%.8f peak=%.8f" % (len(x), math.sqrt(sum(v*v for v in x)/len(x))/32768 if x else 0, max(map(abs,x), default=0)/32768))'
- cat "$XDG_RUNTIME_DIR/sp11-arecord.err"; rm -f "$XDG_RUNTIME_DIR/sp11-arecord.err"
+for i, name in enumerate(("left", "right")):
+    channel = x[i::2]
+    print("channel=%s samples=%d rms=%.8f peak=%.8f" % (name, len(channel), math.sqrt(sum(v*v for v in channel)/len(channel))/32768, max(map(abs, channel))/32768))'
+  statuses=("${PIPESTATUS[@]}")
+  echo "arecord_exit=${statuses[0]} analysis_exit=${statuses[1]}"
+  cat "$err"
+  if (( statuses[0] != 0 || statuses[1] != 0 )); then
+   echo "ERROR: capture $device failed"
+   capture_failed=1
+  fi
+ done
  echo '=== video nodes'; ls -l /dev/video* 2>&1
  for media in /dev/media*; do [ -e "$media" ] || continue; echo "=== media-ctl -p -d $media"; timeout -k 1 8 media-ctl -d "$media" -p; done
 } >"$tmp" 2>&1
-mv -f "$tmp" "$XDG_RUNTIME_DIR/sp11-post-session.txt"
+mv -f "$tmp" "$XDG_RUNTIME_DIR/sp11-post-session.txt" || exit 1
+exit "$capture_failed"
