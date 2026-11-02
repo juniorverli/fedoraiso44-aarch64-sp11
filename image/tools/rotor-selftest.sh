@@ -106,6 +106,9 @@ runcd() { # ARGS: cmdline text ; runs the script once, with the fake kernel
 R1=$T/sys/class/remoteproc/remoteproc0
 mkcd; bs unset sp11_cdsp_counter
 runcd "sp11.entry=debug"
+grep -q "opt-in marker sp11/cdsp-experiment absent" "$T/run/cdsp-experiment" && [ "$(cat "$R1/state")" = running ] && [ -z "$(bs get sp11_cdsp_counter)" ] && grep -q "CDSP experiment: off" "$T/notice/20-cdsp.txt" && ok "CDSP experiment: no marker means no restart or counter advance; notice explains opt-in" || bad "CDSP missing-marker guard"
+: >"$T/medium/sp11/cdsp-experiment"
+runcd "sp11.entry=debug"
 grep -q 'variant: 0 (fw=c1-00078 keep_proxy_pds=0 forced)' "$T/run/cdsp-experiment" && ok "CDSP experiment: variant 0 first (shipped firmware, keep_proxy_pds forced 0)" || bad "CDSP variant 0 first"
 grep -q '^keep=0 path=$' "$R1/log" && ok "CDSP experiment: keep_proxy_pds forced to 0 during start, default firmware path" || bad "CDSP keep=0 during start: $(cat $R1/log)"
 eq "CDSP experiment: keep_proxy_pds restored to the default (-1) afterwards" "$(cat $T/sys/module/qcom_q6v5_pas/parameters/keep_proxy_pds)" -1
@@ -190,7 +193,7 @@ tsel; cmp -s "$T/touchshare/b.conf" "$T/touch50.conf" && grep -q 'profile B' "$T
 [ ! -e "$T/touch50.conf" ] && grep -q 'profile A' "$T/trun/touch-conf" && ok "touch: marker sp11/touch-conf-A selects A (no config file)" || bad "touch marker A"
 rm -f "$T/medium/sp11/touch-conf-A"; tsel; [ -e "$T/touch50.conf" ] && ok "touch: removing the marker returns to B" || bad "touch back to B"
 
-# --- GPU hooks (the two-step runs on line 1 only, through sp11.gpu_diag=1)
+# --- GPU hooks (the two-step runs only when sp11.gpu_diag=1 is added manually)
 (
 	set -u
 	OUT=$T/gpuout; RUN=$T/gpurun; STATE=$T/state.log; BOOT_ID=bootB; mkdir -p "$OUT"

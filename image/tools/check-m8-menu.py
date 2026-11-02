@@ -6,7 +6,7 @@ Usage: check-m8-menu.py grub.cfg
 M15 policy (image/README.md, "M15 menu"):
   * the file has NO function except load_video, NO load_env/save_env/grubenv, NO variable assignment except the standard header ones,
     NO submenu, NO GRUB variable inside any entry except the template's own ($root); every entry has a fixed DTB (or none for the VM test);
-  * line 1 `SP11 debug` = m15 (microphones + camera nodes + GPU/GMU/zap) with the constant `sp11.gpu_diag=1` (on no other line);
+  * line 1 `SP11 debug` = m15 (microphones + camera nodes + GPU/GMU/zap) without `sp11.gpu_diag`;
     line 2 `safe (no GPU)` = m15-safe (default, cameras on, no gpu_diag); no separate GPU or camera entry;
   * no per-variant SAM/CDSP entries (those are Linux-side rotors);
   * the main-entry diagnostic arguments are the M13 ones with the corrected trace string; nothing variable; the command line never carries
@@ -25,7 +25,7 @@ USBDSP = set(BASE + USB + PDR + ["trace_event=:mod:qcom_glink", "trace_buf_size=
 
 # ident: (title, DTB variant or None, set of special arguments); order is the menu order
 ENTRIES = {
-    "debug": ("SP11 debug", "m15", DEFAULT | {"sp11.gpu_diag=1"}),
+    "debug": ("SP11 debug", "m15", DEFAULT),
     "safe": ("SP11 debug, safe (no GPU)", "m15-safe", DEFAULT),
     "nosnd": ("SP11 debug, no sound", "m15-nosnd", DEFAULT),
     "notouch": ("SP11 debug, touch off", "m15-notouch", DEFAULT),
@@ -99,12 +99,11 @@ def check(cfg):
         arglists[ident] = check_entry(body, ident, variant, want)
     # line 1 and line 2 carry exactly the same arguments (only the entry mark differs)
     strip = lambda ident: [a for a in arglists[ident] if not a.startswith("sp11.entry=")]
-    line1 = [a for a in strip("debug") if a != "sp11.gpu_diag=1"]
-    assert strip("debug").count("sp11.gpu_diag=1") == 1, "line 1 lacks the constant sp11.gpu_diag=1"
+    line1 = strip("debug")
     for i in ("safe", "nosnd", "notouch"):
-        assert strip(i) == line1, f"{i}: arguments differ from line 1 minus gpu_diag"
+        assert strip(i) == line1, f"{i}: arguments differ from line 1"
     assert [a for a in strip("spk") if a != "sp11.allow_nominal=1"] == line1, "spk: arguments differ beyond allow_nominal"
-    assert [i for i, a in arglists.items() if "sp11.gpu_diag=1" in a] == ["debug"], "sp11.gpu_diag=1 only on line 1"
+    assert not any(a.startswith("sp11.gpu_diag") for args in arglists.values() for a in args), "GPU diagnostic must be opt-in"
     # DTB placement: speakers only in spk, cameras only in line 1 (m15); no other DTB names
     used = {}
     for _, ident, body in entries:

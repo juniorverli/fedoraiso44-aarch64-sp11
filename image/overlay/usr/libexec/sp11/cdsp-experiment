@@ -12,7 +12,7 @@
 # restart so a hang or reset does not repeat it. Mechanics: /sys/module/qcom_q6v5_pas/parameters/keep_proxy_pds, the remoteproc `firmware`
 # file of the cdsp (found by the name attribute) and `echo stop` / `echo start` on its `state`. The alternate pair is found by the loader
 # through /sys/module/firmware_class/parameters/path, set for the restart only and restored afterwards (the dtb pair needs the same directory).
-# Guards: runs only on the main entry (sp11.entry=debug), never twice per boot (mkdir lock in /run), not when the marker sp11/disable-cdsp-experiment
+# Guards: requires sp11.entry=debug and marker sp11/cdsp-experiment on the boot medium, never twice per boot (mkdir lock in /run), not when sp11/disable-cdsp-experiment
 # exists on the boot medium, not when the ADSP or the CDSP is not in a stable state, a timeout on every wait and on stop/start (each in a
 # background write: a hung write cannot hang this script), everything logged to /run/sp11/cdsp-experiment and the kernel log.
 # A variant that cannot be realised here (alternate pair absent on a public image, keep_proxy_pds not writable (it is 0644 since patch 0003)) is skipped and the counter moves on to the next realisable one.
@@ -59,6 +59,9 @@ entry=$(arg sp11.entry)
 if [ "$entry" != debug ]; then log "not run: entry '${entry:-none}' is not the main entry (sp11.entry=debug)"; exit 0; fi
 if "$BS" marker disable-cdsp-experiment 2>/dev/null; then
 	log "not run: marker sp11/disable-cdsp-experiment on the boot medium"; notice "CDSP experiment: disabled by the marker file sp11/disable-cdsp-experiment on the boot medium."; exit 0
+fi
+if ! "$BS" marker cdsp-experiment 2>/dev/null; then
+	log "not run: opt-in marker sp11/cdsp-experiment absent or unreadable"; notice "CDSP experiment: off. To opt in on a debug boot, create sp11/cdsp-experiment on the boot medium; remove it to stop future experiments."; exit 0
 fi
 log "waiting up to ${WAIT_UP}s for the ADSP and the CDSP"
 cd_dir= ad_dir=

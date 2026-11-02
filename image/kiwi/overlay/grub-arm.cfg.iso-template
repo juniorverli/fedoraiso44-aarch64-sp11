@@ -41,15 +41,13 @@ set default=1
 
 search ${search_params}
 # M15 (kernel 7.3.0-65.sp11.12): flat static menu, M13 style. Every entry is fixed text; GRUB reads no state and writes none.
-# Line 1 is the COMPLETE diagnostic entry (m15: microphones, rear/front/IR camera nodes, GPU) and is the ONLY line with the constant argument
-# sp11.gpu_diag=1 (it enables the GPU two-step unit, which runs before the display manager). The first DRM open loads the zap shader and the GMU and
-# MAY RESET THE MACHINE (M5 evidence); Linux userspace cannot prevent that. Line 2 is the default with the same kernel and the same arguments
-# except sp11.gpu_diag, and the m15-safe DTB (GPU off): the way to a stable session if line 1 fails or resets.
+# Line 1 enables the GPU with the m15 DTB. The first DRM open may reset the machine; line 2 defaults to m15-safe (GPU off).
+# The GPU two-step is opt-in: add sp11.gpu_diag=1 manually for a controlled test, which may reset the machine.
 # Experiments that used GRUB state in M14 (SAM shutdown rotor, CDSP firmware/proxy-vote rotor, GPU two-step) run in Linux userspace with
 # their state in plain files on the boot medium (image/README.md, "M15"). The GPU two-step markers are plain files too; GRUB has no GPU logic.
 # S1: the only DTB that enables the speaker sound card is m15-spk, only in the `spk` entry, checked against the d26 profile by L0.
 menuentry 'SP11 debug' --id sp11-debug --class fedora --class gnu-linux --class gnu --class os {
-	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr pmic_glink_altmode.dyndbg=+p ps883x.dyndbg=+p phy_qcom_qmp_combo.dyndbg=+p ucsi_glink.dyndbg=+p typec_ucsi.dyndbg=+p dwc3.dyndbg=+p dwc3_qcom.dyndbg=+p qcom_pd_mapper.dyndbg=+p pdr_interface.dyndbg=+p trace_event=:mod:qcom_glink,:mod:smp2p,:mod:qcom_aoss,rpmh:rpmh_send_msg trace_buf_size=16M sp11.gpu_diag=1 sp11.entry=debug
+	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr pmic_glink_altmode.dyndbg=+p ps883x.dyndbg=+p phy_qcom_qmp_combo.dyndbg=+p ucsi_glink.dyndbg=+p typec_ucsi.dyndbg=+p dwc3.dyndbg=+p dwc3_qcom.dyndbg=+p qcom_pd_mapper.dyndbg=+p pdr_interface.dyndbg=+p trace_event=:mod:qcom_glink,:mod:smp2p,:mod:qcom_aoss,rpmh:rpmh_send_msg trace_buf_size=16M sp11.entry=debug
 	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m15.dtb
 	initrd ($$root)${bootpath}/${initrd_file}
 }

@@ -226,7 +226,7 @@ vm=$(awk '/^[ \t]*menuentry /{f=0} /^[ \t]*menuentry .VM test/{f=1} f&&/^[[:spac
 [ "$(grep -c -E "^[[:space:]]*menuentry '" "$cfg_esp")" = "$nentries" ] && [ "$(grep '^set default' "$cfg_esp")" = "set default=1" ] && pass 2.9 "VM test entry is not the default"
 if [ "$builder" = kiwi ]; then
 	if python3 -I "$REPO/image/tools/check-m8-menu.py" "$cfg_esp" >"$W/m8-menu.txt" 2>&1; then
-		pass 2.17 "M15 flat static menu: 12 entries, no function except load_video, no load_env/save_env/grubenv/variable/submenu, fixed DTB per entry (line 1 m15 with GPU and cameras and the constant sp11.gpu_diag=1 (line 1 only), line 2 m15-safe fallback), exact diagnostic arguments, allow_nominal on spk only, no rotor/GPU/SAM/firmware_class argument on any line"
+		pass 2.17 "M15 flat static menu: 12 entries, no function except load_video, no load_env/save_env/grubenv/variable/submenu, fixed DTB per entry (line 1 m15 with GPU and cameras and no automatic sp11.gpu_diag, line 2 m15-safe fallback), exact diagnostic arguments, allow_nominal on spk only, no rotor/GPU/SAM/firmware_class argument on any line"
 	else
 		fail 2.17 "M15 menu: $(cat "$W/m8-menu.txt")"
 	fi
@@ -542,14 +542,14 @@ if [ "$builder" = kiwi ]; then
 	else fail 8.36 "M11 unit validation failed (m11-units.txt)"; fi
 	# M14: collectors, GPU two-step with the image hooks, rotors, speaker first-test tooling, UCM fix, power-thermal, FastRPC, libcamera
 	if python3 -I "$REPO/image/tools/check-m15-payload.py" "$ROOT" "$LREPO" "$rec" >"$W/m15-payload.txt" 2>&1; then
-		pass 8.37 "M15 payload: owner collectors as built from source, GPU two-step ENABLED only through sp11.gpu_diag=1 on line 1 (owner script plus the recorded image changes, Before=gdm drop-in), SAM rotor/CDSP experiment/cpufreq cap/identity switch units and scripts, sp11-boot-state, touch profile B default and marker A, identity collectors, modules-load scmi_cpufreq, speaker first-test tooling (manual, entry- and argument-gated), microphone UCM fix and speaker overlay gated to debug/spk only, power-thermal overlay, FastRPC (root:fastrpc 0640), libcamera"
+		pass 8.37 "M15 payload: owner collectors as built from source, GPU two-step enabled only through manually supplied sp11.gpu_diag=1 (owner script plus the recorded image changes, Before=gdm drop-in), SAM rotor/CDSP experiment/cpufreq cap/identity switch units and scripts, sp11-boot-state, touch profile B default and marker A, identity collectors, modules-load scmi_cpufreq, speaker first-test tooling (manual, entry- and argument-gated), microphone UCM fix and speaker overlay gated to debug/spk only, power-thermal overlay, FastRPC (root:fastrpc 0640), libcamera"
 	else fail 8.37 "M15 payload validation failed ($(tail -n1 "$W/m15-payload.txt" | cut -c1-200))"; fi
 	if systemd-analyze --root="$ROOT" verify sp11-gpu-two-step.service sp11-speaker-ucm.service sp11-sam-mode-rotor.service sp11-cdsp-experiment.service sp11-cpufreq-cap.service sp11-identity-switch.service sp11-wifi-identity.service sp11-identity-bt-pre.service sp11-suspend-diag.service sp11-suspend-policy.service sp11-wakeup-policy.service sp11-thermal-sample.service >"$W/m15-units.txt" 2>&1; then
 		pass 8.38 "GPU two-step (enabled, runs only with sp11.gpu_diag=1, with the gdm drop-in), speaker UCM, SAM rotor, CDSP experiment, cpufreq cap, identity switch and identity units, suspend and thermal units validate"
 	else fail 8.38 "M15 unit validation failed (m15-units.txt)"; fi
 	# M14: the rotor and notice scripts run against a fake sysfs/boot medium: order, counter, wrap-around, command-line override, notices
 	if bash "$LREPO/image/tools/rotor-selftest.sh" "$ROOT" >"$W/rotor-selftest.txt" 2>&1; then
-		pass 8.39 "Linux-side self-test on the installed scripts: boot-state files and markers and S4 refusal, SAM order silent-clean-quiet-default and wrap, CDSP experiment (variants, once per boot, guards, timeouts, restore, power-off text), cpufreq cap (default, median, uncapped marker, never performance), identity switch, touch profile B default / marker A, GPU hooks"
+		pass 8.39 "Linux-side self-test on the installed scripts: boot-state files and markers and S4 refusal, SAM order silent-clean-quiet-default and wrap, CDSP experiment (opt-in marker, variants, once per boot, guards, timeouts, restore, power-off text), cpufreq cap (default, median, uncapped marker, never performance), identity switch, touch profile B default / marker A, GPU hooks"
 	else fail 8.39 "rotor self-test failed ($(grep '^FAIL' "$W/rotor-selftest.txt" | head -n 3 | tr '\n' ';'))"; fi
 	if [ -n "$patched" ]; then
 		# patched test ISO: the squashfs still has an older Linux side; the repository's NEW Linux side (not in this ISO) is tested on image/overlay
