@@ -197,7 +197,7 @@ else
 	nentries=5
 fi
 [ "$titles" = "$expect" ] && pass 2.5 "exactly the M16 flat menu in order: debug, safe (no GPU, cameras enabled), no sound, touch off, speakers, USB + DSP trace, no early DSP, Wi-Fi unblock, nomodeset, stop in initramfs, Spectra camera test, VM test" || fail 2.5 "entries differ: $(echo "$titles" | tr '\n' '|')"
-[ "$(grep -c '^set default=0' "$cfg_esp")" = 1 ] && pass 2.6 "default entry is the first (SP11 debug, the main entry)" || fail 2.6 "default is not entry 0"
+[ "$(grep -c '^set default=1$' "$cfg_esp")" = 1 ] && pass 2.6 "default entry is the second (SP11 safe)" || fail 2.6 "default is not entry 1 (safe)"
 bad=0
 # M15: every devicetree line is a fixed path (no GRUB variable anywhere); the file must exist on the ISO
 awk '/^[ \t]*menuentry /{t=$0} /^[ \t]+devicetree /{print $2 "\t" t}' "$cfg_esp" >"$W/dt-lines.txt"
@@ -223,7 +223,7 @@ done <"$W/linux-lines.txt"
 [ "$ids_ok" = 1 ] && [ "$(wc -l <"$W/linux-lines.txt")" = "$nentries" ] && pass 2.12 "every entry has sp11.entry=<id> and is verbose; serial console only on the VM entry"
 vm=$(awk '/^[ \t]*menuentry /{f=0} /^[ \t]*menuentry .VM test/{f=1} f&&/^[[:space:]]+devicetree /{print "x"}' "$cfg_esp")
 [ -z "$vm" ] && pass 2.8 "VM test entry has no devicetree" || fail 2.8 "VM test entry has a devicetree line"
-[ "$(grep -c -E "^[[:space:]]*menuentry '" "$cfg_esp")" = "$nentries" ] && [ "$(grep '^set default' "$cfg_esp")" = "set default=0" ] && pass 2.9 "VM test entry is not the default"
+[ "$(grep -c -E "^[[:space:]]*menuentry '" "$cfg_esp")" = "$nentries" ] && [ "$(grep '^set default' "$cfg_esp")" = "set default=1" ] && pass 2.9 "VM test entry is not the default"
 if [ "$builder" = kiwi ]; then
 	if python3 -I "$REPO/image/tools/check-m8-menu.py" "$cfg_esp" >"$W/m8-menu.txt" 2>&1; then
 		pass 2.17 "M15 flat static menu: 12 entries, no function except load_video, no load_env/save_env/grubenv/variable/submenu, fixed DTB per entry (line 1 m15 with GPU and cameras and the constant sp11.gpu_diag=1 (line 1 only), line 2 m15-safe fallback), exact diagnostic arguments, allow_nominal on spk only, no rotor/GPU/SAM/firmware_class argument on any line"
@@ -405,7 +405,7 @@ if [ "$builder" = kiwi ]; then
 		if [ -n "$rsha" ]; then [ "$vsha" = "$rsha" ] && pass 3.11 "variant $v SHA-256 equals the kernel worker's JSON record" || fail 3.11 "variant $v SHA-256 differs from the kernel worker's JSON record ($rsha)"; else fail 3.11 "no JSON record of the kernel worker for variant $v in the build record"; fi
 		vr=$OUT/dtb-variants/$kver/qcom/${vf%.dtb}.json
 		if [ -f "$vr" ] && [ "$vsha" = "$(jq -r .sha256 "$vr")" ] &&
-		   [ "$(jq -r .kver "$vr")" = "$kver" ] && { [ "$(jq -r .series_rev "$vr")" = 12 ] || [ "$(jq -r .series_rev "$vr")" = 13 ] || [ "$(jq -r .series_rev "$vr")" = 14 ] || [ "$(jq -r .series_rev "$vr")" = 15 ]; } &&
+		   [ "$(jq -r .kver "$vr")" = "$kver" ] && { [ "$(jq -r .series_rev "$vr")" = 12 ] || [ "$(jq -r .series_rev "$vr")" = 13 ] || [ "$(jq -r .series_rev "$vr")" = 14 ] || [ "$(jq -r .series_rev "$vr")" = 15 ] || [ "$(jq -r .series_rev "$vr")" = 16 ]; } &&
 		   [ "$(jq -r .series_hash_sha256 "$vr")" = "$(jq_ .kernel_patch_series_sha256)" ] &&
 		   jq -e --arg f "$vf.json" --slurpfile source "$vr" '.dtb_variant_records[$f] == $source[0]' "$rec" >/dev/null; then
 			pass 3.14 "variant $v matches published JSON hash/release/series and embedded record"
@@ -440,11 +440,11 @@ if [ "$smoke" = false ]; then
 	ls "$OUT"/rpms/kernel-core-*.rpm >/dev/null 2>&1 && { rpm -qp --qf '%{name}-%{version}-%{release}.%{arch}\n' "$OUT"/rpms/kernel-core-*.rpm | grep -qx "$got_nevra" && pass 4.2 "kernel-core is the RPM of out/rpms" || fail 4.2 "kernel-core is not in out/rpms"; }
 fi
 if [ "$builder" = kiwi ] && [ "$smoke" = false ]; then
-	if { [ "$kver" = 7.3.0-65.sp11.12.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.13.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.14.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.15.fc44.aarch64 ]; } && \
-	   { [ "$got_nevra" = kernel-core-7.3.0-65.sp11.12.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.13.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.14.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.15.fc44.aarch64 ]; } && \
+	if { [ "$kver" = 7.3.0-65.sp11.12.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.13.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.14.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.15.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.16.fc44.aarch64 ]; } && \
+	   { [ "$got_nevra" = kernel-core-7.3.0-65.sp11.12.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.13.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.14.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.15.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.16.fc44.aarch64 ]; } && \
 	   { [ "$(jq_ .milestone)" = M15 ] || [ "$(jq_ .milestone)" = M16 ]; }; then
 		pass 4.9 "M15/M16: required kernel release ($kver) and milestone"
-	else fail 4.9 "M15/M16 requires the revision-12/13/14/15 kernel and milestone (found $kver / $got_nevra)"; fi
+	else fail 4.9 "M15/M16 requires the revision-12/13/14/15/16 kernel and milestone (found $kver / $got_nevra)"; fi
 fi
 cmp -s "$kimg" "$ROOT/lib/modules/$kver/vmlinuz" && pass 4.3 "ISO kernel image equals lib/modules/$kver/vmlinuz" || fail 4.3 "ISO kernel image differs from the package"
 kimg_ver=$(python3 -I - "$kimg" <<'PY'
@@ -542,7 +542,7 @@ if [ "$builder" = kiwi ]; then
 	else fail 8.36 "M11 unit validation failed (m11-units.txt)"; fi
 	# M14: collectors, GPU two-step with the image hooks, rotors, speaker first-test tooling, UCM fix, power-thermal, FastRPC, libcamera
 	if python3 -I "$REPO/image/tools/check-m15-payload.py" "$ROOT" "$LREPO" "$rec" >"$W/m15-payload.txt" 2>&1; then
-		pass 8.37 "M15 payload: owner collectors as built from source, GPU two-step ENABLED only through sp11.gpu_diag=1 on line 1 (owner script plus the recorded image changes, Before=gdm drop-in), SAM rotor/CDSP experiment/cpufreq cap/identity switch units and scripts, sp11-boot-state, touch profile B default and marker A, identity collectors, modules-load scmi_cpufreq, speaker first-test tooling (manual, entry- and argument-gated), microphone UCM fix, power-thermal overlay, FastRPC (root:fastrpc 0640), libcamera"
+		pass 8.37 "M15 payload: owner collectors as built from source, GPU two-step ENABLED only through sp11.gpu_diag=1 on line 1 (owner script plus the recorded image changes, Before=gdm drop-in), SAM rotor/CDSP experiment/cpufreq cap/identity switch units and scripts, sp11-boot-state, touch profile B default and marker A, identity collectors, modules-load scmi_cpufreq, speaker first-test tooling (manual, entry- and argument-gated), microphone UCM fix and speaker overlay gated to debug/spk only, power-thermal overlay, FastRPC (root:fastrpc 0640), libcamera"
 	else fail 8.37 "M15 payload validation failed ($(tail -n1 "$W/m15-payload.txt" | cut -c1-200))"; fi
 	if systemd-analyze --root="$ROOT" verify sp11-gpu-two-step.service sp11-speaker-ucm.service sp11-sam-mode-rotor.service sp11-cdsp-experiment.service sp11-cpufreq-cap.service sp11-identity-switch.service sp11-wifi-identity.service sp11-identity-bt-pre.service sp11-suspend-diag.service sp11-suspend-policy.service sp11-wakeup-policy.service sp11-thermal-sample.service >"$W/m15-units.txt" 2>&1; then
 		pass 8.38 "GPU two-step (enabled, runs only with sp11.gpu_diag=1, with the gdm drop-in), speaker UCM, SAM rotor, CDSP experiment, cpufreq cap, identity switch and identity units, suspend and thermal units validate"
@@ -563,15 +563,15 @@ if [ "$builder" = kiwi ]; then
 	else fail 8.40 "UCM lookup failed ($(tail -n 2 "$W/ucm-lookup.txt" | tr '\n' ';' | cut -c1-200))"; fi
 	# M15 integration of the finished pieces: sensors packages/units/rules/permissions, audio route layer and gain, cameras and Spectra payloads, libcamera, volume tool, CDSP variants
 	if python3 -I "$REPO/image/tools/check-m15-integration.py" "$ROOT" "$LREPO" "$rec" >"$W/m15-integration.txt" 2>&1; then
-		pass 8.44 "M15 integration: sensor RPMs (hexagonrpcd -s as user hexagonrpcd, ADSP node fastrpc 0660, no 0666, adsprpcd not masked, iio-sensor-proxy with ssc-accel), audio route layer (HDMI0/HDMI1, SP11-Audio, gain step 98 capped, WirePlumber, dconf, alsaucm), camera and Spectra collectors, Spectra module for the image kernel (vermagic), libcamera ($(jq_ .libcamera_source)), volume tool on demand, CDSP variants for the tri-state keep_proxy_pds"
+		pass 8.44 "M15 integration: current sensor collector and sensor RPMs (hexagonrpcd -s as user hexagonrpcd, ADSP node fastrpc 0660, no 0666, adsprpcd not masked, iio-sensor-proxy with ssc-accel), audio route layer (HDMI0/HDMI1, SP11-Audio, gain step 98 capped, WirePlumber, dconf, alsaucm), camera and Spectra collectors, Spectra module for the image kernel (vermagic), libcamera ($(jq_ .libcamera_source)), volume tool on demand, CDSP variants for the tri-state keep_proxy_pds"
 	else fail 8.44 "M15 integration validation failed ($(tail -n1 "$W/m15-integration.txt" | cut -c1-200))"; fi
 	# audio-mics tests against the files shipped in the image: the sources the tests read are byte-identical to the ISO files (8.44), the gain check runs on the ISO's SP11-MicGain.conf
 	if cmp -s "$ROOT/usr/share/alsa/ucm2/Qualcomm/x1e80100/SP11-MicGain.conf" "$LREPO/hardware/audio-mics/userspace/overlay-audio-routes/usr/share/alsa/ucm2/Qualcomm/x1e80100/SP11-MicGain.conf" &&
 	   sh "$LREPO/hardware/audio-mics/userspace/tests/mic-gain-check.sh" >"$W/mic-gain.txt" 2>&1; then
 		ucm_ok=0
 		ln -sfn "$LREPO/hardware" /hw; mkdir -p /work
-		sh "$LREPO/hardware/audio-mics/userspace/tests/ucm-routes-test.sh" >"$W/ucm-routes.txt" 2>&1 && grep -q '^ALL PASS' "$W/ucm-routes.txt" && ucm_ok=1
-		[ "$ucm_ok" = 1 ] && pass 8.45 "audio-mics tests on the shipped route files: mic-gain-check (default +14 dB = step 98, cap 108) and ucm-routes-test ($(grep -c '^PASS' "$W/ucm-routes.txt") PASS, ALL PASS)" || fail 8.45 "ucm-routes-test failed ($(grep '^FAIL' "$W/ucm-routes.txt" | head -n 2 | tr '\n' ';' | cut -c1-200))"
+		sh "$LREPO/hardware/audio-mics/userspace/tests/ucm-routes-test.sh" >"$W/ucm-routes.txt" 2>&1 && grep -q '^ALL PASS' "$W/ucm-routes.txt" && grep -q '^PASS.*safe Mic activation has no speaker controls' "$W/ucm-routes.txt" && ucm_ok=1
+		[ "$ucm_ok" = 1 ] && pass 8.45 "audio-mics tests on the shipped route files: safe Mic avoids WSA controls, mic-gain-check (default +14 dB = step 98, cap 108) and ucm-routes-test ($(grep -c '^PASS' "$W/ucm-routes.txt") PASS, ALL PASS)" || fail 8.45 "ucm-routes-test failed ($(grep '^FAIL' "$W/ucm-routes.txt" | head -n 2 | tr '\n' ';' | cut -c1-200))"
 	else fail 8.45 "mic-gain-check failed or the shipped SP11-MicGain.conf differs from the source ($(tail -n 1 "$W/mic-gain.txt" | cut -c1-150))"; fi
 	# Operator decision (M16): automatic brightness is off and cannot be turned back on from the
 	# desktop. The distro dconf default disables it and the lock keeps the key read-only.

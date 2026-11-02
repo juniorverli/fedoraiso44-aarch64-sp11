@@ -74,6 +74,7 @@ def main():
     p, detail = policy(cfg)
     ok("policy checker accepts the menu", p, detail)
     mutants = {
+        "debug as default": cfg.replace("set default=1", "set default=0", 1),
         "a GRUB function": cfg.replace("load_video\nset gfxpayload", "function f {\n\techo x\n}\nload_video\nset gfxpayload", 1),
         "a load_env": cfg.replace("set timeout_style=menu", "load_env\nset timeout_style=menu", 1),
         "a save_env": cfg.replace("set timeout_style=menu", "save_env x\nset timeout_style=menu", 1),

@@ -7,7 +7,7 @@ M15 policy (image/README.md, "M15 menu"):
   * the file has NO function except load_video, NO load_env/save_env/grubenv, NO variable assignment except the standard header ones,
     NO submenu, NO GRUB variable inside any entry except the template's own ($root); every entry has a fixed DTB (or none for the VM test);
   * line 1 `SP11 debug` = m15 (microphones + camera nodes + GPU/GMU/zap) with the constant `sp11.gpu_diag=1` (on no other line);
-    line 2 `safe (no GPU)` = m15-safe (always-booting fallback, cameras on, no gpu_diag); no separate GPU or camera entry;
+    line 2 `safe (no GPU)` = m15-safe (default, cameras on, no gpu_diag); no separate GPU or camera entry;
   * no per-variant SAM/CDSP entries (those are Linux-side rotors);
   * the main-entry diagnostic arguments are the M13 ones with the corrected trace string; nothing variable; the command line never carries
     rotor, SAM, GPU or firmware_class arguments.
@@ -84,7 +84,7 @@ def check_static(cfg):
 
 
 def check(cfg):
-    assert re.search(r"^set default=0$", cfg, re.M), "default is not entry 0"
+    assert re.search(r"^set default=1$", cfg, re.M), "default is not entry 1 (safe)"
     assert re.search(r"^set timeout_style=menu$", cfg, re.M), "menu not always shown"
     code = code_of(cfg)
     tops = re.findall(r"^menuentry '([^']*)'", code, re.M)

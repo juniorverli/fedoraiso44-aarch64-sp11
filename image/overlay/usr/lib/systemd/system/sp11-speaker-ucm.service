@@ -1,8 +1,7 @@
 [Unit]
-Description=SP11 D26 speaker UCM overlay (runs on debug, safe and spk entries)
+Description=SP11 D26 speaker UCM overlay (runs on debug and spk entries)
 ConditionKernelCommandLine=|sp11.entry=spk
 ConditionKernelCommandLine=|sp11.entry=debug
-ConditionKernelCommandLine=|sp11.entry=safe
 DefaultDependencies=no
 After=local-fs.target
 Before=sysinit.target sound.target
