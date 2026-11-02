@@ -31,7 +31,7 @@ def check_mic_capture_caps(graph_text):
 def check(root, repo, record, release):
     pin = json.loads((repo / 'image/component-inputs/m28.json').read_text())
     assert pin == record['m28_inputs'], 'D28 input record differs'
-    assert pin['software_policy']['volume_ceiling_percent'] == 25, 'D28 ceiling must be 25 percent'
+    assert pin['software_policy']['volume_ceiling_percent'] == 100, 'desktop maximum must be 100 percent'
     runtime = record.get('d28_runtime_validation')
     assert runtime and runtime.get('source_commit') == pin['topology']['source_commit']
     assert runtime.get('topology_sha256') == pin['topology']['sha256']
@@ -95,12 +95,16 @@ def check(root, repo, record, release):
     check_mic_capture_caps(graph_text)
     assert not re.search(r'SP_VI|VI Feedback|\bCPS\b|070010e[234]|0800138c', graph_text, re.I), 'public graph contains SP/VI/CPS or diagnostics strings'
     safety = root / 'usr/libexec/sp11-audio-safety'
-    assert safety.stat().st_mode & 0o111 and 'set-mute' in safety.read_text() and '--limit 0.30' in safety.read_text() and '30%' in safety.read_text()
-    assert safety.read_text().index('wpctl set-mute') < safety.read_text().index('wpctl set-volume'), 'mute must precede volume'
+    safety_text = safety.read_text()
+    mute = 'wpctl set-mute "$id" 1'
+    volume = 'wpctl set-volume "$id" 100%'
+    assert safety.stat().st_mode & 0o111 and mute in safety_text and volume in safety_text and '--limit' not in safety_text
+    assert safety_text.index(mute) < safety_text.index(volume), 'mute must precede volume'
     assert 'seq 1 300' in safety.read_text() and 'exit 1' in safety.read_text(), 'startup wait must be bounded and fail visibly'
     ceiling = root / 'usr/share/wireplumber/wireplumber.conf.d/53-sp11-audio-ceiling.conf'
     ceiling_text = ceiling.read_text()
-    assert 'api.acp.max-volume = 0.251' in ceiling_text and 'api.acp.disable-pro-audio = true' in ceiling_text
+    assert not re.search(r'^\s*api\.acp\.max-volume\s*=', ceiling_text, re.M), 'unsupported max-volume property'
+    assert 'api.acp.disable-pro-audio = true' in ceiling_text
     assert 'device.routes.default-sink-volume = 0.0' in ceiling_text, 'fresh sink default must be 0.0'
     unit = root / 'usr/lib/systemd/user/sp11-audio-safety.service'
     assert 'Before=graphical-session.target' in unit.read_text() and 'Type=oneshot' in unit.read_text()
@@ -144,4 +148,4 @@ if __name__ == '__main__':
         check(Path(sys.argv[1]), Path(sys.argv[2]), json.load(open(sys.argv[3])), json.load(open(sys.argv[4])))
     except (AssertionError, OSError, KeyError, ValueError, subprocess.CalledProcessError) as error:
         sys.exit(f'FAIL D28 public audio payload: {error}')
-    print('PASS D28 public audio: topology pin, DMI-selected Speaker/Mic/DP routes, caps, initial mute, software ceiling')
+    print('PASS D28 public audio: topology pin, DMI-selected Speaker/Mic/DP routes, kernel caps, UCM level, initial mute')

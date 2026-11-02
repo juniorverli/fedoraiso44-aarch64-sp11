@@ -334,7 +334,7 @@ display_set() {
 	# D21 / M5: sound must not exist (S1), the GPU speed bin, the GPU's devfreq and messages
 	shsnap sound.txt 'echo "== /proc/asound/cards"; cat /proc/asound/cards 2>&1; echo "== aplay -l"; aplay -l 2>&1; echo "== /dev/snd"; ls -l /dev/snd 2>&1; echo "== soundwire / wsa884 devices"; ls /sys/bus/soundwire/devices 2>&1; ls /sys/bus/platform/drivers 2>/dev/null | grep -i -E "wsa|swr|lpass|q6|asoc|snd" ; dmesg | grep -i -E "wsa884|soundwire|swr|snd-soc|asoc|q6apm|audioreach"'
 	gpu_speed_bin
-	shsnap gpu.txt 'for d in /sys/class/devfreq/*; do [ -d "$d" ] || continue; case $(readlink -f "$d") in *gpu*|*3d00000*|*adreno*) ;; *) case $(basename "$d") in *gpu*|*3d00000*) ;; *) continue ;; esac ;; esac; echo "== $d"; for f in available_frequencies min_freq max_freq cur_freq governor; do echo "$f: $(cat $d/$f 2>&1)"; done; done; echo "== /dev/dri"; ls -l /dev/dri 2>&1; echo "== msm gpu"; ls /sys/kernel/debug/dri/*/gpu 2>&1; echo "== dmesg"; dmesg --time-format=iso 2>&1 | grep -i -E "adreno|a6xx|gmu|zap|msm_gpu|gpu-speed|speed.?bin"'
+	shsnap gpu.txt 'for d in /sys/class/devfreq/*; do [ -d "$d" ] || continue; case $(readlink -f "$d") in *gpu*|*3d00000*|*adreno*) ;; *) case $(basename "$d") in *gpu*|*3d00000*) ;; *) continue ;; esac ;; esac; echo "== $d"; for f in available_frequencies min_freq max_freq cur_freq governor; do echo "$f: $(cat $d/$f 2>&1)"; done; done; echo "== /dev/dri"; ls -l /dev/dri 2>&1; echo "== dmesg"; dmesg --time-format=iso 2>&1 | grep -i -E "adreno|a6xx|gmu|zap|msm_gpu|gpu-speed|speed.?bin"'
 	# DPCD 0x000-0x0ff and 0x700-0x7ff of every AUX adapter: the display-lcd tool (kept unchanged,
 	# flattened into dpcd-* files because the publish step copies files, not directories), and the
 	# plain dd reader as a second opinion
@@ -355,6 +355,15 @@ bounded_display_set() {
 	export OUT WORK CMD_TIMEOUT READ_TIMEOUT FILE_CAP SP11_TEST_NVMEM
 	export -f display_set snap shsnap dump_tree dump_tree_impl attrs attrs_impl debugfs_allowed dbgcat gpu_speed_bin dpcd say
 	timeout -k 5 180 bash -c display_set || say "display snapshot incomplete (error or 180 s timeout)"
+}
+
+# Read-only reset evidence. Bound both execution time and output size; never open
+# the DRM gpu debug file, whose read resumes the GPU.
+reset_evidence() {
+	shsnap watchdog.txt 'for d in /sys/class/watchdog/watchdog*; do [ -d "$d" ] || continue; echo "== $d"; for a in bootstatus status timeleft nowayout identity; do printf "%s: " "$a"; timeout -k 1 2 head -c 4096 "$d/$a" 2>&1; echo; done; done | head -c 131072'
+	shsnap gpu-runtime-pm.txt 'for d in /sys/bus/platform/devices/3d00000.gpu /sys/bus/platform/devices/3d6a000.gmu; do for a in control runtime_status runtime_suspended_time; do printf "%s/power/%s: " "$d" "$a"; timeout -k 1 2 head -c 4096 "$d/power/$a" 2>&1; echo; done; done | head -c 32768'
+	shsnap trace.txt 'if [ "$(cat /sys/kernel/debug/tracing/tracing_on 2>/dev/null)" = 1 ]; then timeout -k 1 10 head -c 1048576 /sys/kernel/debug/tracing/trace; else echo "tracing disabled or unavailable"; fi'
+	shsnap reset-watchdog-dmesg.txt 'dmesg --time-format=iso 2>&1 | grep -i -E "reset|watchdog|sbsa_gwdt|qcom.?pon|boot.?reason" | head -c 262144'
 }
 
 # Collect bounded pstore files and already-completed user-session reports. Never
@@ -394,6 +403,7 @@ early_snapshot() {   # early_snapshot [REASON]
 		mount -t debugfs debugfs /sys/kernel/debug 2>"$OUT/debugfs-mount.txt" || say "cannot mount debugfs: $(cat "$OUT/debugfs-mount.txt")"
 		[ -s "$OUT/debugfs-mount.txt" ] || rm -f "$OUT/debugfs-mount.txt"
 	fi
+	reset_evidence
 	snap uname.txt uname -a
 	ensure_boot_disk
 	shsnap boot-medium.txt "cat $WORK/boot-medium.txt 2>&1; echo; lsblk -o NAME,PKNAME,FSTYPE,LABEL,PARTTYPE,SIZE,RM 2>&1"
@@ -457,6 +467,7 @@ snapshot() {
 	snap libinput-device-names.txt /usr/libexec/sp11-touch-userspace-collect devices
 
 	# --- kernel, boot
+	reset_evidence
 	bounded_display_set
 	snap uname.txt uname -a
 	snap os-release.txt cat /etc/os-release

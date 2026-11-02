@@ -17,9 +17,9 @@
     "usr/share/wireplumber/wireplumber.conf.d/51-sp11-audio-safety.conf": "83c0e8a319bc0102c8856a03780612b3ca7b48228f44182c1b739ea468051594",
     "etc/dconf/db/distro.d/90-sp11-audio-safety": "f322831aefd849cbc5f2b03ce28d3897efd4ef01c5050a84321867176a1ebd85",
     "etc/dconf/db/distro.d/locks/90-sp11-audio-safety": "4e7ac5841797af780f9063f94b1c59ec47a804b81033b294a029245e6f8e98c5",
-    "usr/libexec/sp11-audio-safety": "ecb07829769bce0cf897942e1e7bf858a125b0e2cc32c2deb27d3277ab45804e",
+    "usr/libexec/sp11-audio-safety": "58dc6054c0cef6553db88c90e6cac11f5b44cd48024910e61f71f29b2006ef44",
     "usr/lib/systemd/user/sp11-audio-safety.service": "a669ab7d4902a7820bcc95f7bf4accbb682b44bfea4c490335da7166951c67a5",
-    "usr/share/wireplumber/wireplumber.conf.d/53-sp11-audio-ceiling.conf": "0aee20865d4c4827cbcec1c327c90be5808e56cbfaf9f533737867a7174f6498",
+    "usr/share/wireplumber/wireplumber.conf.d/53-sp11-audio-ceiling.conf": "b4ea6117339102a6772fd94213ce6c224e72bbeb2073684ca0170bd0ec7010f5",
     "usr/libexec/sp11-post-session-collect": "32fba866ca6b78aa88b3c86773792ee9d16c62488e4185fe8458df038820ece1",
     "usr/lib/systemd/user/sp11-post-session-collect.service": "9bf49ff3b0e9ab8f793d2cadd7a51feb115f3d0a5d42fb6130edd89aac72f3fd"
   },
@@ -31,9 +31,9 @@
     "selector": "kernel request_firmware sound-model contract; no early selector service"
   },
   "software_policy": {
-    "initial_mute": "Fresh route default is 0.0 as a fail-safe; the helper mutes each sink before setting 30%. Runtime confirmation is mandatory.",
-    "volume_ceiling_percent": 25,
-    "enforcement": "WirePlumber api.acp.max-volume=0.251 (-12 dBFS) and api.acp.disable-pro-audio=true; startup helper sets 30% once and initial mute."
+    "initial_mute": "Fresh route default is 0.0 as a fail-safe; the helper mutes each sink before setting 100%. Runtime confirmation is mandatory.",
+    "volume_ceiling_percent": 100,
+    "enforcement": "Kernel caps PA at 6 (0 dB) and WSA RX/MIX at 81 (-3 dB); UCM sets digital volume to 72 (-12 dB). Pro Audio is disabled; the helper mutes before setting 100%."
   },
   "routes": {
     "Speaker": "hw:${CardId},0",

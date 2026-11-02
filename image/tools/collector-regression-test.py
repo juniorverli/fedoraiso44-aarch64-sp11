@@ -2,9 +2,10 @@
 """Static guard for collector ordering, deadlines and the S4 target restriction."""
 from pathlib import Path
 import re
+import sys
 
 root = Path(__file__).resolve().parents[2]
-s = (root / 'image/overlay/usr/libexec/sp11-log-collector').read_text()
+s = (Path(sys.argv[1]) if len(sys.argv) > 1 else root / 'image/overlay/usr/libexec/sp11-log-collector').read_text()
 def body(name):
     match = re.search(r'^' + re.escape(name) + r'\(\) \{[^\n]*\n(.*?)^\}', s, re.M | re.S)
     assert match, name
@@ -21,6 +22,12 @@ assert '[ -x "$d" ]' in camera and '/etc/sp11-log-collector.d/cameras.sh' in cam
 assert camera.index('extra-cameras.txt') < camera.index('publish') < camera.index('timeout -k 2 90 bash') < camera.rindex('publish')
 assert s.index('\tcamera_snapshot\n\t# fast cadence') > s.index('run)')
 assert '[ "$d" = /etc/sp11-log-collector.d/cameras.sh ] && continue' in body('snapshot')
+reset = body('reset_evidence')
+assert all(x in reset for x in ('watchdog.txt', '/sys/class/watchdog/watchdog*', 'bootstatus status timeleft nowayout identity', 'trace.txt', '/sys/kernel/debug/tracing/tracing_on', '/sys/kernel/debug/tracing/trace', 'reset-watchdog-dmesg.txt', 'sbsa_gwdt'))
+assert all(x in reset for x in ('head -c 131072', 'head -c 1048576', 'head -c 262144', 'timeout -k 1'))
+assert 'reset_evidence' in early and 'reset_evidence' in body('snapshot')
+assert '/sys/kernel/debug/dri/*/gpu' not in s and '/sys/kernel/debug/dri/*/gmu_log' not in s
+assert 'attrs power_supply.txt /sys/class/power_supply/*' in s
 assert 'flock -w 60' in body('publish')
 target = body('on_boot_disk')
 assert '"$(pkname "$cand")" = "$BOOT_DISK"' in target
