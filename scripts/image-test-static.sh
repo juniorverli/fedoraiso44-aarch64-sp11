@@ -849,6 +849,17 @@ elif [ "$builder" = kiwi ]; then
 fi
 
 # ---------------------------------------------------------------- check 8 ----
+# Persistent kmsg tail is present on all entries; menu arguments remain checked above.
+ksvc=$ROOT/usr/lib/systemd/system/sp11-kmsg-tail.service
+if [ -x "$ROOT/usr/libexec/sp11-kmsg-tail" ] && [ -f "$ksvc" ] &&
+   grep -qx 'enable sp11-kmsg-tail.service' "$ROOT/usr/lib/systemd/system-preset/80-sp11.preset" &&
+   [ "$(readlink "$ROOT/etc/systemd/system/sysinit.target.wants/sp11-kmsg-tail.service")" = /usr/lib/systemd/system/sp11-kmsg-tail.service ] &&
+   grep -q '^Before=.*gdm.service' "$ksvc" &&
+   grep -q 'kmsg-live-\$BOOT_ID.txt' "$ROOT/usr/libexec/sp11-log-collector" &&
+   grep -q '2097152' "$ROOT/usr/libexec/sp11-log-collector" &&
+   systemd-analyze --root="$ROOT" verify sp11-kmsg-tail.service >"$W/kmsg-unit.txt" 2>&1; then
+	pass 8.45 "early persistent kmsg service enabled, ordered before GDM, named and bounded"
+else fail 8.45 "persistent kmsg service, cap or unit verification failed"; fi
 svc=$ROOT/usr/lib/systemd/system/sp11-log-collector.service
 [ -f "$svc" ] && pass 8.1 "sp11-log-collector.service present" || fail 8.1 "service file missing"
 [ "$(readlink "$ROOT/etc/systemd/system/multi-user.target.wants/sp11-log-collector.service")" = /usr/lib/systemd/system/sp11-log-collector.service ] && pass 8.2 "enabled for multi-user.target" || fail 8.2 "not enabled for multi-user.target"

@@ -1,0 +1,17 @@
+[Unit]
+Description=SP11 persistent kernel message tail
+DefaultDependencies=no
+After=local-fs.target systemd-udevd.service
+Wants=systemd-udevd.service
+Before=sysinit.target gdm.service display-manager.service graphical.target
+Conflicts=shutdown.target
+Before=shutdown.target
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/sp11-kmsg-tail
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=sysinit.target

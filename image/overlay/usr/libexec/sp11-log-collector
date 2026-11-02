@@ -35,6 +35,12 @@ CONF=/etc/sp11-log-collector.conf
 
 BOOT_ID=${SP11_TEST_BOOT_ID:-$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo unknown-boot)}
 WORK=/run/sp11-logs
+LOCK=/run/sp11-logs.lock
+# Directory-only test hook; production always uses /run.
+if [ -n "${SP11_TEST_TARGET:-}" ] && [ -n "${SP11_TEST_WORK:-}" ]; then
+	WORK=$SP11_TEST_WORK
+	LOCK=$WORK.lock
+fi
 export WORK
 MNT=/run/sp11-logs-mnt
 OUT=$WORK/$BOOT_ID
@@ -542,7 +548,7 @@ release_target() {
 
 publish() {
 	local rc
-	exec 8>/run/sp11-logs.lock
+	exec 8>"$LOCK"
 	if ! flock -w 60 8; then say "publish lock timed out"; exec 8>&-; return 1; fi
 	_publish
 	rc=$?
@@ -582,6 +588,63 @@ _publish() {
 	return 0
 }
 
+# Live batches use the same lock, disk checks, mount lifecycle and cap as snapshots.
+live_publish() {
+	local rc bd file cap used free allowed size tmp batch batch_size
+	exec 8>"$LOCK"
+	if ! flock -w 60 8; then say "live publish lock timed out"; return 1; fi
+	rc=0
+	find_target || rc=1
+	if [ "$rc" = 0 ]; then
+		bd=$TARGET_DIR/$BOOT_ID
+		mkdir -p "$bd" || rc=1
+	fi
+	if [ "$rc" = 0 ]; then
+		if [ ! -e "$bd/SEQ" ]; then
+			local seq
+			seq=$(($(cat "$TARGET_DIR/.seq" 2>/dev/null || echo 0) + 1))
+			echo "$seq" >"$TARGET_DIR/.seq" && echo "$seq" >"$bd/SEQ" || rc=1
+		fi
+		file=$bd/kmsg-live-$BOOT_ID.txt
+		rm -f "$file.new"
+		# Delete old boots/optional snapshots first, then fit the stream into the
+		# remaining shared cap and reserve. Never rotate away snapshot evidence.
+		enforce_cap "$bd"
+		cap=$CAP_LOGS_KIB; [ "$TARGET_KIND" = esp ] && cap=$CAP_ESP_KIB
+		used=$(used_kib "$TARGET_DIR"); free=$(free_kib "$TARGET_DIR")
+		size=$(stat -c %s "$file" 2>/dev/null || echo 0)
+		allowed=$(( (cap - used) * 1024 ))
+		[ -n "$free" ] && [ "$allowed" -gt $(( (free - RESERVE_KIB) * 1024 )) ] && allowed=$(( (free - RESERVE_KIB) * 1024 ))
+		[ "$allowed" -gt 2097152 ] && allowed=2097152
+		[ "$allowed" -lt 0 ] && allowed=0
+		batch=$(mktemp "$WORK/kmsg-batch.XXXXXX") || rc=1
+		if [ "$rc" = 0 ]; then
+			cat >"$batch" || rc=1
+			batch_size=$(stat -c %s "$batch")
+			if [ "$batch_size" -le "$allowed" ] && [ $((size + batch_size)) -le 2097152 ]; then
+				# Normal operation writes only new bytes, then commits them to the medium.
+				cat "$batch" >>"$file" && timeout -k 2 20 sync -f "$file" || rc=1
+			elif [ "$allowed" -gt 0 ]; then
+				# Rotation uses a synced replacement; a reset preserves the prior tail.
+				tmp=$file.new
+				{ [ ! -f "$file" ] || cat "$file"; cat "$batch"; } | tail -c "$allowed" >"$tmp" &&
+					timeout -k 2 20 sync -f "$tmp" && mv -f "$tmp" "$file" || rc=1
+				[ "$rc" = 0 ] || rm -f "$tmp"
+			else
+				rc=1
+			fi
+			rm -f "$batch"
+		fi
+		if [ "$rc" = 0 ]; then
+			printf 'boot_id: %s\nstream: kmsg-live-%s.txt\nupdated_utc: %s\n' "$BOOT_ID" "$BOOT_ID" "$(date -u +%FT%TZ)" >"$bd/STATUS.kmsg-live" || rc=1
+			timeout -k 2 20 sync -f "$TARGET_DIR" || rc=1
+		fi
+	fi
+	release_target
+	flock -u 8; exec 8>&-
+	return "$rc"
+}
+
 do_snapshot() {
 	mkdir -p "$WORK"
 	snapshot
@@ -590,7 +653,6 @@ do_snapshot() {
 
 finish() {
 	do_snapshot
-	timeout -k 2 10 findmnt -n "$MNT" >/dev/null 2>&1 && timeout -k 2 15 umount "$MNT" 2>/dev/null
 }
 
 # session REASON: one display snapshot when systemd-logind reports a session (units
@@ -641,6 +703,7 @@ run)
 		do_snapshot
 	done
 	;;
+live-append) mkdir -p "$WORK"; live_publish ;;
 early) early_snapshot ;;
 session) session_snapshot "${2:-session}" ;;
 final) finish ;;
