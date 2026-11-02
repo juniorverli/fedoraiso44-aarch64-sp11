@@ -7,8 +7,8 @@ for _ in $(seq 1 300); do
 	ids=$(printf '%s\n' "$status" | awk '/alsa_output\.platform-sound/ { if (match($0, /[0-9]+\./)) print substr($0, RSTART, RLENGTH-1) }' | sort -u)
 	if [ -n "$ids" ]; then
 		for id in $ids; do
-			wpctl set-volume --limit 0.05 "$id" 5% >/dev/null
 			wpctl set-mute "$id" 1 >/dev/null
+			wpctl set-volume --limit 0.30 "$id" 30% >/dev/null
 		done
 		exit 0
 	fi

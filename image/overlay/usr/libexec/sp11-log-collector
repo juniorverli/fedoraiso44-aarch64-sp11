@@ -357,11 +357,39 @@ bounded_display_set() {
 	timeout -k 5 180 bash -c display_set || say "display snapshot incomplete (error or 180 s timeout)"
 }
 
+# Collect bounded pstore files and already-completed user-session reports. Never
+# open a user-supplied symlink, device or FIFO as root. Publication uses the
+# same boot-medium checks, lock and caps as every other collector file.
+collect_session_and_pstore() {
+ timeout -k 2 15 python3 - "$OUT" <<'PYEOF'
+import glob, os, stat, sys
+out = sys.argv[1]
+paths = [(p, 'post-session-' + p.split('/')[3] + '.txt', int(p.split('/')[3]))
+         for p in glob.glob('/run/user/[0-9]*/sp11-post-session.txt') if p.split('/')[3].isdigit()]
+for base, label in [('/sys/fs/pstore', 'pstore'), ('/var/lib/systemd/pstore', 'pstore-archive')]:
+    paths += [(p, label + '-' + os.path.relpath(p, base).replace('/', '-'), None)
+              for p in (glob.glob(base + '/*') + glob.glob(base + '/*/*'))[:64]]
+for path, name, uid in paths:
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(fd, 'rb') as src:
+            st = os.fstat(src.fileno())
+            if not stat.S_ISREG(st.st_mode) or (uid is not None and st.st_uid != uid):
+                continue
+            data = src.read(1048576)
+        with open(os.path.join(out, name), 'wb') as dst:
+            dst.write(data)
+    except OSError as exc:
+        print('sp11-log-collector: cannot copy %s: %s' % (path, exc), file=sys.stderr)
+PYEOF
+}
+
 # the first snapshot: small, fast, written before anything slow runs. When the screen dies this is the
 # one that matters. No COMPLETE marker (CYCLE stays 0); the target may not be mounted yet, so it retries.
 early_snapshot() {   # early_snapshot [REASON]
 	local i
 	mkdir -p "$OUT"
+	collect_session_and_pstore
 	if ! mountpoint -q /sys/kernel/debug 2>/dev/null; then
 		mount -t debugfs debugfs /sys/kernel/debug 2>"$OUT/debugfs-mount.txt" || say "cannot mount debugfs: $(cat "$OUT/debugfs-mount.txt")"
 		[ -s "$OUT/debugfs-mount.txt" ] || rm -f "$OUT/debugfs-mount.txt"
@@ -408,6 +436,7 @@ camera_snapshot() {
 snapshot() {
 	local d
 	mkdir -p "$OUT"
+	collect_session_and_pstore
 	# debugfs is needed for dri, pinctrl, clk, regulator; a failure is logged, not fatal
 	if ! mountpoint -q /sys/kernel/debug 2>/dev/null; then
 		mount -t debugfs debugfs /sys/kernel/debug 2>"$OUT/debugfs-mount.txt" || say "cannot mount debugfs: $(cat "$OUT/debugfs-mount.txt")"

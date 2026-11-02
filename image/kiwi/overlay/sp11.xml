@@ -45,6 +45,7 @@
 		<!-- M15 integration (audio-mics Requests and quality-parity Asks): alsaucm for the collector and the route layer, the limiter (ladspa-swh-plugins, Fedora's
 		     name of the swh-plugins source) and WebRTC audio processing for the private PipeWire quality configs; pipewire's own libs carry filter-chain and echo-cancel. -->
 		<package name="alsa-ucm-utils"/>
+		<package name="alsa-utils"/>
 		<package name="ladspa-swh-plugins"/>
 		<package name="webrtc-audio-processing"/>
 		<!-- M15 integration (Spectra test entry): the out-of-tree downstream camera module, built against this kernel-devel; loaded only by sp11-spectra-load.service -->

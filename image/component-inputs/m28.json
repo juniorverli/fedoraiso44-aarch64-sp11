@@ -11,15 +11,17 @@
   "installed_files": {
     "usr/share/alsa/ucm2/Qualcomm/x1e80100/MICROSOFT-Surface-Pro-11.conf": "3cd05b43f782795d343a6dad0373ef10f95704724e7d57b224172d077f8de38d",
     "usr/share/alsa/ucm2/Qualcomm/x1e80100/Surface11-HiFi.conf": "ba24e854477ce3ed0fc13c9dda6a7bb0bcf2d978f0fff4e672a6f879bdb6a90c",
-    "usr/share/alsa/ucm2/Qualcomm/x1e80100/Surface11-SpeakerSeq.conf": "052f84e6f74320fc636764f43029bd4d75beb25399a9084be037232c2a03df43",
+    "usr/share/alsa/ucm2/Qualcomm/x1e80100/Surface11-SpeakerSeq.conf": "73526c093294589554cad1326a46e2acaa7b4a83394b66af3048cca614312879",
     "usr/share/alsa/ucm2/Qualcomm/x1e80100/Surface11-WsaInit.conf": "ca9d2725ed95bf5ade5ab6751b6e66b3e018bb0421535f71ba0626fdb7b97fbd",
     "usr/share/alsa/ucm2/Qualcomm/x1e80100/x1e80100.conf": "95e36c3b62a24abca9673dbf3239f4c17395cf19a6cdc84c95c6f4b7c303d676",
     "usr/share/wireplumber/wireplumber.conf.d/51-sp11-audio-safety.conf": "83c0e8a319bc0102c8856a03780612b3ca7b48228f44182c1b739ea468051594",
     "etc/dconf/db/distro.d/90-sp11-audio-safety": "f322831aefd849cbc5f2b03ce28d3897efd4ef01c5050a84321867176a1ebd85",
     "etc/dconf/db/distro.d/locks/90-sp11-audio-safety": "4e7ac5841797af780f9063f94b1c59ec47a804b81033b294a029245e6f8e98c5",
-    "usr/libexec/sp11-audio-safety": "679c0b520a53b54f3eb1417ea10935963d3c36c2af878d959191257365211ef4",
+    "usr/libexec/sp11-audio-safety": "ecb07829769bce0cf897942e1e7bf858a125b0e2cc32c2deb27d3277ab45804e",
     "usr/lib/systemd/user/sp11-audio-safety.service": "a669ab7d4902a7820bcc95f7bf4accbb682b44bfea4c490335da7166951c67a5",
-    "usr/share/wireplumber/wireplumber.conf.d/53-sp11-audio-ceiling.conf": "2cd281cb48e87b8693ecd8731a9e8e8d66acfaa38d54eb1cff87d935b2f743b7"
+    "usr/share/wireplumber/wireplumber.conf.d/53-sp11-audio-ceiling.conf": "5fc2ab6c238a459faee34855d0f5026db65da5b59a2d65f79d6f409970e90697",
+    "usr/libexec/sp11-post-session-collect": "32fba866ca6b78aa88b3c86773792ee9d16c62488e4185fe8458df038820ece1",
+    "usr/lib/systemd/user/sp11-post-session-collect.service": "9bf49ff3b0e9ab8f793d2cadd7a51feb115f3d0a5d42fb6130edd89aac72f3fd"
   },
   "selection": {
     "public_sound_model": "X1E80100-Microsoft-Surface-Pro-11",
@@ -29,9 +31,9 @@
     "selector": "kernel request_firmware sound-model contract; no early selector service"
   },
   "software_policy": {
-    "initial_mute": "per-device PipeWire mute is attempted by an ordered user oneshot before graphical-session.target; fresh route default is software volume 0. Runtime confirmation is mandatory.",
+    "initial_mute": "Per-device PipeWire mute is attempted before graphical-session.target; fresh route default is 0.5. Runtime confirmation is mandatory.",
     "volume_ceiling_percent": 100,
-    "enforcement": "WirePlumber api.acp.max-volume=1.0 and api.acp.disable-pro-audio=true; startup helper sets 5% once and initial mute."
+    "enforcement": "WirePlumber api.acp.max-volume=1.0 and api.acp.disable-pro-audio=true; startup helper sets 30% once and initial mute."
   },
   "routes": {
     "Speaker": "hw:${CardId},0",

@@ -862,6 +862,21 @@ if [ -x "$ROOT/usr/libexec/sp11-kmsg-tail" ] && [ -f "$ksvc" ] &&
    systemd-analyze --root="$ROOT" verify sp11-kmsg-tail.service >"$W/kmsg-unit.txt" 2>&1; then
 	pass 8.45 "persistent kmsg service enabled, debug-gated, ordered before GDM and bounded"
 else fail 8.45 "persistent kmsg service, cap or unit verification failed"; fi
+postunit=$ROOT/usr/lib/systemd/user/sp11-post-session-collect.service
+postscript=$ROOT/usr/libexec/sp11-post-session-collect
+if [ -x "$postscript" ] && bash -n "$postscript" &&
+   cmp -s "$postscript" "$REPO/image/overlay/usr/libexec/sp11-post-session-collect" &&
+   cmp -s "$postunit" "$REPO/image/overlay/usr/lib/systemd/user/sp11-post-session-collect.service" &&
+   [ "$(readlink "$ROOT/etc/systemd/user/graphical-session.target.wants/sp11-post-session-collect.service")" = /usr/lib/systemd/user/sp11-post-session-collect.service ] &&
+   grep -qx 'After=graphical-session.target pipewire.service wireplumber.service' "$postunit" &&
+   grep -qx 'TimeoutStartSec=240' "$postunit" &&
+   grep -qx 'ConditionUser=!gdm' "$postunit" &&
+   grep -q '^collect_session_and_pstore()' "$ROOT/usr/libexec/sp11-log-collector" &&
+   grep -q '/sys/fs/pstore' "$ROOT/usr/libexec/sp11-log-collector" &&
+   grep -q 'is_urgent(data)' "$ROOT/usr/libexec/sp11-kmsg-tail" &&
+   python3 -I "$REPO/image/tools/post-session-selftest.py" "$postscript" >"$W/post-session-fixture.txt" 2>&1; then
+    pass 8.47 "post-session audio and camera collection, bounded pstore copy and urgent kmsg publication installed"
+else fail 8.47 "post-session collection, pstore or urgent kmsg publication missing"; fi
 svc=$ROOT/usr/lib/systemd/system/sp11-log-collector.service
 [ -f "$svc" ] && pass 8.1 "sp11-log-collector.service present" || fail 8.1 "service file missing"
 [ "$(readlink "$ROOT/etc/systemd/system/multi-user.target.wants/sp11-log-collector.service")" = /usr/lib/systemd/system/sp11-log-collector.service ] && pass 8.2 "enabled for multi-user.target" || fail 8.2 "not enabled for multi-user.target"
@@ -1081,7 +1096,7 @@ PY
 		pass 8.32 "S5 fixtures: libinput exports only names; addresses/serial fields masked in new captures"
 	else fail 8.32 "touch userspace privacy fixtures failed"; fi
 fi
-for t in dmesg journalctl lspci lsusb dtc timeout blkid findmnt mount python3 lsmod rfkill iw ethtool qrtr-lookup upower btmgmt bluetoothctl libinput evtest; do
+for t in dmesg journalctl lspci lsusb dtc timeout blkid findmnt mount python3 lsmod rfkill iw ethtool qrtr-lookup upower btmgmt bluetoothctl libinput evtest wpctl amixer arecord alsaucm media-ctl; do
 	[ -x "$ROOT/usr/bin/$t" ] || [ -x "$ROOT/usr/sbin/$t" ] || fail 8.5 "collector needs $t, not in the image"
 done
 for t in debug loglevel=8 ignore_loglevel; do grep -q "$t" "$ROOT/etc/default/grub" || fail 8.6 "/etc/default/grub lacks $t"; done

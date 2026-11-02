@@ -68,9 +68,16 @@ def check(root, repo, record, release):
     for control in ('WSA_RX0', 'WSA_RX1', 'WSA_RX0_MIX', 'WSA_RX1_MIX'):
         assert f"WSA {control} Digital Volume' 72\"" in wsa_init, control
     default_enable = (root / 'usr/share/alsa/ucm2/codecs/wsa884x/two-speakers/DefaultEnableSeq.conf').read_text()
-    for sequence in (wsa_init, default_enable, speaker_seq.split('DisableSequence', 1)[0]):
+    for sequence in (wsa_init, default_enable):
         commands = "\n".join(line for line in sequence.splitlines() if not line.lstrip().startswith("#"))
-        assert not re.search(r"\bcset\b[^\n]*PA Volume", commands), 'enable/init must not set PA gain'
+        assert not re.search(r"\bcset\b[^\n]*PA Volume", commands), 'unexpected PA gain in init/default'
+    enable, disable = speaker_seq.split('DisableSequence', 1)
+    for control in ('SpkrLeft PA Volume', 'SpkrRight PA Volume', 'Speakers Volume'):
+        assert enable.count(f"cset \"name='{control}' 6\"") == 1, control
+    for control in ('SpkrLeft PA Volume', 'SpkrRight PA Volume'):
+        assert f"cset \"name='{control}' 0\"" in disable, control
+    writes = re.findall(r"cset\s+\"name='(?:SpkrLeft PA Volume|SpkrRight PA Volume|Speakers Volume)'\s+(\d+)\"", speaker_seq)
+    assert len(writes) == 5 and all(int(v) <= 6 for v in writes), 'PA gain exceeds kernel cap'
     driver = (ucm / 'x1e80100.conf').read_text()
     assert 'Microsoft Corporation.*Surface.*Microsoft Surface Pro( with 5G)?, 11th Edition' in driver
     assert 'SP11-Audio.conf' not in driver, 'driver still includes the later replacement verb'
@@ -87,11 +94,13 @@ def check(root, repo, record, release):
     check_mic_capture_caps(graph_text)
     assert not re.search(r'SP_VI|VI Feedback|\bCPS\b|070010e[234]|0800138c', graph_text, re.I), 'public graph contains SP/VI/CPS or diagnostics strings'
     safety = root / 'usr/libexec/sp11-audio-safety'
-    assert safety.stat().st_mode & 0o111 and 'set-mute' in safety.read_text() and '--limit 0.05' in safety.read_text()
+    assert safety.stat().st_mode & 0o111 and 'set-mute' in safety.read_text() and '--limit 0.30' in safety.read_text() and '30%' in safety.read_text()
+    assert safety.read_text().index('wpctl set-mute') < safety.read_text().index('wpctl set-volume'), 'mute must precede volume'
+    assert 'seq 1 300' in safety.read_text() and 'exit 1' in safety.read_text(), 'startup wait must be bounded and fail visibly'
     ceiling = root / 'usr/share/wireplumber/wireplumber.conf.d/53-sp11-audio-ceiling.conf'
     ceiling_text = ceiling.read_text()
     assert 'api.acp.max-volume = 1.0' in ceiling_text and 'api.acp.disable-pro-audio = true' in ceiling_text
-    assert 'device.routes.default-sink-volume = 0.0' in ceiling_text, 'fresh sink must start at zero software volume'
+    assert 'device.routes.default-sink-volume = 0.5' in ceiling_text, 'fresh sink default must be 0.5'
     unit = root / 'usr/lib/systemd/user/sp11-audio-safety.service'
     assert 'Before=graphical-session.target' in unit.read_text() and 'Type=oneshot' in unit.read_text()
     user_wants = root / 'etc/systemd/user/graphical-session-pre.target.wants/sp11-audio-safety.service'
