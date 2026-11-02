@@ -1,5 +1,7 @@
 # audio-speakers test plan
 
+**D28 current test and prerequisites:** [public audio evidence](evidence/2026-11-02-d28-public-audio.md) supersedes historical default-path instructions below. The guard, mute and software ceiling are requested and not implemented; no device test or build is authorized until integration gates are satisfied. Audible testing requires the operator present.
+
 Speakers stay off until `plan/risks.md` S1 is lifted. Only the checks marked "S1 off" run before that. All commands are read-only unless stated.
 
 ## T0, every boot (S1 off)

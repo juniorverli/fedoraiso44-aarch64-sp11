@@ -82,6 +82,12 @@ Two WSA8845 smart amplifiers on SoundWire, driven by the ADSP through AudioReach
 
 ## 8. Requests
 
+**D28 supersedes the older contradictory requests below.** The default remains blocked for integration until the kernel and image release gates in [D28 evidence](evidence/2026-11-02-d28-public-audio.md) are met. Status remains `designed`; no hardware playback has been verified.
+
+- **kernel:** implement the exact two-mode guard and DT requirements in the D28 evidence, including strict no-fallback behavior for an experiment and enforcement of all caps. Existing patches 0003/0008/0009/0012/0015/0016 are insufficient. Apply and strict-check the resulting patch, test negative cases, then integrate before any image uses a speaker-enabled default.
+- **image / audio-mics:** install and select the D28 public topology and [D28 UCM overlay](userspace/overlay-d28/), preserve PR 847 matching and routes, D26 default mute and enforceable software ceiling, and a speaker-off fallback. Follow the exact selection and L0 assertions in D28 evidence. The two private files must not cause selection of closed-loop behavior on the default. The old overlay and route-layer selection instructions below are historical.
+- **orchestrator:** no audible test without the operator. Do not regard request text as an implemented kernel guard, or a 5% initial volume as a software ceiling. Build only after the requested implementations and static checks are completed.
+
 - kernel: build and check patches `0001` to `0003` (in `patches/`; branch `w/audio-speakers`); copy `patches/dtb-variants/x1p64100-microsoft-denali-m11-audio.dts` into `kernel/dtb-variants/` and build it; do NOT build `...-m11-audio-spk.dts` into any image. Extend `scripts/kernel-dtb-safety.py`: an enabled `x1e80100-sndcard` is acceptable when it has no `wsa-dai-link` and `swr0` is effectively disabled.
 - kernel: if the `wsa_macro 6b00000.codec: using zero-initialized flat cache` warning reproduces in a speaker-enabled diagnostic entry, identify the register and caller before proposing cache/default changes; preserve current mute/guard behavior. See [M15.1 evidence](evidence/2026-11-01-m15.1-audio-safe-boots.md).
 - image: boot entry `SP11 audio, microphones` (DTB `m11-audio`, args as M10 plus `sp11.entry=audio`); install `userspace/overlay/` and the topology (`userspace/build-topology.sh`); collector step for H1 (reload `snd_q6apm` late, dmesg, read-only). L0 check 2.18 must keep failing for speaker-enabled device entries.
@@ -97,6 +103,8 @@ Two WSA8845 smart amplifiers on SoundWire, driven by the ADSP through AudioReach
 - **image / audio-mics (M16 playback):** preserve the existing DP route layer when switching the speaker overlay; fix the collector to address the actual card with `amixer -c 0`, capture DP1 mixer switch state at MultiMedia4 open, active UCM devices, connector state and PCM opener with timestamps, plus topology hash and guard state; do not force routes. Preserve the previously requested speaker-off fallback. See [playback evidence](evidence/2026-11-02-m16-safe-playback.md).
 
 ## 9. Log
+
+- 2026-11-02 (D28): prepared PR 847-based four-route safety overlay; pinned topology builder to reference commit; documented exact kernel and image implementation requests, static series/checkpatch results and device test. No build or commit.
 
 - 2026-11-02: added candidate 0021 for degraded SP diagnostics, gated on explicit SP enable, non-nominal closed-loop calibration, VI/CPS and the existing amplifier guards. Windows byte-scan findings and revision-17 merge/reject criteria are in [M16 safe playback](evidence/2026-11-02-m16-safe-playback.md). No build, device test or commit.
 
