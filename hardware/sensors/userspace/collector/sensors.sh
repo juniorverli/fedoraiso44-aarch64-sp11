@@ -20,7 +20,15 @@ echo "sns_reg.conf: $(ls -l $root/sensors/sns_reg.conf 2>&1)"
 echo "config files: $(ls $root/sensors/config 2>/dev/null | wc -l)"
 echo "socinfo: $(ls $root/socinfo 2>&1 | tr '\n' ' ')"
 echo "registry link: $(ls -ld $root/sensors/registry 2>&1)"
-echo "registry files: $(ls $state 2>/dev/null | wc -l)"
+echo "registry parent entries: $(ls "$state" 2>/dev/null | wc -l)"
+echo "registry child: $(ls -ld "$state/registry" 2>&1)"
+echo "registry child regular files: $(find "$state/registry" -maxdepth 1 -type f 2>/dev/null | wc -l)"
+find "$state/registry" -maxdepth 1 -type f -printf '%u:%g %m\n' 2>/dev/null | sort | uniq -c
+echo "node udev properties:"
+udevadm info --query=property --name=/dev/fastrpc-adsp 2>&1 | grep -E '^(DEVNAME|IIO_SENSOR_PROXY_TYPE|SYSTEMD_WANTS|TAGS)=' || :
+pid=$(systemctl show -p MainPID --value hexagonrpcd-sensors.service 2>/dev/null)
+case "$pid" in ''|0|*[!0-9]*) echo "daemon process unavailable";; *) grep -E '^(Uid|Gid|Groups|NoNewPrivs|Seccomp|Seccomp_filters):' "/proc/$pid/status" 2>&1;; esac
+systemctl show hexagonrpcd-sensors.service iio-sensor-proxy.service -p ActiveState -p SubState -p Result -p ExecMainCode -p ExecMainStatus -p MainPID -p NRestarts 2>&1
 echo "ADSP-written state files: $(ls -l $state/sns_reg_config $state/sns_secure_database.bin $state/parsed_file_list.csv 2>&1)"
 echo "newest registry files: $(ls -lt $state 2>/dev/null | sed -n '2,6p' | awk '{print $5, $6, $7, $8, $9}' | tr '\n' ';')"
 echo
