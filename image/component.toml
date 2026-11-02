@@ -3,5 +3,5 @@ name = "Fedora 44 aarch64 live image"
 phase = 1
 status = "testing"
 depends_on = []
-updated = "2026-10-30"
+updated = "2026-11-02"
 gaps = ["M12 private ISO built, L0 and QEMU L1 pass; Wi-Fi firmware fallback, keyboard reboot mitigation and microphones require device evidence"]

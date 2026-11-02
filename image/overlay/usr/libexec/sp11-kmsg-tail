@@ -1,0 +1,63 @@
+#!/usr/bin/python3
+"""Drain /dev/kmsg continuously while a separate thread publishes bounded batches."""
+import collections
+import os
+import select
+import subprocess
+import sys
+import threading
+import time
+
+LIMIT = 2 * 1024 * 1024
+pending = collections.deque()
+lock = threading.Lock()
+size = 0
+
+def add(data, retry=False):
+    global size
+    with lock:
+        if retry:
+            pending.appendleft(data[-LIMIT:])
+            size += len(pending[0])
+        else:
+            pending.append(data[-LIMIT:])
+            size += len(pending[-1])
+        while size > LIMIT:
+            size -= len(pending.popleft())
+
+def publish():
+    global size
+    while True:
+        time.sleep(1)
+        with lock:
+            batch = b''.join(pending)
+            pending.clear()
+            size = 0
+        if not batch:
+            continue
+        try:
+            result = subprocess.run(['/usr/libexec/sp11-log-collector', 'live-append'],
+                                    input=batch, timeout=180, check=False)
+            if result.returncode:
+                print("sp11-kmsg-tail: publish failed; retrying", file=sys.stderr, flush=True)
+                add(batch, retry=True)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            print('sp11-kmsg-tail: publish failed:', exc, file=sys.stderr, flush=True)
+            add(batch, retry=True)
+
+threading.Thread(target=publish, daemon=True).start()
+fd = os.open('/dev/kmsg', os.O_RDONLY | os.O_NONBLOCK)
+poll = select.poll()
+poll.register(fd, select.POLLIN)
+while True:
+    poll.poll()
+    try:
+        data = os.read(fd, 65536)
+        if data:
+            add(data.rstrip(b'\n') + b'\n')
+    except BlockingIOError:
+        pass
+    except OSError as exc:
+        # EPIPE reports records overwritten in the kernel ring.
+        print('sp11-kmsg-tail: kmsg read:', exc, file=sys.stderr, flush=True)
+        add(('sp11-kmsg-tail: kmsg read: %s\n' % exc).encode())

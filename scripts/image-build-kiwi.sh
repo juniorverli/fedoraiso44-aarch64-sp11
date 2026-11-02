@@ -154,7 +154,7 @@ cp -a "$REPO/image/overlay/." "$desc/root/"
 rm -f "$desc/root/etc/sp11-log-collector.conf"   # lmc-only; the kiwi overlay has its own (ESP label BOOT)
 cp -a "$REPO/image/kiwi/overlay/root/." "$desc/root/"
 cp -a "$REPO/image/kiwi/overlay/sp11.xml" "$REPO/image/kiwi/overlay/grub-arm.cfg.iso-template" "$desc/"
-chmod 0755 "$desc/root/usr/libexec/sp11-log-collector"
+chmod 0755 "$desc/root/usr/libexec/sp11-log-collector" "$desc/root/usr/libexec/sp11-kmsg-tail"
 chmod 0755 "$desc/root/usr/libexec/sp11-touch-userspace-collect"
 # D19 / display-lcd request: the DPCD reader of the display worker, shipped unchanged and run by the
 # collector as root against every /dev/drm_dp_aux*
@@ -283,6 +283,7 @@ for u in sp11-log-collector.service sp11-log-collector-session-first.path sp11-l
 done
 mkdir -p "$desc/root/etc/systemd/system/sysinit.target.wants"
 ln -sf /usr/lib/systemd/system/sp11-ssam-shutdown.service "$desc/root/etc/systemd/system/sysinit.target.wants/sp11-ssam-shutdown.service"
+ln -sf /usr/lib/systemd/system/sp11-kmsg-tail.service "$desc/root/etc/systemd/system/sysinit.target.wants/sp11-kmsg-tail.service"
 
 # Private mode (operator device only): copy the staged tree made by the host side. It holds the
 # Bluetooth address file, the Wi-Fi address (NetworkManager conf and .link) and the derived board file.
