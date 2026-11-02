@@ -1,19 +1,21 @@
 {
-  "ec_sam_collector": {
-    "source": "ec-sam worker hardware/ec-sam/collector/ec-sam.sh (R10, 2026-10-30)",
-    "sha256": "b8e07f47967215748589dce498f1897b9e49350172820fd5237a6581be0582ef"
-  },
-  "topology": {
-    "source_commit": "aab5c37c4fb9d9daed2dc789b8b7ca91c4133899",
-    "sha256": "b192044f01e97eabe7f6df9ae0d394086badb3c30124573210bc781093da8c03",
-    "size": 22856
-  },
-  "audio_overlay": {
-    "etc/dconf/db/distro.d/90-sp11-audio-safety": "f322831aefd849cbc5f2b03ce28d3897efd4ef01c5050a84321867176a1ebd85",
-    "etc/dconf/db/distro.d/locks/90-sp11-audio-safety": "4e7ac5841797af780f9063f94b1c59ec47a804b81033b294a029245e6f8e98c5",
-    "usr/share/wireplumber/wireplumber.conf.d/51-sp11-audio-safety.conf": "83c0e8a319bc0102c8856a03780612b3ca7b48228f44182c1b739ea468051594",
-    "usr/share/alsa/ucm2/conf.d/x1e80100/X1E80100-Microsoft-Surface-Pro-11.conf": "3713e1b6fee436f46ce8517845ca59a169f73a1494daa59969ccd6dcbfb14243",
-    "usr/share/alsa/ucm2/Qualcomm/x1e80100/MICROSOFT-Surface-Pro-11.conf": "3713e1b6fee436f46ce8517845ca59a169f73a1494daa59969ccd6dcbfb14243",
-    "usr/share/alsa/ucm2/Qualcomm/x1e80100/Surface11-HiFi.conf": "4ab8b5cd67acfbd89b1f521d44a167f76c63f1963e0945622c797aef63eca16f"
-  }
+ "ec_sam_collector": {
+  "source": "ec-sam worker hardware/ec-sam/collector/ec-sam.sh (R10, 2026-10-30)",
+  "sha256": "b8e07f47967215748589dce498f1897b9e49350172820fd5237a6581be0582ef"
+ },
+ "topology": {
+  "source": "linux-msm/audioreach-topology",
+  "source_commit": "993a17dcb672357998a463a73f120064d6c74f4f",
+  "sha256": "b192044f01e97eabe7f6df9ae0d394086badb3c30124573210bc781093da8c03",
+  "size": 22856,
+  "build_script": "hardware/audio-speakers/userspace/build-topology.sh",
+  "build_container": "registry.fedoraproject.org/fedora:44; alsa-topology-utils, cmake, make, gcc, gcc-c++"
+ },
+ "audio_overlay": {
+  "usr/share/wireplumber/wireplumber.conf.d/51-sp11-audio-safety.conf": "83c0e8a319bc0102c8856a03780612b3ca7b48228f44182c1b739ea468051594",
+  "etc/dconf/db/distro.d/90-sp11-audio-safety": "f322831aefd849cbc5f2b03ce28d3897efd4ef01c5050a84321867176a1ebd85",
+  "etc/dconf/db/distro.d/locks/90-sp11-audio-safety": "4e7ac5841797af780f9063f94b1c59ec47a804b81033b294a029245e6f8e98c5",
+  "usr/share/wireplumber/wireplumber.conf.d/53-sp11-audio-ceiling.conf": "cdf854c11847ae10e288806bcb2c37d54ea5e11df49beeb69f64ab987170907e"
+ },
+ "note": "D28 public topology and UCM/audio safety inputs; hashes of files as installed."
 }

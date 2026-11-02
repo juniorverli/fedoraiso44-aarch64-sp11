@@ -356,6 +356,11 @@ if [ "$builder" = kiwi ]; then
 			continue
 		fi
 		dtc -I dtb -O dts -o "$vd.dts" "$vd" 2>"$vd.err" && pass 3.6 "variant $v decompiles with dtc" || fail 3.6 "variant $v: dtc failed: $(head -n2 "$vd.err")"
+		case $v in m15|m15-safe) expected_audio_model=X1E80100-Microsoft-Surface-Pro-11 ;; m15-spk) expected_audio_model=X1E80100-Microsoft-Surface-Pro-11-CL ;; *) expected_audio_model= ;; esac
+		if [ -n "$expected_audio_model" ]; then
+			actual_audio_model=$(fdtget -t s "$vd" /sound model 2>/dev/null || true)
+			[ "$actual_audio_model" = "$expected_audio_model" ] && pass 3.17 "$v sound model selects $expected_audio_model firmware" || fail 3.17 "$v sound model '$actual_audio_model', expected $expected_audio_model (kernel patch 0022)"
+		fi
 		gpu_status=$(fdtget "$vd" /soc@0/gpu@3d00000 status 2>/dev/null)
 		if [ "$v" = m15 ]; then
 			[ "$gpu_status" = okay ] && pass 3.12 "M15: m15 enables the GPU node (line 1 only; the only variant with the GPU)" || fail 3.12 "M15: m15 GPU status '$gpu_status' (expected okay)"
@@ -535,14 +540,14 @@ fi
 # M11 integration and audio safety: check actual shipped bytes and activation policy.
 if [ "$builder" = kiwi ]; then
 	if python3 -I "$REPO/image/tools/check-m11-payload.py" "$ROOT" "$LREPO" "$rec" "$OUT/rpms/kernel-$kver.json" >"$W/m11-payload.txt" 2>&1; then
-		pass 8.35 "M11/M13 microphones: no speaker UCM in the default path; topology, kernel volume caps, WirePlumber and locked dconf policy verified"
+		pass 8.35 "D28 audio: public topology, DMI-selected Speaker/Mic/DP routes, kernel caps, initial mute, software ceiling and locked dconf policy verified"
 	else fail 8.35 "M11 payload validation failed (m11-payload.txt)"; fi
 	if systemd-analyze --root="$ROOT" verify sp11-ssam-shutdown.service sp11-ssam-rebind.service sp11-rfkill-events.service >"$W/m11-units.txt" 2>&1; then
 		pass 8.36 "SAM shutdown, opt-in rebind and rfkill units validate without ordering cycles"
 	else fail 8.36 "M11 unit validation failed (m11-units.txt)"; fi
 	# M14: collectors, GPU two-step with the image hooks, rotors, speaker first-test tooling, UCM fix, power-thermal, FastRPC, libcamera
 	if python3 -I "$REPO/image/tools/check-m15-payload.py" "$ROOT" "$LREPO" "$rec" >"$W/m15-payload.txt" 2>&1; then
-		pass 8.37 "M15 payload: owner collectors as built from source, GPU two-step enabled only through manually supplied sp11.gpu_diag=1 (owner script plus the recorded image changes, Before=gdm drop-in), SAM rotor/CDSP experiment/cpufreq cap/identity switch units and scripts, sp11-boot-state, touch profile B default and marker A, identity collectors, modules-load scmi_cpufreq, speaker first-test tooling (manual, entry- and argument-gated), microphone UCM fix and speaker overlay gated to debug/spk only, power-thermal overlay, FastRPC (root:fastrpc 0640), libcamera"
+		pass 8.37 "M15 payload: owner collectors as built from source, GPU two-step enabled only through manually supplied sp11.gpu_diag=1 (owner script plus the recorded image changes, Before=gdm drop-in), SAM rotor/CDSP experiment/cpufreq cap/identity switch units and scripts, sp11-boot-state, touch profile B default and marker A, identity collectors, modules-load scmi_cpufreq, speaker first-test tooling (manual, entry- and argument-gated), D28 driver-level DMI UCM with Speaker/Mic/DP profiles on safe and debug, power-thermal overlay, FastRPC (root:fastrpc 0640), libcamera"
 	else fail 8.37 "M15 payload validation failed ($(tail -n1 "$W/m15-payload.txt" | cut -c1-200))"; fi
 	if systemd-analyze --root="$ROOT" verify sp11-gpu-two-step.service sp11-speaker-ucm.service sp11-sam-mode-rotor.service sp11-cdsp-experiment.service sp11-cpufreq-cap.service sp11-identity-switch.service sp11-wifi-identity.service sp11-identity-bt-pre.service sp11-suspend-diag.service sp11-suspend-policy.service sp11-wakeup-policy.service sp11-thermal-sample.service >"$W/m15-units.txt" 2>&1; then
 		pass 8.38 "GPU two-step (enabled, runs only with sp11.gpu_diag=1, with the gdm drop-in), speaker UCM, SAM rotor, CDSP experiment, cpufreq cap, identity switch and identity units, suspend and thermal units validate"
@@ -709,10 +714,10 @@ is_private=$(jq_ '.private // false | if type == "object" then "true" else "fals
 python3 - "$REPO/firmware/manifest.toml" "$ROOT" "$W/rpm-files.txt" "$smoke" "$is_private" "$builder" "$rec" <<'EOF' >"$W/firmware-check.txt"
 import hashlib, json, os, sys, tomllib
 manifest, root, rpmlist, smoke, is_private, builder, record = sys.argv[1:8]
-# M14 private mode: the closed-loop topology replaces the public file; its hash and the private firmware names are verified in 7.11
+# D28: the public topology remains at the standard name; private files are verified in 7.11.
 private_audio = (json.load(open(record)).get('private_m14') or {}).get('audio', {}) if is_private == 'true' else {}
 private_names = {'/usr/lib/firmware/updates/ov13858-mshw0491.bin', '/usr/lib/firmware/updates/imx681-mshw0490.bin', '/usr/lib/firmware/updates/vd55g0-mshw0492.bin'} if private_audio else set()
-private_names |= {'/usr/lib/firmware/qcom/x1e80100/' + n for n in private_audio if not n.endswith('-tplg.bin')}
+private_names |= {'/usr/lib/firmware/qcom/x1e80100/' + n for n in private_audio}
 if is_private == 'true':
     pm = json.load(open(record)).get('private_m14') or {}
     private_names |= {'/usr/lib/firmware/qcom/x1e80100/' + n for n in (pm.get('audio_quality') or {})}
@@ -752,17 +757,14 @@ for b in m.get('blob', []):
         found = [p for p in (lp, lp + '.xz', lp + '.zst') if os.path.isfile(os.path.join(fwdir, p))]
         print(("PASS" if found else "FAIL") + f" 6.2 {lp}: " + (f"Fedora package file {found[0]}" if found else "linux-firmware file missing"))
 extra = []
-# M11: public upstream topology, built by the audio owner (not DriverStore).
-# Exact path/hash only; 8.35 also ties it to the embedded M11 input record.
+# D28: pinned public upstream topology, built from the audioreach-topology source commit.
 topology = 'qcom/x1e80100/X1E80100-Microsoft-Surface-Pro-11-tplg.bin'
 tp = os.path.join(fwdir, topology)
 if builder == 'kiwi':
-    if private_audio and os.path.isfile(tp) and sha(tp) == private_audio.get(os.path.basename(topology)):
+    want = json.load(open(record))['m28_inputs']['topology']['sha256']
+    if os.path.isfile(tp) and sha(tp) == want:
         expected.add('/usr/lib/firmware/' + topology)
-        print('PASS 6.4 private image: the closed-loop topology equals the recorded stage hash (it replaces the public file; 7.11 verifies it against the private tree)')
-    elif os.path.isfile(tp) and sha(tp) == 'b192044f01e97eabe7f6df9ae0d394086badb3c30124573210bc781093da8c03':
-        expected.add('/usr/lib/firmware/' + topology)
-        print('PASS 6.4 public upstream microphone topology matches the audio evidence SHA-256')
+        print('PASS 6.4 D28 public topology matches the pinned source-build SHA-256')
     else:
         print('FAIL 6.4 ' + topology)
 for d, _, fs in os.walk(fwdir):

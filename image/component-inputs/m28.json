@@ -1,0 +1,55 @@
+{
+  "decision": "D28",
+  "topology": {
+    "source": "linux-msm/audioreach-topology",
+    "source_commit": "993a17dcb672357998a463a73f120064d6c74f4f",
+    "sha256": "b192044f01e97eabe7f6df9ae0d394086badb3c30124573210bc781093da8c03",
+    "size": 22856,
+    "build_script": "hardware/audio-speakers/userspace/build-topology.sh",
+    "build_container": "registry.fedoraproject.org/fedora:44; alsa-topology-utils, cmake, make, gcc, gcc-c++"
+  },
+  "installed_files": {
+    "usr/share/alsa/ucm2/Qualcomm/x1e80100/MICROSOFT-Surface-Pro-11.conf": "3cd05b43f782795d343a6dad0373ef10f95704724e7d57b224172d077f8de38d",
+    "usr/share/alsa/ucm2/Qualcomm/x1e80100/Surface11-HiFi.conf": "5b331ba7b1f92207e4b1dd1001b7967dfd6ec1663cd5ee9f51b051b826151f7d",
+    "usr/share/alsa/ucm2/Qualcomm/x1e80100/Surface11-SpeakerSeq.conf": "052f84e6f74320fc636764f43029bd4d75beb25399a9084be037232c2a03df43",
+    "usr/share/alsa/ucm2/Qualcomm/x1e80100/Surface11-WsaInit.conf": "96e901a666557649edcfa894534579cefd7c613b4cdeae52df9463e33f2e364d",
+    "usr/share/alsa/ucm2/Qualcomm/x1e80100/x1e80100.conf": "95e36c3b62a24abca9673dbf3239f4c17395cf19a6cdc84c95c6f4b7c303d676",
+    "usr/share/wireplumber/wireplumber.conf.d/51-sp11-audio-safety.conf": "83c0e8a319bc0102c8856a03780612b3ca7b48228f44182c1b739ea468051594",
+    "etc/dconf/db/distro.d/90-sp11-audio-safety": "f322831aefd849cbc5f2b03ce28d3897efd4ef01c5050a84321867176a1ebd85",
+    "etc/dconf/db/distro.d/locks/90-sp11-audio-safety": "4e7ac5841797af780f9063f94b1c59ec47a804b81033b294a029245e6f8e98c5",
+    "usr/libexec/sp11-audio-safety": "8d8a993f0bdbde8332537ae1dc3e01cba0fcbca6c73b43acfb4e96e7774958e9",
+    "usr/lib/systemd/user/sp11-audio-safety.service": "a669ab7d4902a7820bcc95f7bf4accbb682b44bfea4c490335da7166951c67a5",
+    "usr/share/wireplumber/wireplumber.conf.d/53-sp11-audio-ceiling.conf": "cdf854c11847ae10e288806bcb2c37d54ea5e11df49beeb69f64ab987170907e"
+  },
+  "selection": {
+    "public_sound_model": "X1E80100-Microsoft-Surface-Pro-11",
+    "public_topology": "X1E80100-Microsoft-Surface-Pro-11-tplg.bin",
+    "closed_loop_sound_model": "X1E80100-Microsoft-Surface-Pro-11-CL",
+    "closed_loop_topology": "X1E80100-Microsoft-Surface-Pro-11-CL-tplg.bin",
+    "selector": "kernel request_firmware sound-model contract; no early selector service"
+  },
+  "software_policy": {
+    "initial_mute": "per-device PipeWire mute is attempted by an ordered user oneshot before graphical-session.target; fresh route default is software volume 0. Runtime confirmation is mandatory.",
+    "volume_ceiling_percent": 5,
+    "enforcement": "WirePlumber api.acp.max-volume=0.05 and api.acp.disable-pro-audio=true; startup helper reinforces the capped value and initial mute."
+  },
+  "routes": {
+    "Speaker": "hw:${CardId},0",
+    "Mic": "hw:${CardId},1",
+    "HDMI0": "hw:${CardId},2",
+    "HDMI1": "hw:${CardId},3"
+  },
+  "build_gate": {
+    "required_record": "out/image-inputs/audio/d28-runtime-validation.json",
+    "required_true": [
+      "device_dmi_match",
+      "alsaucm_profile_resolved",
+      "initial_mute_confirmed",
+      "pipewire_ceiling_enforced",
+      "speaker_off_fallback_mic_dp",
+      "kernel_d28_guard",
+      "closed_loop_fail_closed"
+    ],
+    "purpose": "No non-smoke ISO compose until D28 runtime safety and the speaker-off Mic/DP fallback are verified."
+  }
+}

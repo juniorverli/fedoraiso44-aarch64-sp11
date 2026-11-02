@@ -29,7 +29,7 @@ ENTRIES = {
     "safe": ("SP11 debug, safe (no GPU)", "m15-safe", DEFAULT),
     "nosnd": ("SP11 debug, no sound", "m15-nosnd", DEFAULT),
     "notouch": ("SP11 debug, touch off", "m15-notouch", DEFAULT),
-    "spk": ("SP11 debug, speakers (gated)", "m15-spk", DEFAULT | {"sp11.allow_nominal=1"}),
+    "spk": ("SP11 debug, speakers (closed-loop experiment; private)", "m15-spk", DEFAULT | {"sp11.allow_nominal=1"}),
     "usbdbg": ("SP11 debug, USB + DSP trace", "m15-safe", USBDSP),
     "nodsp": ("SP11 debug, no early DSP", "m15-safe", set(BASE[:3] + ["modprobe.blacklist=qcom_battmgr", "rd.driver.blacklist=qcom_battmgr,qcom_q6v5_pas"])),
     "wifi-unblock": ("SP11 debug, Wi-Fi unblock probe", "m15-safe", set(BASE) | {"sp11.wifi_unblock=1"}),
