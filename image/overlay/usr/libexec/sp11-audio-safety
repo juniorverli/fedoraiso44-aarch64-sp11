@@ -1,5 +1,6 @@
 #!/usr/bin/bash
 # D28: mute built-in sinks before graphical-session.target; timeout/failure is visible in the user journal.
+# Matches sink node names containing the ALSA platform-card prefix alsa_output.platform-sound; runtime name remains to be confirmed.
 set -euo pipefail
 for _ in $(seq 1 300); do
 	status=$(wpctl status -n 2>/dev/null || true)

@@ -30,8 +30,8 @@
   },
   "software_policy": {
     "initial_mute": "per-device PipeWire mute is attempted by an ordered user oneshot before graphical-session.target; fresh route default is software volume 0. Runtime confirmation is mandatory.",
-    "volume_ceiling_percent": 5,
-    "enforcement": "WirePlumber api.acp.max-volume=0.05 and api.acp.disable-pro-audio=true; startup helper reinforces the capped value and initial mute."
+    "volume_ceiling_percent": 25.1,
+    "enforcement": "WirePlumber api.acp.max-volume=0.251 and api.acp.disable-pro-audio=true; startup helper sets 5% once and initial mute."
   },
   "routes": {
     "Speaker": "hw:${CardId},0",
