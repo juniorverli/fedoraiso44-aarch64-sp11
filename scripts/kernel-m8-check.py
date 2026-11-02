@@ -149,6 +149,14 @@ def main():
     else:
         require(nodes['/sound'].get('status') == '\"disabled\"', '/sound is not disabled')
 
+    # M16.4 (audio-speakers 0022): only the closed-loop experiment carries the private topology model.
+    # Every other DTB keeps the public model, which selects the public open-loop topology.
+    sound_model = nodes.get('/sound', {}).get('model')
+    expected_model = ('"X1E80100-Microsoft-Surface-Pro-11-CL"'
+                      if args.variant == 'm15-spk' else '"X1E80100-Microsoft-Surface-Pro-11"')
+    require(sound_model == expected_model,
+            f'{args.variant}: /sound model is {sound_model}, expected {expected_model}')
+
     # M15 (audio-speakers 0017): the sound variants carry the two DisplayPort back-end links and no WSA link outside
     # m15-spk; sound-off variants (nosnd, packaged) carry none. The links add no speaker path.
     dp_links = None
@@ -228,7 +236,7 @@ def main():
         require(enabled('/camera-leds'), 'm13-cam: indicator LED bank disabled')
         for label in ('cci1', 'cci0_i2c0', 'cci1_i2c0', 'cci1_i2c1'):
             require(not enabled(symbols[label]), f'm13-cam: {label} must stay disabled')
-    elif args.variant in ('m14', 'm15', 'm15-safe', 'm15-notouch'):
+    elif args.variant == 'm14':
         # Combined diagnostic default: rear, front and IR chains all effectively enabled.
         front = [p for p in nodes if 'sony,imx681' in nodes[p].get('compatible', '')]
         ir = [p for p in nodes if 'st,vd55g0' in nodes[p].get('compatible', '')]
@@ -239,6 +247,31 @@ def main():
             require(enabled(symbols[label]), f'{args.variant}: {label} disabled')
         require(enabled('/camera-leds'), f'{args.variant}: indicator LED bank disabled')
         require(not enabled(symbols['cci1_i2c0']), f'{args.variant}: cci1_i2c0 must stay disabled')
+    elif args.variant in ('m15', 'm15-safe', 'm15-notouch'):
+        # M16.2 (cameras 0022): the unbound IR sensor is excluded from the CAMSS graph so the async
+        # notifier completes for the two RGB sensors. The IR node and its CCI0 bus stay described
+        # but disabled; CAMSS must no longer carry the IR endpoint at all (OF graph iteration
+        # ignores status).
+        front = [p for p in nodes if 'sony,imx681' in nodes[p].get('compatible', '')]
+        ir = [p for p in nodes if 'st,vd55g0' in nodes[p].get('compatible', '')]
+        require(len(rear) == 1 and len(front) == 1 and len(ir) == 1, f'{args.variant}: camera sensor nodes missing')
+        for path in rear + front:
+            require(enabled(path), f'{args.variant}: {path} not effectively enabled')
+            require(path + '/port/endpoint' in nodes, f'{args.variant}: {path} endpoint missing')
+        require(rear[0].startswith(symbols['cci0_i2c1'] + '/'),
+                f'{args.variant}: rear sensor is not on CCI0 bus 1')
+        require(front[0].startswith(symbols['cci1_i2c1'] + '/'),
+                f'{args.variant}: front sensor is not on CCI1 bus 1')
+        require(not enabled(ir[0]), f'{args.variant}: IR sensor {ir[0]} must stay disabled')
+        for label in ('camss', 'cci0', 'cci0_i2c1', 'cci1', 'cci1_i2c1'):
+            require(enabled(symbols[label]), f'{args.variant}: {label} disabled')
+        require(not enabled(symbols['cci0_i2c0']), f'{args.variant}: cci0_i2c0 (IR bus) must stay disabled')
+        require(not enabled(symbols['cci1_i2c0']), f'{args.variant}: cci1_i2c0 must stay disabled')
+        require(enabled('/camera-leds'), f'{args.variant}: indicator LED bank disabled')
+        require(symbols['camss'] + '/ports/port@0' not in nodes,
+                f'{args.variant}: CAMSS still describes the IR endpoint port@0')
+        require(not any(p.startswith(ir[0] + '/port') for p in nodes),
+                f'{args.variant}: IR sensor still describes its endpoint')
     elif args.variant == 'm15-spectra':
         # Qualcomm Spectra path: the upstream camera stack is off, the downstream qcom,cam-* nodes carry the camera.
         for label in camera_labels:
@@ -408,7 +441,9 @@ def main():
                     f'Expected exactly the M16 D26 speaker changes relative to M12: {extra}')
             extra = []
         allowed = ('/volume-keys', '/sound/dp0-dai-link', '/sound/dp1-dai-link', '/camera-leds', '/soc@0/cci@', '/soc@0/isp@', '/soc@0/rsc@17500000/regulators-8',
-                   '/soc@0/rsc@17500000/regulators-0/ldo7', '/soc@0/rsc@17500000/regulators-0/ldo16')
+                   '/soc@0/rsc@17500000/regulators-0/ldo7', '/soc@0/rsc@17500000/regulators-0/ldo16',
+                   # M16.4 (gpu 0002): the linux-sp11 GPU firmware no-map ranges in hamoa.dtsi.
+                   '/reserved-memory/gpu-prr@81f00000', '/reserved-memory/pld-gmu@81f36000')
         if d26_variant:
             # The same D26 enablement adds the three WSA DAI links and the speaker reset pinctrl state.
             allowed += ('/sound/wsa-cps-dai-link', '/sound/wsa-dai-link', '/sound/wsa-vi-dai-link',

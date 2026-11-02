@@ -7,7 +7,8 @@
  * WSA link, which the closed-loop fragment extends. The DisplayPort fragment of patch 0017 is included directly.
  * The speaker guard of patch 0012 refuses playback and the amplifier unmute until the closed-loop protection is
  * validated (patches 0009 to 0015).
- * Any kernel that boots this DTB MUST contain audio-speakers patches 0001, 0002, 0004, 0005, 0006 to 0018.
+ * Any kernel that boots this DTB MUST contain audio-speakers patches 0001, 0002, 0004, 0005, 0006 to 0018,
+ * the diagnostics/degraded candidates 0019/0020 and the policy selection of 0022.
  * The packaged default DTB and every other M15 variant never include the marker.
  */
 #include "x1p64100-microsoft-denali-m12.dts"
@@ -26,4 +27,13 @@
 
 &usb_1_ss1_qmpphy {
 	orientation-switch;
+};
+
+/*
+ * M16.4 (audio-speakers 0022): the closed-loop experiment uses the private topology the image ships as
+ * X1E80100-Microsoft-Surface-Pro-11-CL-tplg.bin. The public open-loop variants (m15-safe, m15-nosnd,
+ * m15-notouch and m15) keep "X1E80100-Microsoft-Surface-Pro-11"; this model is their only /sound difference.
+ */
+&{/sound} {
+	model = "X1E80100-Microsoft-Surface-Pro-11-CL";
 };
