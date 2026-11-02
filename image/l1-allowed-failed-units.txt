@@ -15,6 +15,10 @@ accounts-daemon.service
 # Boot 96658288-701d-4138-8619-5793cd358dd3: journal.txt.gz 506.114 start operation timed out, terminating.
 avahi-daemon.service
 
+# Fedora stock (not SP11-owned) GPU switcheroo/PRIME proxy; the VM has no hybrid/discrete GPU switching environment.
+# Boot 61422d5e-e0dc-4b0a-8f62-32b486dd4e81: units-failed.txt.gz lists it as failed.
+switcheroo-control.service
+
 # Fedora stock (not SP11-owned) network-online wait; the VM lacks the device network environment and uses QEMU user-mode networking.
 # Boot 96658288-701d-4138-8619-5793cd358dd3: journal.txt.gz 604.318 start job result=failed; the cause is unconfirmed.
 NetworkManager-wait-online.service
