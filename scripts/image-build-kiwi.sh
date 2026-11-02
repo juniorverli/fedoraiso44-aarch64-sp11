@@ -38,11 +38,16 @@ isodir=$OUT/iso
 log() { echo "image-build[kiwi]: $*" >&2; }
 if [ "$smoke" = 0 ]; then
 	validation=$OUT/image-inputs/audio/d28-runtime-validation.json
-	[ -s "$validation" ] && jq -e \
-		--arg sha b192044f01e97eabe7f6df9ae0d394086badb3c30124573210bc781093da8c03 \
-		'.source_commit == "993a17dcb672357998a463a73f120064d6c74f4f" and .topology_sha256 == $sha and .device_dmi_match == true and .alsaucm_profile_resolved == true and .initial_mute_confirmed == true and .pipewire_ceiling_enforced == true and .speaker_off_fallback_mic_dp == true and .kernel_d28_guard == true and .closed_loop_fail_closed == true' "$validation" >/dev/null || {
+	if [ "$private" = 1 ]; then
+		[ -s "$validation" ] && python3 -I /sp11/image/tools/check-d28-build-gate.py "$validation" private >/dev/null || {
+			log "REFUSED: private D28 build requires pinned source_commit and topology_sha256 in $validation"; exit 6;
+		}
+		log "PRIVATE OPERATOR-ONLY: D28 runtime safety is unvalidated; this ISO must never be shared"
+	else
+	[ -s "$validation" ] && python3 -I /sp11/image/tools/check-d28-build-gate.py "$validation" public >/dev/null || {
 		log "REFUSED: D28 runtime safety evidence missing/incomplete at $validation (image build remains gated)"; exit 6;
 	}
+	fi
 fi
 mkdir -p "$work/tmp" "$isodir" "$OUT/kiwi"
 cd "$work"   # /sp11 is a worktree whose .git file points outside the container
@@ -507,6 +512,14 @@ kernel_record_path = f"{out}/rpms/{read(f'{out}/image-work/kernel-nevra.txt').st
 patches = sorted(os.listdir(f"{repo}/image/kiwi/patches"))
 series_paths = [''.join(line.split('#', 1)[0].split()) for line in read(series).splitlines()]
 patch_series = ''.join(f"{p} {sha256(f'{repo}/{p}')}\n" for p in series_paths if p)
+d28_path = f"{out}/image-inputs/audio/d28-runtime-validation.json"
+d28_input = json.load(open(d28_path)) if os.path.isfile(d28_path) else None
+m28_pin = json.load(open(f"{repo}/image/component-inputs/m28.json"))
+import importlib.util
+d28_gate_spec = importlib.util.spec_from_file_location("d28_build_gate", f"{repo}/image/tools/check-d28-build-gate.py")
+d28_gate = importlib.util.module_from_spec(d28_gate_spec)
+d28_gate_spec.loader.exec_module(d28_gate)
+d28_record = d28_gate.build_record(d28_input, m28_pin["topology"], "private" if private == "1" else "public")
 record = {
     "name": name, "kind": kind, "builder": "kiwi", "smoke": kind == "kiwi-smoke", "build_id": bid,
     "iso_sha256": sha, "iso_size": os.path.getsize(f"{out}/iso/{name}.iso"),
@@ -547,7 +560,7 @@ record = {
     "collector_sources": {c: sha256(f"{repo}/hardware/{c}/collector/{c}.sh") for c in ("dsp-subsystems", "wifi")},
     "m15_inputs": json.load(open(f"{repo}/image/component-inputs/m15.json")),
     "m28_inputs": json.load(open(f"{repo}/image/component-inputs/m28.json")),
-    "d28_runtime_validation": json.load(open(f"{out}/image-inputs/audio/d28-runtime-validation.json")) if os.path.isfile(f"{out}/image-inputs/audio/d28-runtime-validation.json") else None,
+    "d28_runtime_validation": d28_record,
     "m15_integration": json.load(open(f"{repo}/image/component-inputs/m15-integration.json")),
     "libcamera_source": read(f"{work}/libcamera-source.txt").strip(),
     "local_rpm_sha256": {os.path.basename(f): sha256(f) for f in sorted(__import__("glob").glob(f"{out}/repo/*.rpm")) if not os.path.basename(f).startswith("kernel")},
@@ -569,7 +582,7 @@ if private == "1":
     # hash prefixes and the board hash only (image/tools/private-stage.py); never an address
     record["private"] = json.load(open(f"{work}/private-record.json"))
     record["private_m14"] = json.load(open(f"{work}/private-m14-record.json"))   # hashes and counts only
-    record["distribution"] = "forbidden: contains device addresses; operator device only"
+    record["distribution"] = "forbidden: operator-only private ISO; never share; D28 runtime safety is unvalidated"
 json.dump(record, open(rec, "w"), indent=1)
 PYEOF
 log "done: $isodir/$name.iso ($sha)"

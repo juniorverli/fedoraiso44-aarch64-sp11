@@ -564,7 +564,7 @@ if [ "$builder" = kiwi ]; then
 	fi
 	# M14: the microphone UCM lookup, run with alsaucm from Fedora against the ISO's own UCM files (audio-mics test: list only)
 	if bash "$REPO/image/tools/ucm-lookup-test.sh" "$ROOT" "$W/ucm-test" >"$W/ucm-lookup.txt" 2>&1; then
-		pass 8.40 "alsaucm with the shipped UCM files: the Surface Pro 11 DMI string selects the microphone profile (verb HiFi, device Mic, capture PCM), the 12in string does not"
+		pass 8.40 "alsaucm with the shipped UCM files: the Surface Pro 11 DMI string selects Mic (verb HiFi, capture PCM, fixed two-channel DMIC array), the 12in string does not"
 	else fail 8.40 "UCM lookup failed ($(tail -n 2 "$W/ucm-lookup.txt" | tr '\n' ';' | cut -c1-200))"; fi
 	# M15 integration of the finished pieces: sensors packages/units/rules/permissions, audio route layer and gain, cameras and Spectra payloads, libcamera, volume tool, CDSP variants
 	if python3 -I "$REPO/image/tools/check-m15-integration.py" "$ROOT" "$LREPO" "$rec" >"$W/m15-integration.txt" 2>&1; then
@@ -578,6 +578,9 @@ if [ "$builder" = kiwi ]; then
 		sh "$LREPO/hardware/audio-mics/userspace/tests/ucm-routes-test.sh" >"$W/ucm-routes.txt" 2>&1 && grep -q '^ALL PASS' "$W/ucm-routes.txt" && grep -q '^PASS.*safe Mic activation has no speaker controls' "$W/ucm-routes.txt" && ucm_ok=1
 		[ "$ucm_ok" = 1 ] && pass 8.45 "audio-mics tests on the shipped route files: safe Mic avoids WSA controls, mic-gain-check (default +14 dB = step 98, cap 108) and ucm-routes-test ($(grep -c '^PASS' "$W/ucm-routes.txt") PASS, ALL PASS)" || fail 8.45 "ucm-routes-test failed ($(grep '^FAIL' "$W/ucm-routes.txt" | head -n 2 | tr '\n' ';' | cut -c1-200))"
 	else fail 8.45 "mic-gain-check failed or the shipped SP11-MicGain.conf differs from the source ($(tail -n 1 "$W/mic-gain.txt" | cut -c1-150))"; fi
+	if python3 -I "$REPO/image/tools/test-d28-build-gate.py" >"$W/d28-build-gate.txt" 2>&1; then
+		pass 8.46 "D28 gate/record policy: private accepts pinned source/topology with runtime fields absent or false and records unvalidated; public requires all seven fields true"
+	else fail 8.46 "D28 build gate policy regression: $(tail -n1 "$W/d28-build-gate.txt" | cut -c1-200)"; fi
 	# Operator decision (M16): automatic brightness is off and cannot be turned back on from the
 	# desktop. The distro dconf default disables it and the lock keeps the key read-only.
 	disp=$ROOT/etc/dconf/db/distro.d/92-sp11-display

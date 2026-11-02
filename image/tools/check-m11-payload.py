@@ -13,13 +13,34 @@ def digest(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
+def check_mic_capture_caps(graph_text):
+    match = re.search(r'SectionPCMCapabilities\s*\{(.*?)\n\}', graph_text, re.S)
+    assert match, 'topology has no PCM capabilities section'
+    capture = re.search(
+        r"'MultiMedia2 Capture'\s*\{([^}]*)\}", match.group(1), re.S)
+    assert capture, 'topology has no MultiMedia2 Capture capabilities'
+    section = capture.group(1)
+    assert re.search(r"formats\s+'S16_LE'", section) and \
+           re.search(r'rate_min\s+48000', section) and \
+           re.search(r'rate_max\s+48000', section) and \
+           re.search(r'channels_min\s+1', section) and \
+           re.search(r'channels_max\s+2', section), \
+        'D28 topology Mic capture must be S16_LE/48kHz/min 1/max 2 channels'
+
+
 def check(root, repo, record, release):
     pin = json.loads((repo / 'image/component-inputs/m28.json').read_text())
     assert pin == record['m28_inputs'], 'D28 input record differs'
     runtime = record.get('d28_runtime_validation')
     assert runtime and runtime.get('source_commit') == pin['topology']['source_commit']
     assert runtime.get('topology_sha256') == pin['topology']['sha256']
-    assert all(runtime.get(key) is True for key in ('device_dmi_match', 'alsaucm_profile_resolved', 'initial_mute_confirmed', 'pipewire_ceiling_enforced', 'speaker_off_fallback_mic_dp', 'kernel_d28_guard', 'closed_loop_fail_closed'))
+    runtime_keys = ('device_dmi_match', 'alsaucm_profile_resolved', 'initial_mute_confirmed', 'pipewire_ceiling_enforced', 'speaker_off_fallback_mic_dp', 'kernel_d28_guard', 'closed_loop_fail_closed')
+    if record.get('private'):
+        assert runtime.get('status') == 'unvalidated', 'private D28 runtime state must be explicit'
+        assert set(runtime) == {'status', 'source_commit', 'topology_sha256'}, 'private build record must not imply runtime validation'
+        assert record.get('distribution', '').find('never share') >= 0
+    else:
+        assert all(runtime.get(key) is True for key in runtime_keys), 'public build requires full D28 runtime validation'
     for rel, want in pin['installed_files'].items():
         assert digest(root / rel) == want, rel
     ucm = root / 'usr/share/alsa/ucm2/Qualcomm/x1e80100'
@@ -28,6 +49,7 @@ def check(root, repo, record, release):
     assert 'SectionDevice."Speaker"' in hifi and 'SectionDevice."Mic"' in hifi, 'Speaker/Mic routes'
     assert all(f'PlaybackPCM "hw:${{CardId}},{n}"' in hifi for n in (0, 2, 3)), 'Speaker/DP PCMs'
     assert 'CapturePCM "hw:${CardId},1"' in hifi, 'Mic PCM'
+    assert 'CaptureChannels 2' in hifi, 'Mic must expose the fixed two-channel DMIC array without downmix'
     assert 'Surface11-WsaInit.conf' in model and 'Surface11-SpeakerSeq.conf' in hifi
     assert '/lib/card-init.conf' in model and '/lib/ctl-remap.conf' in model
     assert '/codecs/wsa884x/two-speakers/init.conf' in model
@@ -60,6 +82,7 @@ def check(root, repo, record, release):
         graph = Path(tmp) / 'topology.conf'
         subprocess.run(['alsatplg', f'--decode={topology}', f'--output={graph}'], check=True, capture_output=True)
         graph_text = graph.read_text()
+    check_mic_capture_caps(graph_text)
     assert not re.search(r'SP_VI|VI Feedback|\bCPS\b|070010e[234]|0800138c', graph_text, re.I), 'public graph contains SP/VI/CPS or diagnostics strings'
     safety = root / 'usr/libexec/sp11-audio-safety'
     assert safety.stat().st_mode & 0o111 and 'set-mute' in safety.read_text() and '--limit 0.05' in safety.read_text()
