@@ -7,8 +7,8 @@ Subject: [PATCH 8/9] arm64: dts: qcom: x1-microsoft-denali: add a marked D26
 Add an include-only fragment for a speaker-enabled test variant. It
 pulls in the full sound card and the WSA bus and adds the property
 /chosen/sp11,speaker-policy, which the project DTB safety check requires
-before it accepts an enabled speaker path. The property is a tooling
-marker only and no driver reads it.
+before it accepts an enabled speaker path. The property is read by the speaker guard at topology initialization and
+validated by project image tooling.
 
 Nothing includes the file and no packaged DTB changes.
 
@@ -33,9 +33,9 @@ index 000000000..6a7b4988d
 + * /chosen/sp11,speaker-policy. The project image tooling (kernel-dtb-safety)
 + * accepts an enabled speaker path only in a DTB that carries this marker.
 + *
-+ * The marker is a tooling contract. No driver reads it, it is not evidence
-+ * of speaker protection and it does not make playback audible: the machine
-+ * driver refuses WSA playback until the closed-loop protection is validated.
++ * With no SP module, the runtime guard requires this exact value for D26
++ * open-loop playback; an SP graph selects closed-loop independently. Project
++ * tooling also validates the marker. It is not evidence of protection.
 + * The packaged default DTB never includes this file.
 + */
 +#include "x1-microsoft-denali-audio-speakers.dtsi"

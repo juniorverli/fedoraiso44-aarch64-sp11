@@ -1,8 +1,8 @@
 # audio-speakers test plan
 
-**D28 current test and prerequisites:** [public audio evidence](evidence/2026-11-02-d28-public-audio.md) supersedes historical default-path instructions below. The guard, mute and software ceiling are requested and not implemented; no device test or build is authorized until integration gates are satisfied. Audible testing requires the operator present.
+**D28 current test and prerequisites:** [public audio evidence](evidence/2026-11-02-d28-public-audio.md) supersedes historical default-path instructions below. Patch 0022 implements the requested open-loop guard but is not integrated or built. The public entry must boot software-muted with an enforced -12 dBFS ceiling and hardware PA/RX/MIX caps; the separate fallback keeps speakers off. No kernel/ISO build or device test has been run. Any audible test requires the operator present.
 
-Speakers stay off until `plan/risks.md` S1 is lifted. Only the checks marked "S1 off" run before that. All commands are read-only unless stated.
+The public graph has no closed-loop thermal/excursion protection; D26 accepts only muted-by-default, capped open-loop use. First validate the device while muted. All commands are read-only unless stated.
 
 ## T0, every boot (S1 off)
 
@@ -23,6 +23,13 @@ Speakers stay off until `plan/risks.md` S1 is lifted. Only the checks marked "S1
 2. `amixer -c 0 cget name='SpkrLeft PA Volume'` shows `max=6`; same for Right. `WSA WSA_RX0 Digital Volume`, `WSA_RX1`, and the two `_MIX` controls show `max=81`. `amixer -c 0 cset name='SpkrLeft PA Volume' 7` must fail.
 3. Force a SoundWire re-attach (runtime suspend then resume of the card, or a stream start after 10 s idle) and read `PA Volume` again: at most 6 (patch 0001).
 4. Before any sound: UCM verb enable leaves `PA Volume` 0.
+
+## T2c, D28 muted public-entry test (after patch and image integration)
+
+1. Verify model `X1E80100-Microsoft-Surface-Pro-11`, marker `d26-open-loop-v1`, public topology filename/hash, and guard mode `open-loop`; parsed graph has no SP module.
+2. Before opening audio, confirm the software sink is muted and its enforced maximum is -12 dBFS. Read PA (max 6), WSA RX digital and RX MIX caps (max 81); confirm cap readiness in guard debugfs.
+3. Open and prepare/start the speaker PCM while the sink remains muted. Expect success without `-22`; `sp11_guard_check` admits the stream, and the unmute gate reports open-loop allowed without VI/CPS, calibration, SP enable or diagnostics prerequisites. Confirm no SP diagnostics registration request or unsupported response and verify silence at both speakers throughout.
+4. Capture journal timestamps, guard state before and after, active UCM verb/device, PCM, sink mute/volume and all hardware mixer values. Fail if any cap is missing, mode is unknown/refused, a diagnostic event is attempted, or sound is audible. Do not unmute during this test.
 
 ## T3, first sound (only with the operator present)
 
