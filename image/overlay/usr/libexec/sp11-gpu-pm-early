@@ -1,0 +1,19 @@
+#!/bin/bash
+# Udev add-event diagnostic; never alter the safe entry.
+set -u
+case " $(cat /proc/cmdline) " in
+    *' sp11.entry=debug '*) ;;
+    *) exit 0 ;;
+esac
+case "${1-}" in
+    3d00000.gpu|3d6a000.gmu) ;;
+    *) exit 1 ;;
+esac
+control="/sys/bus/platform/devices/$1/power/control"
+if ! printf 'on\n' > "$control"; then
+    printf '<3>sp11-gpu-pm-early: path=%s written=on readback=WRITE_FAILED\n' "$control" > /dev/kmsg
+    exit 1
+fi
+readback=$(cat "$control" 2>/dev/null) || readback=READ_FAILED
+printf '<%s>sp11-gpu-pm-early: path=%s written=on readback=%s\n' "$([ "$readback" = on ] && echo 6 || echo 3)" "$control" "$readback" > /dev/kmsg || exit 1
+[ "$readback" = on ]

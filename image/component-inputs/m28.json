@@ -19,7 +19,7 @@
     "etc/dconf/db/distro.d/locks/90-sp11-audio-safety": "4e7ac5841797af780f9063f94b1c59ec47a804b81033b294a029245e6f8e98c5",
     "usr/libexec/sp11-audio-safety": "ecb07829769bce0cf897942e1e7bf858a125b0e2cc32c2deb27d3277ab45804e",
     "usr/lib/systemd/user/sp11-audio-safety.service": "a669ab7d4902a7820bcc95f7bf4accbb682b44bfea4c490335da7166951c67a5",
-    "usr/share/wireplumber/wireplumber.conf.d/53-sp11-audio-ceiling.conf": "5fc2ab6c238a459faee34855d0f5026db65da5b59a2d65f79d6f409970e90697",
+    "usr/share/wireplumber/wireplumber.conf.d/53-sp11-audio-ceiling.conf": "0aee20865d4c4827cbcec1c327c90be5808e56cbfaf9f533737867a7174f6498",
     "usr/libexec/sp11-post-session-collect": "32fba866ca6b78aa88b3c86773792ee9d16c62488e4185fe8458df038820ece1",
     "usr/lib/systemd/user/sp11-post-session-collect.service": "9bf49ff3b0e9ab8f793d2cadd7a51feb115f3d0a5d42fb6130edd89aac72f3fd"
   },
@@ -31,9 +31,9 @@
     "selector": "kernel request_firmware sound-model contract; no early selector service"
   },
   "software_policy": {
-    "initial_mute": "Per-device PipeWire mute is attempted before graphical-session.target; fresh route default is 0.5. Runtime confirmation is mandatory.",
-    "volume_ceiling_percent": 100,
-    "enforcement": "WirePlumber api.acp.max-volume=1.0 and api.acp.disable-pro-audio=true; startup helper sets 30% once and initial mute."
+    "initial_mute": "Fresh route default is 0.0 as a fail-safe; the helper mutes each sink before setting 30%. Runtime confirmation is mandatory.",
+    "volume_ceiling_percent": 25,
+    "enforcement": "WirePlumber api.acp.max-volume=0.251 (-12 dBFS) and api.acp.disable-pro-audio=true; startup helper sets 30% once and initial mute."
   },
   "routes": {
     "Speaker": "hw:${CardId},0",

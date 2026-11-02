@@ -31,6 +31,7 @@ def check_mic_capture_caps(graph_text):
 def check(root, repo, record, release):
     pin = json.loads((repo / 'image/component-inputs/m28.json').read_text())
     assert pin == record['m28_inputs'], 'D28 input record differs'
+    assert pin['software_policy']['volume_ceiling_percent'] == 25, 'D28 ceiling must be 25 percent'
     runtime = record.get('d28_runtime_validation')
     assert runtime and runtime.get('source_commit') == pin['topology']['source_commit']
     assert runtime.get('topology_sha256') == pin['topology']['sha256']
@@ -99,8 +100,8 @@ def check(root, repo, record, release):
     assert 'seq 1 300' in safety.read_text() and 'exit 1' in safety.read_text(), 'startup wait must be bounded and fail visibly'
     ceiling = root / 'usr/share/wireplumber/wireplumber.conf.d/53-sp11-audio-ceiling.conf'
     ceiling_text = ceiling.read_text()
-    assert 'api.acp.max-volume = 1.0' in ceiling_text and 'api.acp.disable-pro-audio = true' in ceiling_text
-    assert 'device.routes.default-sink-volume = 0.5' in ceiling_text, 'fresh sink default must be 0.5'
+    assert 'api.acp.max-volume = 0.251' in ceiling_text and 'api.acp.disable-pro-audio = true' in ceiling_text
+    assert 'device.routes.default-sink-volume = 0.0' in ceiling_text, 'fresh sink default must be 0.0'
     unit = root / 'usr/lib/systemd/user/sp11-audio-safety.service'
     assert 'Before=graphical-session.target' in unit.read_text() and 'Type=oneshot' in unit.read_text()
     user_wants = root / 'etc/systemd/user/graphical-session-pre.target.wants/sp11-audio-safety.service'
