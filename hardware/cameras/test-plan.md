@@ -9,7 +9,7 @@ flash and the sensor strobe are not described in any DTB and must stay off (S2).
 
 ## Contents required before boot
 
-- Kernel with the camera patches `hardware/cameras/patches/0001`-`0021` (CAMSS C-PHY 0006-0010, register blob parser
+- Kernel with the camera patches `hardware/cameras/patches/0001`-`0021`, plus the integrated RGB-only exclusion (CAMSS C-PHY 0006-0010, register blob parser
   0011, OV13858 blob modes 0012-0014, IMX681 0015-0016, VD55G0 binding 0017, front and IR DT 0018-0019), BTF on, and
   `CONFIG_VIDEO_QCOM_CAMSS=m`, `CONFIG_I2C_QCOM_CCI=m`, `CONFIG_VIDEO_OV13858=m`, `CONFIG_VIDEO_IMX681=m`,
   `CONFIG_CRC32=y`, `CONFIG_LEDS_GPIO` (m or y), `CONFIG_CLK_X1E80100_CAMCC=m`, `CONFIG_REGULATOR_QCOM_RPMH=y`,
@@ -37,22 +37,41 @@ clock state. Nothing in it streams or writes.
    I2C error, record the message and stop: the address, a rail or the reset polarity is wrong.
 2. Front: confirm that `imx681` binds and inspect blob errors. A chip-ID mismatch is logged if the blob specifies an ID; successful binding produces no ID success log and the ID check is skipped when the blob has no ID. The IR node and its bus are disabled; the IR endpoint is absent from the CAMSS graph.
 3. `media-ctl -p`: a CAMSS media graph with `msm_csiphy1` (rear), `msm_csiphy2` (front), CSIDs, VFEs and the sensor entities.
-4. RAW capture on the CAMSS RDI node of the rear camera (`v4l2-ctl --stream-mmap --stream-count=5`, `SGRBG10` at 4224x3136
-   built-in mode, then each of the three blob modes 4076x2806, 4064x2286, 3736x2802). Check the Bayer order of the blob
-   modes against a coloured target (U1).
-5. Front RAW capture (3840x2640 and the other three sizes). Check dmesg for CSIPHY or CSID errors first: this is the first time
-   a C-PHY link runs (U2). Read the Bayer order from a coloured target; if red and blue are swapped in the Software ISP
-   picture, rebuild the blob with the other `--bayer` value.
-6. Indicators: while the rear streams, the LED `white:indicator-1` (GPIO105) must light and go off when streaming stops.
-   While the front streams, `white:indicator` (GPIO225) must light and go off. Record which physical LED lights. Do not
-   stream the front and the IR sensor together (the shared LED has no use count, U9; the IR sensor cannot stream anyway).
-7. libcamera: `cam -l` and a capture with the Software ISP; the result must be a coloured RGB or YUV picture, not RAW. With the
-   `uncalibrated` tuning only grey-world white balance applies; the front has no sensor helper, so automatic exposure may be
-   poor.
+4. After independent indicator wiring cross-check and confirmation of physical LED operation, test rear first, then front. The sensor must illuminate its physical privacy LED throughout each stream; stop immediately if it does not. Do not operate the flash, IR strobe or illuminator. Patch 0020 provides shared LED accounting but its KUnit suite remains unexecuted.
+5. Configure a complete sensor → CSIPHY → CSID → VFE RDI route and matching formats using `media-ctl`, or let libcamera configure them. Select actual entity names, pad numbers, format, dimensions and video node from the newly printed graph; they may differ between boots. Run the commands below after substituting the chosen route and checking the graph. Never use the old video-number mapping as a guarantee.
+6. The rear built-in 4224x3136 mode is SGRBG10; Windows blob modes are SBGGR10. The front Windows data is SRGGB10. Verify each negotiated mode and Bayer order with a colour target; no stream has yet established it on this device.
+7. libcamera: `cam -l` and a capture with the Software ISP; the result must be a coloured RGB or YUV picture, not RAW. Confirm which tuning and sensor helper are actually installed; uncalibrated processing and incomplete control support may give poor colour or exposure.
 8. Record `/sys/kernel/debug/regulator` state before and after, to confirm all rails return to off.
+
+### Commands for the next boot
+
+Read-only graph and enumeration (save output in `out/device-logs/m16-20261102/` via the collector):
+
+```sh
+media-ctl -d /dev/media0 -p
+v4l2-ctl --list-devices
+ls -l /dev/v4l-subdev*
+cam -l
+journalctl -k -b | grep -Ei 'camss|csiphy|csid|vfe|ov13858|imx681|cci'
+```
+
+Expected: each RGB sensor has an immutable enabled link to its CSIPHY, and subdevice nodes exist. If not, stop and collect notifier diagnostics; use the rear-only DT if one RGB probe fails.
+
+For RAW debugging after the privacy gate, choose and configure the actual route from the graph. `media-ctl -p` gives entity names and pads; use its reported pad numbers to enable the CSIPHY-to-CSID and CSID-to-RDI links, and set matching sensor/subdevice formats before capture. Example shell variables must be filled from that graph, and the selected format must match the sensor and VFE:
+
+```sh
+media-ctl -d /dev/media0 --links "'$PHY':$PHY_SOURCE -> '$CSID':$CSID_SINK [1]"
+media-ctl -d /dev/media0 --links "'$CSID':$CSID_SOURCE -> '$RDI':$RDI_SINK [1]"
+media-ctl -d /dev/media0 --set-v4l2 "'$SENSOR':$SENSOR_SOURCE [fmt:$MBUS_CODE/${WIDTH}x${HEIGHT}]"
+media-ctl -d /dev/media0 -p
+v4l2-ctl -d "$VIDEO" --list-formats-ext
+v4l2-ctl -d "$VIDEO" --set-fmt-video=width="$WIDTH",height="$HEIGHT",pixelformat="$PIXEL_FORMAT" --stream-mmap=4 --stream-count=5 --stream-to=/tmp/camera-test.raw --verbose
+```
+
+Set and check every intermediate pad as required by the graph. The pixel format is the fourcc listed by the selected video node, not the media-bus code. Check the configured graph and physical LED during capture; save kernel errors and negotiated format, count and byte size, then stop. Test the front only after the rear and use the same safety gate. RAW capture is diagnostic, not acceptance; use `cam`/qcam or Snapshot and SoftISP for RGB/YUV validation.
 
 ## Acceptance
 
 - The rear and front sensors deliver RGB/YUV frames with correct colours through libcamera (RAW only does not count).
-- The indicator LEDs follow streaming.
+- The independently verified physical indicator LEDs follow every stream.
 - IR emitter, flash and sensor strobe never operated.
