@@ -125,6 +125,10 @@ kernel/patches/0003-audio-speakers-0021-degrade-unsupported-SP-diagnostics-full-
 # AudioReach graph, accepts the public D26 graph only with the exact marker, keeps the closed-loop guard
 # when SP is present, and requires the PA/RX/MIX caps before WSA playback. Needs 0014/0015/0018 and 0021.
 hardware/audio-speakers/patches/0022-ASoC-qcom-select-speaker-policy-from-parsed-topology.patch
+# M16.5 (rev 19): install the Denali PA/RX/MIX caps at card late_probe, after all components bind,
+# instead of at first WSA startup. snd_soc_limit_volume() returns 1 on success when the value
+# changes, which 0022 treated as failure; caps_ready is set only after all required caps succeed.
+hardware/audio-speakers/patches/0023-ASoC-qcom-install-Denali-speaker-caps-at-card-late-probe.patch
 hardware/ec-sam/patches/0005-arm64-dts-qcom-x1p64100-microsoft-denali-Add-the-vol.patch
 # M16: shared V4L2 privacy LED arbitration and opt-in GPU stage trace. The camera
 # graph remains disabled by default; trace is enabled only in this diagnostic build.
