@@ -90,6 +90,10 @@ def main():
         "allow_nominal outside spk": cfg.replace("sp11.entry=nosnd", "sp11.allow_nominal=1 sp11.entry=nosnd", 1),
         "module_blacklist outside the Spectra entry": cfg.replace("sp11.entry=nosnd", "module_blacklist=camera_x1e80100 sp11.entry=nosnd", 1),
         "m15-spectra DTB on a second entry": cfg.replace("denali-m15-notouch.dtb", "denali-m15-spectra.dtb", 1),
+        "missing EFI pstore enable": cfg.replace("efi_pstore.pstore_disable=0 ", "", 1),
+        "missing always kmsg dump": cfg.replace("printk.always_kmsg_dump=1 ", "", 1),
+        "EFI pstore enable on safe": cfg.replace("sp11.entry=safe", "efi_pstore.pstore_disable=0 sp11.entry=safe", 1),
+        "always kmsg dump on safe": cfg.replace("sp11.entry=safe", "printk.always_kmsg_dump=1 sp11.entry=safe", 1),
         "quiet": cfg.replace("sp11.entry=safe", "quiet sp11.entry=safe", 1),
     }
     for name, text in mutants.items():

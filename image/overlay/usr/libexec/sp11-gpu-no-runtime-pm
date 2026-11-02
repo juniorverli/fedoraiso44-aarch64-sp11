@@ -1,25 +1,25 @@
 #!/bin/bash
-# Debug-only diagnostic: pin both Adreno and GMU platform devices active.
+# Debug-only diagnostic: pin Adreno; observe GMU without changing it.
 set -u
 case " $(cat /proc/cmdline) " in
     *' sp11.entry=debug '*) ;;
     *) exit 0 ;;
 esac
-controls=(/sys/bus/platform/devices/3d00000.gpu/power/control
-          /sys/bus/platform/devices/3d6a000.gmu/power/control)
+case " $(cat /proc/cmdline) " in
+    *' sp11.gpu_pin=0 '*)
+        printf '<6>sp11-gpu-pin: skipped by sp11.gpu_pin=0\n' > /dev/kmsg
+        exit 0 ;;
+esac
+control=/sys/bus/platform/devices/3d00000.gpu/power/control
 for ((attempt=0; attempt<30; attempt++)); do
-    if [ -e "${controls[0]}" ] && [ -e "${controls[1]}" ]; then
-        break
-    fi
+    [ -e "$control" ] && break
     sleep 1
 done
 status=0
-for control in "${controls[@]}"; do
-    if ! printf 'on\n' > "$control"; then
-        printf '<3>sp11-gpu-no-runtime-pm: path=%s written=on readback=WRITE_FAILED\n' "$control" | tee /dev/kmsg >&2
-        status=1
-        continue
-    fi
+if ! printf 'on\n' > "$control"; then
+    printf '<3>sp11-gpu-no-runtime-pm: path=%s written=on readback=WRITE_FAILED\n' "$control" | tee /dev/kmsg >&2
+    status=1
+else
     readback=$(cat "$control" 2>/dev/null) || readback=READ_FAILED
     if [ "$readback" = on ]; then
         printf '<6>sp11-gpu-no-runtime-pm: path=%s written=on readback=%s\n' "$control" "$readback" | tee /dev/kmsg || status=1
@@ -27,5 +27,10 @@ for control in "${controls[@]}"; do
         printf '<3>sp11-gpu-no-runtime-pm: path=%s written=on readback=%s\n' "$control" "$readback" | tee /dev/kmsg >&2
         status=1
     fi
+fi
+for attr in control runtime_status; do
+    path="/sys/bus/platform/devices/3d6a000.gmu/power/$attr"
+    value=$(cat "$path" 2>/dev/null) || value=READ_FAILED
+    printf '<6>sp11-gpu-no-runtime-pm: path=%s read=%s\n' "$path" "$value" | tee /dev/kmsg
 done
 exit "$status"

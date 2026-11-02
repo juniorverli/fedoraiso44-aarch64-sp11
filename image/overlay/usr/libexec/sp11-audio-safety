@@ -8,7 +8,7 @@ for _ in $(seq 1 300); do
 	if [ -n "$ids" ]; then
 		for id in $ids; do
 			wpctl set-mute "$id" 1 >/dev/null
-			wpctl set-volume --limit 0.30 "$id" 30% >/dev/null
+			wpctl set-volume "$id" 100% >/dev/null
 		done
 		exit 0
 	fi
