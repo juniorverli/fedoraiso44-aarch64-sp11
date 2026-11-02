@@ -591,8 +591,14 @@ _publish() {
 # Live batches use the same lock, disk checks, mount lifecycle and cap as snapshots.
 live_publish() {
 	local rc bd file cap used free allowed size tmp batch batch_size
+	# Read the pipe before taking the mount lock; a stalled producer must not
+	# block snapshots. The tail bounds each input batch in memory.
+	batch=$(mktemp "$WORK/kmsg-batch.XXXXXX") || return 1
+	cat >"$batch" || { rm -f "$batch"; return 1; }
 	exec 8>"$LOCK"
-	if ! flock -w 60 8; then say "live publish lock timed out"; return 1; fi
+	if ! flock -n 8; then
+		rm -f "$batch"; exec 8>&-; return 1
+	fi
 	rc=0
 	find_target || rc=1
 	if [ "$rc" = 0 ]; then
@@ -617,9 +623,7 @@ live_publish() {
 		[ -n "$free" ] && [ "$allowed" -gt $(( (free - RESERVE_KIB) * 1024 )) ] && allowed=$(( (free - RESERVE_KIB) * 1024 ))
 		[ "$allowed" -gt 2097152 ] && allowed=2097152
 		[ "$allowed" -lt 0 ] && allowed=0
-		batch=$(mktemp "$WORK/kmsg-batch.XXXXXX") || rc=1
 		if [ "$rc" = 0 ]; then
-			cat >"$batch" || rc=1
 			batch_size=$(stat -c %s "$batch")
 			if [ "$batch_size" -le "$allowed" ] && [ $((size + batch_size)) -le 2097152 ]; then
 				# Normal operation writes only new bytes, then commits them to the medium.
@@ -633,7 +637,6 @@ live_publish() {
 			else
 				rc=1
 			fi
-			rm -f "$batch"
 		fi
 		if [ "$rc" = 0 ]; then
 			printf 'boot_id: %s\nstream: kmsg-live-%s.txt\nupdated_utc: %s\n' "$BOOT_ID" "$BOOT_ID" "$(date -u +%FT%TZ)" >"$bd/STATUS.kmsg-live" || rc=1
@@ -642,6 +645,7 @@ live_publish() {
 	fi
 	release_target
 	flock -u 8; exec 8>&-
+	rm -f "$batch"
 	return "$rc"
 }
 
