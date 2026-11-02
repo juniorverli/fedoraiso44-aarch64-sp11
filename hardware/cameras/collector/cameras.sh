@@ -13,6 +13,37 @@ sh_() { echo "### $1"; timeout 25 bash -c "$1" 2>&1; echo; }
 
 echo "== state at uptime $(cut -d' ' -f1 /proc/uptime) s, boot entry $(tr ' ' '\n' </proc/cmdline | grep '^sp11.entry=')"
 
+echo "== 1 media graphs and V4L2 formats (read-only, bounded enumeration)"
+camera_enum_start=$SECONDS
+camera_enum_limit=55
+camera_enum_incomplete=0
+for m in /dev/media*; do
+	[ -e "$m" ] || continue
+	if [ $((SECONDS - camera_enum_start)) -ge "$camera_enum_limit" ]; then
+		echo "INCOMPLETE: 55 s media/format enumeration budget exhausted before $m"
+		camera_enum_incomplete=1
+		break
+	fi
+	echo "### $m graph"
+	timeout 3 media-ctl -d "$m" -p 2>&1
+	[ "$?" -ne 124 ] || { echo "INCOMPLETE: media-ctl timed out for $m"; camera_enum_incomplete=1; }
+done
+echo "### V4L2 devices"
+timeout 3 v4l2-ctl --list-devices 2>&1
+[ "$?" -ne 124 ] || { echo "INCOMPLETE: v4l2-ctl --list-devices timed out"; camera_enum_incomplete=1; }
+for v in /dev/video*; do
+	[ -e "$v" ] || continue
+	if [ $((SECONDS - camera_enum_start)) -ge "$camera_enum_limit" ]; then
+		echo "INCOMPLETE: 55 s media/format enumeration budget exhausted; remaining video nodes were not queried"
+		camera_enum_incomplete=1
+		break
+	fi
+	echo "### $v formats"
+	timeout 2 v4l2-ctl -d "$v" --list-formats-ext 2>&1
+	[ "$?" -ne 124 ] || { echo "INCOMPLETE: format enumeration timed out for $v"; camera_enum_incomplete=1; }
+done
+[ "$camera_enum_incomplete" -eq 0 ] || echo "INCOMPLETE: review timeout markers; media graph or format data may be partial"
+
 echo "== 1 kernel configuration and modules"
 sh_ "zcat /proc/config.gz 2>/dev/null | grep -E '^(# )?CONFIG_(VIDEO_QCOM_CAMSS|I2C_QCOM_CCI|VIDEO_OV13858|VIDEO_IMX681|VIDEO_VD55G1|LEDS_GPIO|V4L2_CCI_I2C|CRC32|DMABUF_HEAPS|DMABUF_HEAPS_SYSTEM|CLK_X1E80100_CAMCC|REGULATOR_QCOM_RPMH)[= ]'"
 sh_ "lsmod | grep -E 'qcom_camss|i2c_qcom_cci|ov13858|imx681|vd55g1|videodev|v4l2_fwnode|v4l2_cci|leds_gpio|camcc'"
@@ -30,10 +61,8 @@ sh_ "for d in /sys/bus/i2c/devices/*; do n=\$(cat \$d/name 2>/dev/null); case \"
 sh_ "ls -l /sys/bus/i2c/drivers/ov13858 /sys/bus/i2c/drivers/imx681 2>&1 | grep -v '^total'"
 sh_ "for d in /sys/bus/platform/devices/ac15000.cci /sys/bus/platform/devices/ac16000.cci /sys/bus/platform/devices/acb7000.isp; do [ -e \$d ] && echo \"\$d driver=\$(basename \$(readlink \$d/driver 2>/dev/null) 2>/dev/null) waiting_for_supplier=\$(cat \$d/waiting_for_supplier 2>/dev/null)\" || echo \"\$d absent\"; done"
 
-echo "== 5 media graph and V4L2 devices (enumeration only)"
+echo "== 5 media subdevices (enumeration only)"
 sh_ "ls -l /dev/media* /dev/video* /dev/v4l-subdev* /dev/dma_heap 2>&1"
-run v4l2-ctl --list-devices
-for m in /dev/media*; do [ -e "$m" ] && run media-ctl -d "$m" -p; done
 sh_ "for sd in /dev/v4l-subdev*; do echo \"-- \$sd: \$(v4l2-ctl -d \$sd --info 2>&1 | grep -E 'Driver name|Card type' | tr '\n' ' ')\"; v4l2-ctl -d \$sd --list-subdev-mbus-codes 0 2>&1 | head -6; done"
 sh_ "for sd in /dev/v4l-subdev*; do n=\$(v4l2-ctl -d \$sd --info 2>&1 | grep 'Card type'); case \"\$n\" in *ov13858*|*imx681*) echo \"-- controls of \$sd\"; v4l2-ctl -d \$sd -l 2>&1 | head -25;; esac; done"
 
