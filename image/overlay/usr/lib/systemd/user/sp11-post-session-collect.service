@@ -1,0 +1,13 @@
+[Unit]
+Description=SP11 post-session audio and camera diagnostics
+After=graphical-session.target pipewire.service wireplumber.service
+PartOf=graphical-session.target
+ConditionUser=!gdm
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/sp11-post-session-collect
+TimeoutStartSec=240
+
+[Install]
+WantedBy=graphical-session.target

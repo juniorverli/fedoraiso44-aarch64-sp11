@@ -222,6 +222,9 @@ mkdir -p "$desc/root/etc/systemd/user/graphical-session-pre.target.wants"
 install -m 0755 "$REPO/image/overlay/usr/libexec/sp11-audio-safety" "$desc/root/usr/libexec/sp11-audio-safety"
 install -m 0644 "$REPO/image/overlay/usr/lib/systemd/user/sp11-audio-safety.service" "$desc/root/usr/lib/systemd/user/sp11-audio-safety.service"
 ln -sf /usr/lib/systemd/user/sp11-audio-safety.service "$desc/root/etc/systemd/user/graphical-session-pre.target.wants/sp11-audio-safety.service"
+mkdir -p "$desc/root/etc/systemd/user/graphical-session.target.wants"
+install -m 0755 "$REPO/image/overlay/usr/libexec/sp11-post-session-collect" "$desc/root/usr/libexec/sp11-post-session-collect"
+ln -sf /usr/lib/systemd/user/sp11-post-session-collect.service "$desc/root/etc/systemd/user/graphical-session.target.wants/sp11-post-session-collect.service"
 # Compile the locked distro dconf database after kiwi has installed dconf,
 # before Fedora's config.sh exits.
 sed -i '$i # SP11 M11: compile the locked GNOME volume policy.\ndconf update' "$desc/config.sh"

@@ -2,6 +2,7 @@
 """Drain /dev/kmsg continuously while a separate thread publishes bounded batches."""
 import collections
 import os
+import re
 import select
 import subprocess
 import sys
@@ -14,10 +15,24 @@ INTERVAL = 10
 pending = collections.deque()
 lock = threading.Condition()
 size = 0
+urgent = False
+
+def is_urgent(data):
+    # /dev/kmsg records begin with syslog priority,sequence,timestamp,flags;
+    # priorities include a facility, so use their low three bits.
+    header, _, message = data.partition(b';')
+    try:
+        severity = int(header.split(b',', 1)[0]) & 7
+    except ValueError:
+        severity = 7
+    return severity <= 3 or bool(re.search(
+        rb'adreno|msm|gmu|arm-smmu|qcom_scm|panic', message, re.I))
 
 def add(data, retry=False):
-    global size
+    global size, urgent
     with lock:
+        if not retry and is_urgent(data):
+            urgent = True
         if retry:
             pending.appendleft(data[-LIMIT:])
             size += len(pending[0])
@@ -26,15 +41,15 @@ def add(data, retry=False):
             size += len(pending[-1])
         while size > LIMIT:
             size -= len(pending.popleft())
-        if size >= BATCH_SIZE:
+        if size >= BATCH_SIZE or urgent:
             lock.notify()
 
 def publish():
-    global size
+    global size, urgent
     while True:
         with lock:
             deadline = time.monotonic() + INTERVAL
-            while size < BATCH_SIZE:
+            while size < BATCH_SIZE and not urgent:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     break
@@ -42,6 +57,7 @@ def publish():
             batch = b''.join(pending)
             pending.clear()
             size = 0
+            urgent = False
         if not batch:
             continue
         try:

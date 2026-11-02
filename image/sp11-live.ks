@@ -124,6 +124,8 @@ glmark2
 drm-utils
 # edid-decode (Fedora ships it inside v4l-utils); qrtr-lookup and qrtr-cfg
 v4l-utils
+alsa-utils
+alsa-ucm-utils
 qrtr
 # Collector and debugging tools (read-only use)
 dtc
@@ -200,6 +202,7 @@ touch /etc/machine-id
 # --- SP11
 chmod 0755 /usr/libexec/sp11-log-collector /usr/libexec/sp11-kmsg-tail
 systemctl enable sp11-log-collector.service sp11-kmsg-tail.service
+systemctl --global enable sp11-post-session-collect.service
 systemctl mask plymouth-start.service plymouth-quit.service plymouth-quit-wait.service \
     plymouth-read-write.service plymouth-switch-root.service plymouth-halt.service \
     plymouth-reboot.service plymouth-poweroff.service plymouth-kexec.service 2>/dev/null || true
