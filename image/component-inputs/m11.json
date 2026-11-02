@@ -17,5 +17,5 @@
   "etc/dconf/db/distro.d/locks/90-sp11-audio-safety": "4e7ac5841797af780f9063f94b1c59ec47a804b81033b294a029245e6f8e98c5",
   "usr/share/wireplumber/wireplumber.conf.d/53-sp11-audio-ceiling.conf": "cdf854c11847ae10e288806bcb2c37d54ea5e11df49beeb69f64ab987170907e"
  },
- "note": "D28 public topology and UCM/audio safety inputs; hashes of files as installed."
+ "note": "D28 public topology and UCM/audio safety inputs; Mic exposes the fixed two-channel DMIC0+DMIC1 array without downmix."
 }

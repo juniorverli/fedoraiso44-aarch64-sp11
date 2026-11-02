@@ -43,6 +43,7 @@ export ALSA_CONFIG_UCM2=$W/ucm2
 alsaucm -c sp11test list _verbs 2>&1 | grep -q 'HiFi' || { echo "FAIL: no HiFi verb for the Surface Pro 11 string"; exit 1; }
 alsaucm -c sp11test list _devices/HiFi 2>&1 | grep -q 'Mic' || { echo "FAIL: no Mic device"; exit 1; }
 alsaucm -c sp11test get CapturePCM/Mic/HiFi 2>&1 | grep -q 'hw:X1E80100Microso,1' || { echo "FAIL: capture PCM is not hw:<card>,1"; exit 1; }
+alsaucm -c sp11test get CaptureChannels/Mic/HiFi 2>&1 | grep -q '2' || { echo "FAIL: Mic UCM does not expose the two-channel DMIC array"; exit 1; }
 if alsaucm -c sp12test list _devices/HiFi 2>&1 | grep -q '^ *[0-9]*: Mic$' && ! alsaucm -c sp12test list _devices/HiFi 2>&1 | grep -q Speaker; then
 	echo "FAIL: the 12in string selected the Mic-only SP11 profile"; exit 1
 fi
