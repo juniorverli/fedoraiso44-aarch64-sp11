@@ -21,3 +21,9 @@ Read-only first: `extra-audio-routes.txt` from the log collector holds the verbs
 12. Bluetooth headset (after pairing, `bluetooth` component): A2DP sink becomes the default; select its input to get HFP mSBC.
 13. Offline, before any boot: `docker run --rm -v <repo>/hardware:/hw:ro registry.fedoraproject.org/fedora:44 sh /hw/audio-mics/userspace/tests/ucm-routes-test.sh`, and `sh hardware/audio-mics/userspace/tests/mic-gain-check.sh`.
 
+
+## M16 safe capture follow-up (2026-11-02)
+
+Use a rebuilt safe entry after image verifies S1 and removes the speaker overlay. First save `cat /proc/cmdline`, `sha256sum /usr/share/alsa/ucm2/Qualcomm/x1e80100/{MICROSOFT-Surface-Pro-11.conf,Surface11-HiFi.conf}`, `alsaucm -c hw:0 list _devices/HiFi`, `wpctl status`, `pactl get-default-source`, and the user journal for PipeWire/WirePlumber. Expect Mic and no Speaker on safe. Do not enable speaker output.
+
+Record the actual control state with `amixer -c 0 contents` before and while capture runs. Check the MultiMedia2 VA mixer, both DEC muxes, DMIC muxes, AIF1 DEC switches and DEC gains against the evidence. With the Mic device selected by the session, record a short stereo S16_LE 48 kHz sample using `arecord -D hw:0,1 -f S16_LE -r 48000 -c 2 -d 5 /tmp/sp11-mic.wav`; capture its exit status and new kernel/user journal errors. Inspect both channels for nonzero, speech-correlated samples and test their order with taps. Separately test the selected PipeWire source in GNOME or `pw-record`; record source selection and mute status. If direct ALSA works but PipeWire does not, investigate profile/policy; if both fail, capture DSP errors and DAPM/PCM state during the attempt. No raw sample or private speech need be retained in shared logs.

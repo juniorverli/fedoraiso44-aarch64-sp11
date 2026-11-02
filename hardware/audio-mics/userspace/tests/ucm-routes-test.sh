@@ -5,7 +5,7 @@
 # false), ${CardId} becomes a literal, and every cset becomes an exec that appends "control=value" to a log. The
 # log shows what a real card would get and in which order. Nothing here touches a sound device.
 set -u
-dnf -y -q install alsa-ucm alsa-ucm-utils >/dev/null 2>&1
+dnf -y -q install alsa-ucm alsa-ucm-utils >/dev/null 2>&1 || { echo "FAIL: cannot install ALSA UCM test dependencies"; exit 1; }
 M=/hw/audio-mics/userspace
 SP=/hw/audio-speakers/userspace
 S=$SP/overlay/usr/share/alsa/ucm2/Qualcomm/x1e80100
@@ -70,6 +70,12 @@ eq_ "$(getv $W/b JackControl/HDMI1/HiFi)" "DP1 Jack" "B: HDMI1 jack"
 eq_ "$(getv $W/b PlaybackPriority/HDMI0/HiFi)" "200" "B: HDMI0 priority 200"
 eq_ "$(getv $W/b CapturePCM/Mic/HiFi)" "hw:$CARD,1" "B: Mic PCM hw:card,1"
 echo "-- Mic enable sequence (in order):"; ucm_enable $W/b Mic | tee /tmp/mic-log
+yes_ "^MultiMedia2 Mixer VA_CODEC_DMA_TX_0=1$" /tmp/mic-log "B: capture backend route enabled"
+yes_ "^VA DMIC MUX0=DMIC0$" /tmp/mic-log "B: DMIC0 selected"
+yes_ "^VA DMIC MUX1=DMIC1$" /tmp/mic-log "B: DMIC1 selected"
+yes_ "^VA_AIF1_CAP Mixer DEC0=1$" /tmp/mic-log "B: AIF1 DEC0 enabled"
+yes_ "^VA_AIF1_CAP Mixer DEC1=1$" /tmp/mic-log "B: AIF1 DEC1 enabled"
+no_ 'WSA\|Spkr\|PA Volume\|RX_CODEC\|MultiMedia1' /tmp/mic-log "B: safe Mic activation has no speaker controls"
 eq_ "$(grep 'VA_DEC0 Volume' /tmp/mic-log | tail -1)" "VA_DEC0 Volume=98" "B: last VA_DEC0 Volume is 98 (+14 dB)"
 eq_ "$(grep 'VA_DEC1 Volume' /tmp/mic-log | tail -1)" "VA_DEC1 Volume=98" "B: last VA_DEC1 Volume is 98 (+14 dB)"
 yes_ "^VA_DEC0 Volume=100$" /tmp/mic-log "B: base profile still writes 100 first (our 98 overrides it)"
@@ -85,6 +91,7 @@ yes_ 'Speaker' /tmp/dev-c "C: Speaker still offered in the speaker entry"
 yes_ ' Mic$' /tmp/dev-c "C: Mic offered"
 yes_ 'HDMI0' /tmp/dev-c "C: HDMI0 offered"
 ucm_enable $W/c Mic > /tmp/mic-c; echo "-- C Mic log:"; cat /tmp/mic-c
+yes_ "^WSA_CODEC_DMA_RX_0 Audio Mixer MultiMedia1=1$" /tmp/mic-c "C: speaker verb also activates WSA on Mic selection"
 eq_ "$(grep 'VA_DEC0 Volume' /tmp/mic-c | tail -1)" "VA_DEC0 Volume=98" "C: Mic gain 98"
 
 if [ "$fail" = 0 ]; then echo "ALL PASS"; else echo "FAILURES"; exit 1; fi

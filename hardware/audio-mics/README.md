@@ -2,7 +2,7 @@
 
 ## 1. Summary
 
-The built-in microphone array, digital microphones on the LPASS VA macro, captured through the ADSP. Linux 7.3 describes `VA DMIC0` and `DMIC1`; whether that matches this unit is unconfirmed. Status: `designed` (2026-10-30): stage A DT variant, topology and UCM prepared by the audio-speakers worker (patch 0003, `hardware/audio-speakers/userspace/`); not built or run. Capture needs the ADSP audio framework to answer first (SPF timeout, `hardware/audio-speakers/evidence/2026-10-30-audio-plan.md` section 2).
+The built-in microphone array, digital microphones on the LPASS VA macro, captured through the ADSP. Linux 7.3 describes `VA DMIC0` and `DMIC1`; whether that matches this unit is unconfirmed. Status: `testing` (2026-11-02): M16 safe exposes a capture PCM and UCM Mic but the operator reports no working microphone; the cause remains unverified. See `evidence/2026-11-02-m16-safe-capture.md`.
 
 ## 2. Hardware
 
@@ -64,8 +64,12 @@ The built-in microphone array, digital microphones on the LPASS VA macro, captur
 - kernel (DT): DisplayPort audio needs `dp0-dai-link` and `dp1-dai-link` in a DTB variant (shape in the evidence, I2; upstream `hamoa-iot-evk.dts:628-658`), and the DTB safety exception must allow DP links with no WSA link. Without them the DP UCM devices stay hidden by design. Optional: a kernel cap of `VA_DEC0/1 Volume` at 108 (+24 dB, the Windows maximum).
 - orchestrator: this component is not subject to S1 if the card has no WSA link and `swr0` stays off (check `kernel-dtb-safety.py` change requested in the speakers dossier).
 
+- **image (2026-11-02):** stop copying the D26 speaker UCM profile on `safe`; retain the microphone-only base profile and route layer there. Ensure the safe DT/boot path also satisfies S1 with no WSA speaker output; check both runtime hashes and the absence of the Speaker UCM device, and preserve the authorized speaker entry separately. The safe snapshot currently has the speaker overlay installed and WSA playback errors. Arrange the capture retest in the evidence; do not interpret the overlay as the proven cause of silence. Fix the collector `amixer` calls to select card 0 explicitly and capture the logged-in user audio graph after login.
+
 ## 9. Log
 
 - 2026-10-23: dossier created from the static survey.
 - 2026-10-30: stage A plan and test plan; status `designed`. Facts in `evidence/2026-10-30-mics-plan.md`.
 - 2026-10-31: audio routes beyond the speakers (`evidence/2026-10-31-audio-routes.md`): UCM route layer with USB-C DisplayPort devices (gated on the `DPn Jack` controls, which need DT links that the DTBs lack), capture gain default +14 dB (VA_DECn Volume 98, cap 108), WirePlumber selection priorities, dconf, read-only collector, offline tests (25 UCM checks, gain derivation, shellcheck). Speakers untouched (S1/D26).
+
+- 2026-11-02: M16 safe UCM and mixer snapshot reviewed; speaker overlay confirmed active on safe, Mic and capture route present, root cause of reported silence still unproven; requested safe-profile isolation and a targeted device retest.
