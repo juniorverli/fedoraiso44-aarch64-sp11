@@ -111,6 +111,9 @@ def check(root, repo, record):
         subprocess.run(['bash', '-n', str(root / rel)], check=True)
     for rel in ('etc/sp11-log-collector.d/cameras.sh', 'etc/sp11-log-collector.d/spectra.sh'):
         subprocess.run(['bash', '-n', str(root / rel)], check=True)
+    assert (root / 'etc/sp11-log-collector.d/cameras.sh').stat().st_mode & 0o111, 'camera collector not executable'
+    collector_text = (root / 'usr/libexec/sp11-log-collector').read_text()
+    assert 'local d=/etc/sp11-log-collector.d/cameras.sh' in collector_text and '\tcamera_snapshot\n\t# fast cadence' in collector_text, 'camera collector not registered'
     code = '\n'.join(l for l in (root / 'etc/sp11-log-collector.d/cameras.sh').read_text().splitlines() if not l.lstrip().startswith('#'))
     assert 'i2cdetect' not in code, 'camera collector runs i2cdetect'
     for u in ('sp11-log-collector.service',):

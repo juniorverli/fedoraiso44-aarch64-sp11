@@ -194,10 +194,11 @@ cp -a "$REPO/hardware/audio-speakers/userspace/overlay/." "$desc/root/"
 # (2) audio: UCM route layer (DisplayPort HDMI0/HDMI1, SP11-Audio, capture gain step 98 capped at 108), WirePlumber priorities, dconf, audio-routes collector.
 cp -a "$REPO/hardware/audio-mics/userspace/overlay-audio-routes/." "$desc/root/"
 # (3) cameras: the owner collectors (the image drop-in is the owner file), the Spectra collector, and the Spectra test loader (marker sp11/spectra-load)
-install -m 0644 "$REPO/hardware/cameras/collector/cameras.sh" "$desc/root/etc/sp11-log-collector.d/cameras.sh"
+install -m 0755 "$REPO/hardware/cameras/collector/cameras.sh" "$desc/root/etc/sp11-log-collector.d/cameras.sh"
 install -m 0644 "$REPO/hardware/cameras/spectra/collector/spectra.sh" "$desc/root/etc/sp11-log-collector.d/spectra.sh"
 chmod 0755 "$desc/root/usr/libexec/sp11/spectra-load"
 mkdir -p "$desc/root/etc/systemd/system/multi-user.target.wants"
+ln -sf /usr/lib/systemd/system/sp11-gpu-no-runtime-pm.service "$desc/root/etc/systemd/system/multi-user.target.wants/sp11-gpu-no-runtime-pm.service"
 ln -sf /usr/lib/systemd/system/sp11-spectra-load.service "$desc/root/etc/systemd/system/multi-user.target.wants/sp11-spectra-load.service"
 # (4) volume buttons: the on-demand collector of the ec-sam owner (never run automatically)
 install -D -m 0755 "$REPO/hardware/ec-sam/tools/collect-volume-buttons.sh" "$desc/root/usr/libexec/sp11/ec-sam/collect-volume-buttons.sh"

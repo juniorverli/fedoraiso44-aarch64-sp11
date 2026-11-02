@@ -24,3 +24,4 @@ enable sp11-suspend-diag.service
 enable sp11-thermal-sample.service
 enable sp11-spectra-load.service
 enable sp11-kmsg-tail.service
+enable sp11-gpu-no-runtime-pm.service

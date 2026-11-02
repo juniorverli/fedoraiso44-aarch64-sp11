@@ -159,6 +159,15 @@ def check(root, repo, record):
     on = (root / 'usr/libexec/sp11/operator-notice').read_text()
     for needle in ('notify-send', 'logger -t sp11-notice', '/usr/share/sp11/operator-notice.txt', 'motd.d'):
         assert needle in on, f'operator-notice lacks {needle}'
+    gpu_unit = (root / 'usr/lib/systemd/system/sp11-gpu-no-runtime-pm.service').read_text()
+    for needle in ('ConditionKernelCommandLine=sp11.entry=debug', 'Before=display-manager.service gdm.service graphical.target', 'TimeoutStartSec=35s'):
+        assert needle in gpu_unit, f'GPU runtime PM diagnostic lacks {needle}'
+    gpu_helper = root / 'usr/libexec/sp11-gpu-no-runtime-pm'
+    assert gpu_helper.stat().st_mode & 0o111, 'GPU runtime PM helper not executable'
+    assert gpu_helper.read_bytes() == (repo / 'image/overlay/usr/libexec/sp11-gpu-no-runtime-pm').read_bytes()
+    assert (root / 'etc/systemd/system/multi-user.target.wants/sp11-gpu-no-runtime-pm.service').is_symlink(), 'GPU diagnostic not enabled'
+    assert 'enable sp11-gpu-no-runtime-pm.service' in (root / 'usr/lib/systemd/system-preset/80-sp11.preset').read_text()
+    subprocess.run(['bash', '-n', str(gpu_helper)], check=True)
     # collectors: image-owned drop-ins byte-identical to the repository, owner collectors unchanged
     dropins = root / 'etc/sp11-log-collector.d'
     assert (dropins / 'cameras.sh').read_bytes() == (repo / 'hardware/cameras/collector/cameras.sh').read_bytes(), 'cameras.sh is not the owner file'
@@ -179,6 +188,9 @@ def check(root, repo, record):
     usb = (dropins / 'usb-typec.sh').read_text()
     for needle in ('portli', 'dynamic_debug/control', '/proc/cmdline', 'usb-pd-partner.txt', 'number_of_alternate_modes', 'systemctl is-active --quiet upower.service'):
         assert needle in usb, f'usb-typec drop-in lacks {needle}'
+    assert (dropins / 'cameras.sh').stat().st_mode & 0o111, 'camera drop-in is not executable'
+    collector_text = (root / 'usr/libexec/sp11-log-collector').read_text()
+    assert 'local d=/etc/sp11-log-collector.d/cameras.sh' in collector_text and '\tcamera_snapshot\n\t# fast cadence' in collector_text, 'camera drop-in not registered'
     cam = (dropins / 'cameras.sh').read_text()
     assert 'i2cdetect' not in ''.join(l for l in cam.splitlines() if not l.lstrip().startswith('#')), 'camera drop-in runs i2cdetect'
     for needle in ('media-ctl', 'regulator_summary', 'ov13858'):

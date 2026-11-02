@@ -393,6 +393,17 @@ wifi_unblock_enabled() {
 	case " $(cat /proc/cmdline) " in *" sp11.wifi_unblock=1 "*) return 0 ;; *) return 1 ;; esac
 }
 
+# Capture and publish camera evidence before the longer full snapshot. Even if the
+# bounded collector is interrupted, the published marker records that it started.
+camera_snapshot() {
+	local d=/etc/sp11-log-collector.d/cameras.sh
+	[ -x "$d" ] || { say "camera drop-in missing or not executable: $d"; return; }
+	printf 'Camera collection started; output may be incomplete if boot ends early.\n' >"$OUT/extra-cameras.txt"
+	publish || say "camera marker publication failed"
+	timeout -k 2 90 bash "$d" >>"$OUT/extra-cameras.txt" 2>&1 || say "camera drop-in failed or timed out"
+	publish || say "camera publication failed"
+}
+
 # --------------------------------------------------------------- snapshot ----
 snapshot() {
 	local d
@@ -484,6 +495,7 @@ snapshot() {
 	# --- extension point: drop-in snippets of component workers
 	for d in /etc/sp11-log-collector.d/*.sh; do
 		[ -r "$d" ] || continue
+		[ "$d" = /etc/sp11-log-collector.d/cameras.sh ] && continue # captured early
 		# shellcheck disable=SC1090
 		export -f snap shsnap attrs attrs_impl dump_tree dump_tree_impl debugfs_allowed dbgcat say
 		export OUT WORK CMD_TIMEOUT READ_TIMEOUT FILE_CAP
@@ -690,6 +702,7 @@ case ${1:-run} in
 run)
 	trap 'finish; exit 0' TERM
 	early_snapshot
+	camera_snapshot
 	# fast cadence for the first minutes: a light display snapshot every FAST_INTERVAL s, FAST_COUNT times,
 	# with one full snapshot first (the screen or the machine may die at any moment)
 	do_snapshot
@@ -711,7 +724,7 @@ live-append) mkdir -p "$WORK"; live_publish ;;
 early) early_snapshot ;;
 session) session_snapshot "${2:-session}" ;;
 final) finish ;;
-once) do_snapshot ;;
+once) mkdir -p "$OUT"; camera_snapshot; do_snapshot ;;
 *)
 	echo "usage: $0 run|early|session REASON|final|once" >&2
 	exit 2
