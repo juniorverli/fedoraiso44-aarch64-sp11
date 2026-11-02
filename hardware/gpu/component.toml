@@ -13,7 +13,7 @@ packages = ["qcdx8380", "surface_dxext_8380"]
 drivers = ["drm/msm/adreno (a6xx_catalog.c, ADRENO_7XX_GEN2)", "clk/qcom/gpucc-x1e80100", "Mesa freedreno (GL) and Turnip (Vulkan)"]
 dt = ["hamoa.dtsi gpu (qcom,adreno-43050c01)", "x1-microsoft-denali.dtsi &gpu, &gpu_zap_shader"]
 native = "full"
-gaps = ["Physical speed-bin fuse and independent cross-check pending (expected 7, 1.25 GHz; no patch indicated)", "Microsoft zap shader must be shipped; PAS authentication untested", "Pin confirmed Fedora qcom-firmware 20261019-1.fc44 and Mesa 26.2.5-1.fc44 in the compose", "GPU cooling policy and rendering/IFPC device acceptance pending", "M15 debug boot: early DRM open hits omitted initramfs firmware at 5.197s; two-step state stops at STEP0_END without STEP1_BEGIN, root cause unknown; image ordering and bounded hook follow-up required"]
+gaps = ["Physical speed-bin fuse and independent cross-check pending (expected 7, 1.25 GHz; no patch indicated)", "Microsoft zap shader must be shipped; PAS authentication untested", "Pin confirmed Fedora qcom-firmware 20261019-1.fc44 and Mesa 26.2.5-1.fc44 in the compose", "GPU cooling policy and rendering/IFPC device acceptance pending", "M15 debug boot: early DRM open hits omitted initramfs firmware at 5.197s; two-step state stops at STEP0_END without STEP1_BEGIN, root cause unknown; image ordering and bounded hook follow-up required", "M16 fbdev damage vblank timeouts and earlier DIE: root causes unknown; isolate in-kernel DRM client and collect full oops and DPU state"]
 
 [firmware]
 needs = ["qcom/x1e80100/microsoft/qcdxkmsuc8380.mbn", "qcom/gen70500_sqe.fw", "qcom/gen70500_gmu.bin"]
