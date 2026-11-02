@@ -10,7 +10,6 @@ enable sp11-rfkill-events.service
 enable sp11-bt-address.service
 enable sp11-ssam-shutdown.service
 enable sp11-ssam-rebind.service
-enable sp11-speaker-ucm.service
 # M15: the GPU two-step is enabled; it runs only when sp11.gpu_diag=1 is manually supplied.
 enable sp11-gpu-two-step.service
 enable sp11-sam-mode-rotor.service

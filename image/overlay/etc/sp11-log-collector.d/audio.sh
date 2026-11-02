@@ -20,9 +20,8 @@ echo
 echo "## amixer -c 0 contents (read only; D26 first test: PA Volume max 6, PA 0, DAC/COMP switches off)"
 timeout 10 amixer -c 0 contents 2>&1 | head -n 400
 echo
-echo "## UCM files in effect (hashes only; the speaker overlay replaces them only in the spk entry)"
+echo "## D28 UCM files in effect (hashes only)"
 ( cd /usr/share/alsa/ucm2/Qualcomm/x1e80100 2>/dev/null && sha256sum MICROSOFT-Surface-Pro-11.conf Surface11-*.conf 2>&1 )
-echo "speaker overlay marker: $(ls /run/sp11-speaker-ucm 2>&1 | head -n 1)"
 echo
 echo "## UCM lookup (M14, audio-mics evidence 2026-10-31-m13-mic.md): the card must now list the HiFi verb; list only, nothing is set"
 timeout 8 alsaucm -c hw:0 list _verbs 2>&1 | head -n 10
