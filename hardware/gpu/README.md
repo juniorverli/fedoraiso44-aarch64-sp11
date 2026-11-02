@@ -2,7 +2,7 @@
 
 ## 1. Summary
 
-The X1P64100's Adreno X1-85 (chip ID `0x43050c01`, "C512v2") has native Linux 7.3 support, and the captured Windows configuration selects a 1.25 GHz graphics ceiling. Status: `designed`; the revision-15 debug boot reset after GPU initialization and a later successful render-node open, with the cause unresolved. A GPU-disabled debug default is requested; see [M16 reset evidence](evidence/2026-11-02-m16-gpu-reset.md).
+The X1P64100's Adreno X1-85 (chip ID `0x43050c01`, "C512v2") has native Linux 7.3 support, and the captured Windows configuration selects a 1.25 GHz graphics ceiling. Status: `designed`; the revision-15 debug boot reset after GPU initialization and a later successful render-node open, with the cause unresolved. Safe is the default; both GPU two-step and CDSP restart experiments are opt-in. The next comparison is the clean GPU-on debug test in [test-plan.md](test-plan.md); see [reference comparison](evidence/2026-11-02-reference-comparison.md).
 
 ## 2. Hardware
 
@@ -44,7 +44,7 @@ The X1P64100's Adreno X1-85 (chip ID `0x43050c01`, "C512v2") has native Linux 7.
 | Physical fuse and safe initial GPU enablement | Safe boot measured fuse 7; debug snapshot shows 1.25 GHz ceiling. Independent cross-check and stable GPU initialization remain pending; no behavioral kernel patch justified |
 | Independent cross-check | Orchestrator must reproduce the active config selection, clock table, fuse extraction and OPP arithmetic before using these safety values |
 | Mesa/image pin | Verified available `mesa-{dri,vulkan}-drivers-0:26.2.5-1.fc44.aarch64`; sources/image owners pin the actual compose. No Mesa change indicated |
-| M15 early DRM open and boot-stage failure | Stage-by-stage evidence is missing; use the default-off trace patch and fix the image firmware/hook ordering before a controlled retest |
+| GPU reset with concurrent diagnostics | Cause unresolved; run the clean GPU-on debug entry with both experiments off and independent durable logging, as specified in [test-plan.md](test-plan.md) |
 | Thermal mitigation and device behavior | `power-thermal` establishes equivalent GPU cooling; device tests confirm PAS authentication, rendering and IFPC stability |
 
 ## 6. Open questions
@@ -52,7 +52,7 @@ The X1P64100's Adreno X1-85 (chip ID `0x43050c01`, "C512v2") has native Linux 7.
 | # | Question | Grade | What answers it |
 |:--|:--|:--|:--|
 | Q1 | Does this unit select the established 1.25 GHz ceiling? | Verified fuse 7 and sampled 1.25 GHz max; independent cross-check pending | [M16 reset evidence](evidence/2026-11-02-m16-gpu-reset.md); confirm extraction and mapping independently |
-| Q2 | Does the zap shader authenticate and run with PAS 13? | Inference: container/memory fit; runtime TBD | Header-only checks pass statically; [firmware evidence](evidence/2026-10-24-firmware-mesa.md). Device logs and hardware rendering still required |
+| Q2 | Does the zap shader authenticate and remain stable with PAS 13? | Inference: container/memory fit; init completed without reported zap error, exact PAS return and sustained rendering TBD | D29 establishes no firmware gap; [reference comparison](evidence/2026-11-02-reference-comparison.md) compares the PAS path. Capture errors and rendering without treating no message as an explicit PAS return. |
 | Q3 | Which Windows GPU thermal limits need an equivalent Linux binding? | Verified PEP/ACPI association; policy semantics TBD | [QCOM0CF7 hand-off](evidence/2026-10-24-thermal-policy-request.md) to `power-thermal` |
 | Q4 | Is IFPC stable on this firmware? | TBD | 30 min load test; `dmesg` for GMU errors |
 
@@ -67,6 +67,12 @@ On the device, with logs in `evidence/`, following [test-plan.md](test-plan.md).
 5. Identified GPU devfreq `available_frequencies` and `max_freq` never exceed 1250000000 Hz; DRM chip ID is `0x43050c01`, fuse is the expected 7 (Q1). Capture any lower thermal cap without overriding it.
 
 ## 8. Requests
+
+- **image / kernel (2026-11-02, D29; current):** preserve safe as default and offer the existing GPU-on debug entry with neither GPU two-step nor CDSP restart opted in; verify actual boot arguments, guard behavior, DTB, initrd/rootfs firmware placement and hashes, and independent early durable logging on the produced artifact. Capture any available reset reason, pstore, EFI memory map and first complete failure. See [clean test](test-plan.md) and [comparison](evidence/2026-11-02-reference-comparison.md). No build is requested in this worker session.
+- **kernel / sources (2026-11-02):** review why v7.3 removed reference `gpu-prr`, `pld-gmu` and adjacent no-map DT reservations and compare them with the device EFI memory map and `/proc/iomem`; pin the reference package recipe/config and compare the remaining rate-limited `adreno_device.c`, X1 ICC and OPP code. Determine actual reference GMU firmware hash/version and PAS provider path. Do not add memory reservations or GPU patches without evidence and cross-check.
+- **orchestrator:** the 2026-11-02 clean GPU-on debug test supersedes earlier GPU-disabled-only isolation and two-step requests below. Independently cross-check the fuse/clock ceiling and preserve the power-thermal gate before sustained load.
+
+Historical requests below describe prior milestones and do not authorize the two-step, CDSP experiment, retry, or a change to the safe default.
 
 - **image (2026-11-02, supersedes M16 GPU-on default below):** use a GPU-disabled DTB for normal debug and preserve a separate GPU-disabled recovery entry; remove automatic `sp11.gpu_diag=1` from the default. Offer GPU-enabled diagnostics only as an explicit non-default warned entry with no automatic retry. Audit every entry and update menu, payload and policy checks. Removing the two-step alone does not prevent the observed early DRM open. Verify both default/recovery completion and no GPU init markers. See [reset evidence](evidence/2026-11-02-m16-gpu-reset.md).
 - **kernel (2026-11-02):** no behavioral GPU patch justified. Preserve existing trace support for later isolated diagnostics; evaluate persistent reset-reason capture and explicit zap/PAS markers only when a controlled GPU-enabled test is authorized. No speculative rail, clock, thermal or zap bypass changes. Verify GPU-disabled DTB prevents early GPU initialization while retaining display.
@@ -96,3 +102,5 @@ On the device, with logs in `evidence/`, following [test-plan.md](test-plan.md).
 - 2026-11-01: traced the M16 fbdev vblank loop and early DRM client; documented the existing active check, teardown safeguards, diagnostic client selection and firmware/guard limitations; no new patch. See [M16 evidence](evidence/2026-11-01-m16-vblank-loop.md).
 
 - 2026-11-02: revision-15 initialized GPU before the diagnostic, later open returned 0 and reset occurred after step-2 sample with CDSP experiment concurrent; cause unresolved. Recorded physical fuse 7, software Vulkan and requested GPU-disabled debug default and separate recovery.
+
+- 2026-11-02: compared reference kernel, package config, compiled M15 and firmware placement; identified differing PAS API, GMU timeout, IOMMU mode and reference no-map reservations without attributing the reset. Prepared the clean GPU-on debug test; no behavioral patch or build.
