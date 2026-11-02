@@ -28,6 +28,17 @@ def check_mic_capture_caps(graph_text):
         'D28 topology Mic capture must be S16_LE/48kHz/min 1/max 2 channels'
 
 
+def check_global_safety(confdir):
+    defaults = []
+    for path in sorted(confdir.glob('*.conf')):
+        text = re.sub(r'(?m)#.*$', '', path.read_text())
+        assert not re.search(r'\bapi\.acp\.max-volume\s*=', text), 'unsupported max-volume property'
+        for block in re.findall(r'wireplumber\.settings\s*=\s*\{([^{}]*)\}', text, re.S):
+            defaults.extend((path.name, float(value)) for value in re.findall(
+                r'device\.routes\.default-sink-volume\s*=\s*([0-9.]+)', block))
+    assert ('51-sp11-audio-safety.conf', 0.05) in defaults, 'expected earlier fallback missing'
+    assert defaults[-1:] == [('55-sp11-global-safety.conf', 0.0)], 'global sink default must end at 0.0; 0.05 must not win'
+
 def check(root, repo, record, release):
     pin = json.loads((repo / 'image/component-inputs/m28.json').read_text())
     assert pin == record['m28_inputs'], 'D28 input record differs'
@@ -45,6 +56,11 @@ def check(root, repo, record, release):
     for rel, want in pin['installed_files'].items():
         assert digest(root / rel) == want, rel
     ucm = root / 'usr/share/alsa/ucm2/Qualcomm/x1e80100'
+    canonical = repo / 'image/component-inputs/d28/audio'
+    other_copy = repo / 'hardware/audio-speakers/userspace/overlay-d28/usr/share/alsa/ucm2/Qualcomm/x1e80100'
+    if other_copy.exists():
+        for path in other_copy.glob('*.conf'):
+            assert (canonical / path.name).read_bytes() == path.read_bytes(), f'stale audio owner UCM copy: {path.name}'
     model = (ucm / 'MICROSOFT-Surface-Pro-11.conf').read_text()
     hifi = (ucm / 'Surface11-HiFi.conf').read_text()
     assert 'SectionDevice."Speaker"' in hifi and 'SectionDevice."Mic"' in hifi, 'Speaker/Mic routes'
@@ -100,12 +116,16 @@ def check(root, repo, record, release):
     volume = 'wpctl set-volume "$id" 100%'
     assert safety.stat().st_mode & 0o111 and mute in safety_text and volume in safety_text and '--limit' not in safety_text
     assert safety_text.index(mute) < safety_text.index(volume), 'mute must precede volume'
-    assert 'seq 1 300' in safety.read_text() and 'exit 1' in safety.read_text(), 'startup wait must be bounded and fail visibly'
-    ceiling = root / 'usr/share/wireplumber/wireplumber.conf.d/53-sp11-audio-ceiling.conf'
-    ceiling_text = ceiling.read_text()
-    assert not re.search(r'^\s*api\.acp\.max-volume\s*=', ceiling_text, re.M), 'unsupported max-volume property'
+    assert all(token in safety_text for token in ('pw-dump', 'wpctl inspect @DEFAULT_AUDIO_SINK@',
+               'wpctl get-volume "$id"', 'sp11.audio_first_test=1', 'wpctl set-volume "$id" 5%',
+               'seq 1 300', 'exit 1')), 'sink discovery, mute readback or first-test policy missing'
+    subprocess.run([sys.executable, '-I', str(repo / 'image/tools/audio-safety-selftest.py'), str(safety)],
+                   check=True, capture_output=True)
+    confdir = root / 'usr/share/wireplumber/wireplumber.conf.d'
+    ceiling_text = (confdir / '53-sp11-audio-ceiling.conf').read_text()
     assert 'api.acp.disable-pro-audio = true' in ceiling_text
     assert 'device.routes.default-sink-volume = 0.0' in ceiling_text, 'fresh sink default must be 0.0'
+    check_global_safety(confdir)
     unit = root / 'usr/lib/systemd/user/sp11-audio-safety.service'
     assert 'Before=graphical-session.target' in unit.read_text() and 'Type=oneshot' in unit.read_text()
     user_wants = root / 'etc/systemd/user/graphical-session-pre.target.wants/sp11-audio-safety.service'

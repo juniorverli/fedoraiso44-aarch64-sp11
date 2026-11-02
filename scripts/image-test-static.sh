@@ -887,7 +887,8 @@ if [ -x "$postscript" ] && bash -n "$postscript" &&
    python3 -I "$REPO/image/tools/kmsg-urgent-selftest.py" "$ROOT/usr/libexec/sp11-kmsg-tail" >"$W/kmsg-urgent-fixture.txt" 2>&1 &&
    python3 -I "$REPO/image/tools/gpu-pm-selftest.py" "$ROOT" >"$W/gpu-pm-fixture.txt" 2>&1 &&
    python3 -I "$REPO/image/tools/collector-regression-test.py" "$ROOT/usr/libexec/sp11-log-collector" >"$W/collector-regression.txt" 2>&1 &&
-   python3 -I "$REPO/image/tools/post-session-selftest.py" "$postscript" >"$W/post-session-fixture.txt" 2>&1; then
+   python3 -I "$REPO/image/tools/post-session-selftest.py" "$postscript" >"$W/post-session-fixture.txt" 2>&1 &&
+   python3 -I "$REPO/image/tools/audio-global-safety-selftest.py" "$REPO" >"$W/audio-global-fixture.txt" 2>&1; then
     pass 8.47 "post-session collection, pstore paths, urgent kmsg and GPU control fixtures passed"
 else fail 8.47 "post-session collection, pstore, urgent kmsg or GPU control fixture failed"; fi
 svc=$ROOT/usr/lib/systemd/system/sp11-log-collector.service
@@ -1109,7 +1110,7 @@ PY
 		pass 8.32 "S5 fixtures: libinput exports only names; addresses/serial fields masked in new captures"
 	else fail 8.32 "touch userspace privacy fixtures failed"; fi
 fi
-for t in dmesg journalctl lspci lsusb dtc timeout blkid findmnt mount python3 lsmod rfkill iw ethtool qrtr-lookup upower btmgmt bluetoothctl libinput evtest wpctl amixer arecord alsaucm media-ctl; do
+for t in dmesg journalctl lspci lsusb dtc timeout blkid findmnt mount python3 lsmod rfkill iw ethtool qrtr-lookup upower btmgmt bluetoothctl libinput evtest wpctl pw-dump amixer arecord alsaucm media-ctl; do
 	[ -x "$ROOT/usr/bin/$t" ] || [ -x "$ROOT/usr/sbin/$t" ] || fail 8.5 "collector needs $t, not in the image"
 done
 for t in debug loglevel=8 ignore_loglevel; do grep -q "$t" "$ROOT/etc/default/grub" || fail 8.6 "/etc/default/grub lacks $t"; done
