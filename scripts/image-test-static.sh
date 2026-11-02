@@ -410,7 +410,7 @@ if [ "$builder" = kiwi ]; then
 		if [ -n "$rsha" ]; then [ "$vsha" = "$rsha" ] && pass 3.11 "variant $v SHA-256 equals the kernel worker's JSON record" || fail 3.11 "variant $v SHA-256 differs from the kernel worker's JSON record ($rsha)"; else fail 3.11 "no JSON record of the kernel worker for variant $v in the build record"; fi
 		vr=$OUT/dtb-variants/$kver/qcom/${vf%.dtb}.json
 		if [ -f "$vr" ] && [ "$vsha" = "$(jq -r .sha256 "$vr")" ] &&
-		   [ "$(jq -r .kver "$vr")" = "$kver" ] && { [ "$(jq -r .series_rev "$vr")" = 12 ] || [ "$(jq -r .series_rev "$vr")" = 13 ] || [ "$(jq -r .series_rev "$vr")" = 14 ] || [ "$(jq -r .series_rev "$vr")" = 15 ] || [ "$(jq -r .series_rev "$vr")" = 16 ] || [ "$(jq -r .series_rev "$vr")" = 17 ] || [ "$(jq -r .series_rev "$vr")" = 18 ]; } &&
+		   [ "$(jq -r .kver "$vr")" = "$kver" ] && { [ "$(jq -r .series_rev "$vr")" = 12 ] || [ "$(jq -r .series_rev "$vr")" = 13 ] || [ "$(jq -r .series_rev "$vr")" = 14 ] || [ "$(jq -r .series_rev "$vr")" = 15 ] || [ "$(jq -r .series_rev "$vr")" = 16 ] || [ "$(jq -r .series_rev "$vr")" = 17 ] || [ "$(jq -r .series_rev "$vr")" = 18 ] || [ "$(jq -r .series_rev "$vr")" = 19 ]; } &&
 		   [ "$(jq -r .series_hash_sha256 "$vr")" = "$(jq_ .kernel_patch_series_sha256)" ] &&
 		   jq -e --arg f "$vf.json" --slurpfile source "$vr" '.dtb_variant_records[$f] == $source[0]' "$rec" >/dev/null; then
 			pass 3.14 "variant $v matches published JSON hash/release/series and embedded record"
@@ -445,11 +445,11 @@ if [ "$smoke" = false ]; then
 	ls "$OUT"/rpms/kernel-core-*.rpm >/dev/null 2>&1 && { rpm -qp --qf '%{name}-%{version}-%{release}.%{arch}\n' "$OUT"/rpms/kernel-core-*.rpm | grep -qx "$got_nevra" && pass 4.2 "kernel-core is the RPM of out/rpms" || fail 4.2 "kernel-core is not in out/rpms"; }
 fi
 if [ "$builder" = kiwi ] && [ "$smoke" = false ]; then
-	if { [ "$kver" = 7.3.0-65.sp11.12.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.13.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.14.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.15.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.16.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.17.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.18.fc44.aarch64 ]; } && \
-	   { [ "$got_nevra" = kernel-core-7.3.0-65.sp11.12.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.13.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.14.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.15.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.16.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.17.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.18.fc44.aarch64 ]; } && \
+	if { [ "$kver" = 7.3.0-65.sp11.12.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.13.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.14.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.15.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.16.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.17.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.18.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.19.fc44.aarch64 ]; } && \
+	   { [ "$got_nevra" = kernel-core-7.3.0-65.sp11.12.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.13.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.14.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.15.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.16.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.17.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.18.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.19.fc44.aarch64 ]; } && \
 	   { [ "$(jq_ .milestone)" = M15 ] || [ "$(jq_ .milestone)" = M16 ]; }; then
 		pass 4.9 "M15/M16: required kernel release ($kver) and milestone"
-	else fail 4.9 "M15/M16 requires the revision-12/13/14/15/16/17/18 kernel and milestone (found $kver / $got_nevra)"; fi
+	else fail 4.9 "M15/M16 requires the revision-12/13/14/15/16/17/18/19 kernel and milestone (found $kver / $got_nevra)"; fi
 fi
 cmp -s "$kimg" "$ROOT/lib/modules/$kver/vmlinuz" && pass 4.3 "ISO kernel image equals lib/modules/$kver/vmlinuz" || fail 4.3 "ISO kernel image differs from the package"
 kimg_ver=$(python3 -I - "$kimg" <<'PY'

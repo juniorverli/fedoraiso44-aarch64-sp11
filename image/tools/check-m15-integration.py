@@ -105,6 +105,7 @@ def check(root, repo, record):
     for rel, want in {**pins['collectors'], **pins['image_files']}.items():
         f = root / rel
         assert f.is_file() and digest(f) == want, f'{rel} differs from its pin'
+    assert (root / 'etc/sp11-log-collector.d/cameras.sh').read_bytes() == (repo / 'hardware/cameras/collector/cameras.sh').read_bytes(), 'camera collector differs from repository source'
     for rel in ('usr/libexec/sp11/ec-sam/collect-volume-buttons.sh', 'usr/libexec/sp11/spectra-load'):
         assert (root / rel).stat().st_mode & 0o111, f'{rel} not executable'
         subprocess.run(['bash', '-n', str(root / rel)], check=True)
