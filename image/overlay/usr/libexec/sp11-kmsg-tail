@@ -9,8 +9,10 @@ import threading
 import time
 
 LIMIT = 2 * 1024 * 1024
+BATCH_SIZE = 256 * 1024
+INTERVAL = 10
 pending = collections.deque()
-lock = threading.Lock()
+lock = threading.Condition()
 size = 0
 
 def add(data, retry=False):
@@ -24,12 +26,19 @@ def add(data, retry=False):
             size += len(pending[-1])
         while size > LIMIT:
             size -= len(pending.popleft())
+        if size >= BATCH_SIZE:
+            lock.notify()
 
 def publish():
     global size
     while True:
-        time.sleep(1)
         with lock:
+            deadline = time.monotonic() + INTERVAL
+            while size < BATCH_SIZE:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                lock.wait(remaining)
             batch = b''.join(pending)
             pending.clear()
             size = 0
@@ -41,9 +50,11 @@ def publish():
             if result.returncode:
                 print("sp11-kmsg-tail: publish failed; retrying", file=sys.stderr, flush=True)
                 add(batch, retry=True)
+                time.sleep(INTERVAL)
         except (OSError, subprocess.TimeoutExpired) as exc:
             print('sp11-kmsg-tail: publish failed:', exc, file=sys.stderr, flush=True)
             add(batch, retry=True)
+            time.sleep(INTERVAL)
 
 threading.Thread(target=publish, daemon=True).start()
 fd = os.open('/dev/kmsg', os.O_RDONLY | os.O_NONBLOCK)

@@ -1,5 +1,6 @@
 [Unit]
 Description=SP11 persistent kernel message tail
+ConditionKernelCommandLine=sp11.entry=debug
 DefaultDependencies=no
 After=local-fs.target systemd-udevd.service
 Wants=systemd-udevd.service
