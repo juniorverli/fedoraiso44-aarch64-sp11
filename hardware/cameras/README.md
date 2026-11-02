@@ -2,7 +2,7 @@
 
 ## 1. Summary
 
-Three cameras behind the Qualcomm CAMSS/Spectra ISP: front Sony IMX681 (Windows Hello RGB), rear OmniVision OV13858, IR STMicro VD55G0 with an IR illuminator, plus flash and privacy LED. Linux 7.3 has CAMSS support for this SoC and an OV13858 driver; this series adds camera DT and an IMX681 driver. Status: `testing` (rev19 safe boot reports both RGB sensors, but the media graph and usable capture have not been verified).
+Three cameras behind the Qualcomm CAMSS/Spectra ISP: front Sony IMX681 (Windows Hello RGB), rear OmniVision OV13858, IR STMicro VD55G0 with an IR illuminator, plus flash and privacy LED. Linux 7.3 has CAMSS support for this SoC and an OV13858 driver; this series adds camera DT and an IMX681 driver. Status: `testing` (rev19 safe boot reports both RGB sensor links, but stream-on oopsed and usable capture remains unverified).
 
 ## 2. Hardware
 
@@ -77,7 +77,7 @@ Why CAMSS cannot do the RGB stage on this SoC (Verified, 2026-10-24):
 - Driver: `media/i2c/vd55g1`
 - Driver: `userspace: libcamera SoftISP`
 - Nothing in the DT of v7.3; the series adds disabled `cci0`, `cci1`, `camss`, the pm8010 regulators, the rear sensor and the camera indicator LED (`patches/0001`-`0005`).
-- Native coverage: **partial** (rear: designed, untested; front and IR: blocked).
+- Native coverage: **partial** (both RGB sensors bind; streaming remains unverified; IR excluded).
 - Reference and review: `evidence/2026-10-30-camera-driver-reference.md` (Qualcomm camera-kernel cross-check, upstream coverage, review of the untrusted Sol patches).
 - Native Spectra stack (downstream camera-kernel, own UAPI, CamX userspace, signed ICP firmware) is not usable on Linux; the path is upstream CAMSS plus libcamera Software ISP.
 
@@ -87,15 +87,15 @@ The current graded upstream and Windows comparison is in [2026-11-02 upstream ga
 
 | Gap | Planned answer |
 |:--|:--|
-| no CAMSS/CCI node in hamoa.dtsi | Patch 0003 (disabled nodes, `CHECK_DTBS` clean) |
+| no CAMSS/CCI node in hamoa.dtsi; CSIPHY mapping too short in rev19 | Patch 0003 adds disabled nodes and fixes PHY and full-VFE sizes; corrected DTB compiled, schema validation pending |
 | IMX681 driver | Patch 0016 and private register data bind; C-PHY, modes and image quality remain untested |
 | C-PHY support for the front camera | Patches 0006–0010 implement a legacy-CSIPHY path; compare with the posted standalone PHY API series and validate on device |
 | sensor power/reset/clock wiring from ACPI | Rear: patch 0005 (Windows sequence). Front and IR: after the IMX681 and VD55G0 drivers exist |
-| privacy LED binding/arbitration | Patch 0020 adds shared `led_classdev` user counting in the V4L2 core; GPIO225 LED node remains disabled; exact GPIO-to-camera mapping remains inference pending independent cross-check (see `evidence/2026-11-01-shared-privacy-led.md`) |
+| privacy LED binding/arbitration | V4L2 core already controls the sensor privacy LED on stream; patch 0020 adds shared `led_classdev` user counting. Rev19 DT references the indicator for both sensors, but GPIO-to-camera mapping and visible streaming operation need independent cross-check and device test |
 | RAW Bayer frames need an RGB stage (demosaic, AWB, CCM, gamma) | libcamera Software ISP with per-sensor tuning; Spectra hardware ISP later |
 | VD55G0 has no matching driver | Keep unbound; add support only after model and register map are verified |
 | CCI reset uses an uninitialized master 0 completion when only master 1 is enabled | Patch 0021 initializes every master completion; revision-15 safe boot reaches camera probe, race coverage remains |
-| Unbound IR endpoint likely stalls CAMSS async completion and prevents RGB sensor links | Exclude the IR graph from RGB DTs using `dtb-variants/x1-microsoft-denali-camera-no-ir.dtsi`; device validation pending |
+| Unbound IR endpoint must stay outside RGB graph | Patch 0022 excludes IR; rev19 graph has both RGB sensor links. Keep IR excluded in rev20 |
 | IR illuminator safety (risk S2) | Never described in any DT; stays off |
 
 ## 6. Open questions
@@ -111,11 +111,14 @@ The current graded upstream and Windows comparison is in [2026-11-02 upstream ga
 
 ## 7. Acceptance
 
-1. Rear and front cameras deliver **RGB/YUV** frames (after demosaic) to a libcamera app (`cam`, `qcam`, GNOME Snapshot) with correct colours; RAW-only capture does not count
+1. Front IMX681 first/default and rear OV13858 second in libcamera/portal; both deliver captured **RGB/YUV** frames with correct colours; RAW-only capture does not count
 2. Privacy LED lights whenever any sensor streams
-3. IR stays disabled until S2 is cleared
+3. No camera oops; IR sensor excluded and IR illuminator and flash remain off (S2)
 
 ## 8. Requests
+
+- **R17 (kernel, rev20):** assemble series rev20 using the corrected `patches/0003-arm64-dts-qcom-hamoa-describe-disabled-camera-blocks.patch` (four PHYs at `0x2000`, both full VFEs at `0xf000`), plus camera series and RGB-only IR exclusion. Check all 17 compiled CAMSS resources, effective IR exclusion and `CHECK_DTBS`/schema validation in the integrated DTBs; publish those variants and retain BTF. The standalone v7.3 DTB compiles; normal make was blocked by missing `flex` and schema tooling was unavailable locally. See [register audit](evidence/2026-11-02-csiphy-mapping-oops.md).
+- **R18 (image, rev20):** make IMX681 the first libcamera camera and portal default, OV13858 second; ship the front/rear SoftISP helpers and tuning, and verify actual enumeration, qcam/default portal preview and saved RGB/YUV capture on both, front first. Preserve read-only graph and kernel logs after stream attempts; include visible privacy LED on/off and no-oops checks in the device run. Keep IR excluded and flash/IR illuminator off (S2). See [test plan](test-plan.md).
 
 - **R15 (sources and orchestrator):** pin and review the currently available standalone PHY/CAMSS series and the VD55G0 candidates and follow-ups listed in the [gap evidence](evidence/2026-11-02-upstream-windows-gap.md); complete the listed REA functions with forced catalog language. The REA MCP rejected this worker under approval policy `never`.
 
@@ -137,6 +140,8 @@ The current graded upstream and Windows comparison is in [2026-11-02 upstream ga
 - R11 (orchestrator): independently cross-check camera-to-privacy-LED GPIO mapping before enabling camera DT nodes; patch 0020 intentionally contains no GPIO values.
 
 ## 9. Log
+
+- 2026-11-02: fixed four CSIPHY and two full VFE mapping windows, audited all CAMSS resources, compiled a v7.3 Denali DTB and requested rev20 integration and front-first capture; device streaming and schema validation remain pending.
 
 - 2026-11-02: audited rev19 RGB graph and privacy LED; reciprocal endpoints and local lane numbering permit notifier completion, but runtime graph and indicator wiring remain unverified; see [audit](evidence/2026-11-02-rev19-graph-led-audit.md).
 - 2026-11-02: compared available upstream PHY and VD55G0 proposals with the legacy path, documented Windows inputs and REA targets, and corrected the streaming test; REA approval policy blocked new analysis.
