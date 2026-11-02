@@ -1,13 +1,13 @@
 {
  "note": "M15 inputs of the image layer; hashes of the owner files as installed (image/README.md, M15)",
  "speaker_ucm_overlay": {
-  "MICROSOFT-Surface-Pro-11.conf": "20672b687d2b43853d0b9b88baac3d2ce6c8cac44c840cea09065e4f859ea80f",
-  "Surface11-HiFi.conf": "08fba12baf11be8e67e283df51c96b6f364946638a4175a0402858e5075fe3cb",
-  "Surface11-SpeakerSeq.conf": "bbd0dc058041e780d4d33aa226c3c315eb6edbb7a0c5216238cd4693d9a6df88",
-  "Surface11-WsaInit.conf": "854cbef603b57d3b09fded0f98fa6b27f1907d3050fb466d81e41c78fcde4593"
+  "MICROSOFT-Surface-Pro-11.conf": "3cd05b43f782795d343a6dad0373ef10f95704724e7d57b224172d077f8de38d",
+  "Surface11-HiFi.conf": "5b331ba7b1f92207e4b1dd1001b7967dfd6ec1663cd5ee9f51b051b826151f7d",
+  "Surface11-SpeakerSeq.conf": "052f84e6f74320fc636764f43029bd4d75beb25399a9084be037232c2a03df43",
+  "Surface11-WsaInit.conf": "96e901a666557649edcfa894534579cefd7c613b4cdeae52df9463e33f2e364d"
  },
  "ucm_fix": {
-  "usr/share/alsa/ucm2/Qualcomm/x1e80100/x1e80100.conf": "5868b65891202ea1fe0c25ec7ccdad4813a25dbf53dbd61f4a61dce4997db65f"
+  "usr/share/alsa/ucm2/Qualcomm/x1e80100/x1e80100.conf": "95e36c3b62a24abca9673dbf3239f4c17395cf19a6cdc84c95c6f4b7c303d676"
  },
  "gpu_two_step": {
   "owner_script_sha256": "e705df29564fd6d61add0f08a76ffcab0f21b79b93f69380cfee4bd14e19c6f6",
@@ -93,5 +93,17 @@
    "m15-spectra"
   ],
   "line12": "SP11 debug, Spectra camera test: DTB m15-spectra, the safe arguments plus module_blacklist=camera_x1e80100"
+ },
+ "audio_d28": {
+  "pin": "image/component-inputs/m28.json",
+  "selection": {
+   "public_sound_model": "X1E80100-Microsoft-Surface-Pro-11",
+   "public_topology": "X1E80100-Microsoft-Surface-Pro-11-tplg.bin",
+   "closed_loop_sound_model": "X1E80100-Microsoft-Surface-Pro-11-CL",
+   "closed_loop_topology": "X1E80100-Microsoft-Surface-Pro-11-CL-tplg.bin",
+   "selector": "kernel request_firmware sound-model contract; no early selector service"
+  },
+  "private_closed_loop_file": "out/firmware-private/audio/qcom/x1e80100/X1E80100-Microsoft-Surface-Pro-11-CL-tplg.bin",
+  "fallback": "kernel-owned speaker-off DT variant preserving Mic/DP; required by D28 runtime gate"
  }
 }

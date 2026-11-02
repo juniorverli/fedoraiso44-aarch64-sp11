@@ -35,9 +35,17 @@ if [ "$private" = 1 ]; then
 fi
 work=$OUT/image-work/$id
 isodir=$OUT/iso
+log() { echo "image-build[kiwi]: $*" >&2; }
+if [ "$smoke" = 0 ]; then
+	validation=$OUT/image-inputs/audio/d28-runtime-validation.json
+	[ -s "$validation" ] && jq -e \
+		--arg sha b192044f01e97eabe7f6df9ae0d394086badb3c30124573210bc781093da8c03 \
+		'.source_commit == "993a17dcb672357998a463a73f120064d6c74f4f" and .topology_sha256 == $sha and .device_dmi_match == true and .alsaucm_profile_resolved == true and .initial_mute_confirmed == true and .pipewire_ceiling_enforced == true and .speaker_off_fallback_mic_dp == true and .kernel_d28_guard == true and .closed_loop_fail_closed == true' "$validation" >/dev/null || {
+		log "REFUSED: D28 runtime safety evidence missing/incomplete at $validation (image build remains gated)"; exit 6;
+	}
+fi
 mkdir -p "$work/tmp" "$isodir" "$OUT/kiwi"
 cd "$work"   # /sp11 is a worktree whose .git file points outside the container
-log() { echo "image-build[kiwi]: $*" >&2; }
 # private mode: whatever happens, the staged values and the copies in the work tree are removed
 scrub_private() {
 	rm -rf "$OUT/private-stage"
@@ -89,9 +97,9 @@ if [ "$(rpm --eval "%{lua:print(rpm.vercmp('$newest_vr', '$min'))}")" -le 0 ]; t
 fi
 log "kernel $kver_full (newer than $min, the only kernel NEVRA at the top level of out/rpms)"
 
-# M15/M16 accepts revision-12/13/14/15/16/17 RPMs and all six atomically published DTB/JSON pairs (m15, m15-safe, m15-nosnd, m15-notouch, m15-spk, m15-spectra).
-[ "$kver_full" = 7.3.0-65.sp11.17.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.16.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.15.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.14.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.13.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.12.fc44.aarch64 ] || {
-	log "REFUSED: M15/M16 requires kernel revision 12, 13, 14, 15, 16 or 17 (7.3.0-65.sp11.*.fc44.aarch64), found $kver_full"; exit 6;
+# M15/M16 accepts revision-12/13/14/15/16/17/18 RPMs and all six atomically published DTB/JSON pairs (m15, m15-safe, m15-nosnd, m15-notouch, m15-spk, m15-spectra).
+[ "$kver_full" = 7.3.0-65.sp11.18.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.17.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.16.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.15.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.14.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.13.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.12.fc44.aarch64 ] || {
+	log "REFUSED: M15/M16 requires kernel revision 12 through 18 (7.3.0-65.sp11.*.fc44.aarch64), found $kver_full"; exit 6;
 }
 patch_series_sha=$( . "$REPO/scripts/kernel-common.sh"; kernel_series_hash )
 for v in m15 m15-safe m15-nosnd m15-notouch m15-spk m15-spectra; do
@@ -101,10 +109,21 @@ for v in m15 m15-safe m15-nosnd m15-notouch m15-spk m15-spectra; do
 	}
 	[ "$(sha256sum "$vsrc.dtb" | cut -d' ' -f1)" = "$(jq -r .sha256 "$vsrc.json")" ] &&
 	[ "$(jq -r .kver "$vsrc.json")" = "$kver_full" ] &&
-	{ [ "$(jq -r .series_rev "$vsrc.json")" = 12 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 13 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 14 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 15 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 16 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 17 ]; } &&
+	{ [ "$(jq -r .series_rev "$vsrc.json")" = 12 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 13 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 14 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 15 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 16 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 17 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 18 ]; } &&
 	[ "$(jq -r .series_hash_sha256 "$vsrc.json")" = "$patch_series_sha" ] || {
 		log "REFUSED: $v DTB hash/release/series differs from the kernel worker JSON"; exit 6;
 	}
+	case $v in
+		m15|m15-safe) expected_model=X1E80100-Microsoft-Surface-Pro-11 ;;
+		m15-spk) expected_model=X1E80100-Microsoft-Surface-Pro-11-CL ;;
+		*) expected_model= ;;
+	esac
+	if [ -n "$expected_model" ]; then
+		actual_model=$(fdtget -t s "$vsrc.dtb" /sound model 2>/dev/null || true)
+		[ "$actual_model" = "$expected_model" ] || {
+			log "REFUSED: $v /sound model is '$actual_model', expected '$expected_model' (audio-speakers kernel patch 0022)"; exit 6;
+		}
+	fi
 done
 
 # ---- 1. Fedora's description at the pinned commit
@@ -163,7 +182,7 @@ mkdir -p "$desc/root/usr/libexec/sp11/ec-sam" "$desc/root/etc/systemd/system/sys
 for tool in collect-input-capabilities.sh collect-power.sh ssam-ro.py; do
 	install -m 0755 "$inputs/ec-sam/tools/$tool" "$desc/root/usr/libexec/sp11/ec-sam/$tool"
 done
-# M11: R10 collector snapshot and microphone-only public upstream payloads.
+# M11/D28: collectors and the D28 UCM profiles.
 install -m 0644 "$inputs/ec-sam/collector/ec-sam.sh" "$desc/root/etc/sp11-log-collector.d/ec-sam.sh"
 cp -a "$REPO/hardware/audio-speakers/userspace/overlay/." "$desc/root/"
 # M15 integration of the finished component pieces (each dossier's Requests; pins in image/component-inputs/m15-integration.json, L0 8.44).
@@ -182,26 +201,26 @@ install -m 0644 "$REPO/hardware/sensors/userspace/collector/sensors.sh" "$desc/r
 ln -sf /usr/lib/systemd/system/hexagonrpcd-sensors.service "$desc/root/etc/systemd/system/multi-user.target.wants/hexagonrpcd-sensors.service"
 mkdir -p "$desc/root/etc/systemd/system/sleep.target.wants"
 ln -sf /usr/lib/systemd/system/hexagonrpcd-sensors-sleep.service "$desc/root/etc/systemd/system/sleep.target.wants/hexagonrpcd-sensors-sleep.service"
-# M14: the microphone UCM fix (audio-mics evidence 2026-10-31-m13-mic.md): Fedora's x1e80100.conf plus one DMI branch for the Surface Pro 11,
-# without it alsa-ucm never finds a profile (the long card name is cut at 31 characters). Replaces the file the conf.d link points to.
-cp -a "$REPO/hardware/audio-mics/userspace/overlay-ucm-fix/." "$desc/root/"
+# D28: sound-model firmware names select topology in the kernel at component probe; UCM DMI selection is driver-level.
+install -D -m 0644 "$REPO/image/component-inputs/d28/audio/x1e80100.conf" "$desc/root/usr/share/alsa/ucm2/Qualcomm/x1e80100/x1e80100.conf"
+for f in MICROSOFT-Surface-Pro-11.conf Surface11-HiFi.conf Surface11-SpeakerSeq.conf Surface11-WsaInit.conf; do
+	install -D -m 0644 "$REPO/image/component-inputs/d28/audio/$f" "$desc/root/usr/share/alsa/ucm2/Qualcomm/x1e80100/$f"
+done
+rm -f "$desc/root/usr/share/alsa/ucm2/Qualcomm/x1e80100/SP11-Audio.conf"
 topology=qcom/x1e80100/X1E80100-Microsoft-Surface-Pro-11-tplg.bin
-[ "$(sha256sum "$OUT/image-inputs/audio/$topology" | cut -d' ' -f1)" = b192044f01e97eabe7f6df9ae0d394086badb3c30124573210bc781093da8c03 ] || {
-	log "REFUSED: missing or changed audio-owner topology artefact"; exit 6;
+[ -s "$OUT/image-inputs/audio/$topology" ] || {
+	log "REFUSED: missing public D28 topology artefact (build hardware/audio-speakers/userspace/build-topology.sh)"; exit 6;
 }
 install -D -m 0644 "$OUT/image-inputs/audio/$topology" "$desc/root/usr/lib/firmware/$topology"
+mkdir -p "$desc/root/etc/systemd/user/graphical-session-pre.target.wants"
+install -m 0755 "$REPO/image/overlay/usr/libexec/sp11-audio-safety" "$desc/root/usr/libexec/sp11-audio-safety"
+install -m 0644 "$REPO/image/overlay/usr/lib/systemd/user/sp11-audio-safety.service" "$desc/root/usr/lib/systemd/user/sp11-audio-safety.service"
+ln -sf /usr/lib/systemd/user/sp11-audio-safety.service "$desc/root/etc/systemd/user/graphical-session-pre.target.wants/sp11-audio-safety.service"
 # Compile the locked distro dconf database after kiwi has installed dconf,
 # before Fedora's config.sh exits.
 sed -i '$i # SP11 M11: compile the locked GNOME volume policy.\ndconf update' "$desc/config.sh"
-# M13: the D26 speaker UCM profile is stored OUTSIDE the UCM search path (S1: the microphone-only profile stays in effect everywhere).
-# sp11-speaker-ucm.service copies it over the microphone profile only on the `debug` and `spk` entries.
-spk_src=$REPO/hardware/audio-speakers/userspace/overlay-speakers/usr/share/alsa/ucm2/Qualcomm/x1e80100
-mkdir -p "$desc/root/usr/share/sp11/ucm-speakers/Qualcomm/x1e80100"
-for f in MICROSOFT-Surface-Pro-11.conf Surface11-HiFi.conf Surface11-SpeakerSeq.conf Surface11-WsaInit.conf; do
-	install -m 0644 "$spk_src/$f" "$desc/root/usr/share/sp11/ucm-speakers/Qualcomm/x1e80100/$f"
-done
-mkdir -p "$desc/root/etc/systemd/system/sysinit.target.wants"
-ln -sf /usr/lib/systemd/system/sp11-speaker-ucm.service "$desc/root/etc/systemd/system/sysinit.target.wants/sp11-speaker-ucm.service"
+# D28 uses the single DMI-selected profile on safe and debug. The obsolete entry-time selector is not enabled.
+rm -f "$desc/root/etc/systemd/system/sysinit.target.wants/sp11-speaker-ucm.service"
 # M15: the gpu worker's two-step diagnostic (hardware/gpu/collector) is ENABLED (multi-user.target.wants, preset `enable`) and runs only through the owner
 # unit's ConditionKernelCommandLine=sp11.gpu_diag=1, an operator-supplied argument absent from every menu entry; the image drop-in orders it before
 # gdm. GRUB is static; the markers are plain files on the boot medium (sp11-boot-state). The machine reset of the first DRM open cannot be prevented here.
@@ -273,8 +292,7 @@ if [ "$private" = 1 ]; then
 	[ ! -d "$desc/root/usr/lib/firmware/updates" ] || chown -R 0:0 "$desc/root/usr/lib/firmware/updates"
 	chown 0:0 "$desc/root/etc/NetworkManager/conf.d/90-sp11-wifi-mac.conf" "$desc/root/etc/systemd/network/10-sp11-wifi.link"
 	cp "$ps/private-record.json" "$work/private-record.json"   # hash prefixes only
-	# M14: camera blobs, the alternate CDSP pair (also in the initramfs), the closed-loop speaker files (they replace the public topology of the
-	# same name), the staged sensor configuration and the NPU installer. Verified here with the owners' checks; names and counts only in the log.
+	# M14: camera blobs, the alternate CDSP pair (also in the initramfs), the closed-loop speaker files (kept under a distinct name alongside the public topology), the staged sensor configuration and the NPU installer. Verified here with the owners' checks; names and counts only in the log.
 	python3 -I "$REPO/image/tools/private-m14.py" stage --fp "$OUT/firmware-private" --root "$desc/root" --repo "$REPO" \
 		--record "$work/private-m14-record.json" >"$work/private-m14-stage.txt" 2>&1 || { cat "$work/private-m14-stage.txt" >&2; log "REFUSED: private M14 staging failed"; exit 6; }
 	cat "$work/private-m14-stage.txt" >&2
@@ -516,7 +534,7 @@ record = {
     "diagnostic_args_reason": {"debug": "M15 line 1: m15 DTB (microphones + rear/front/IR camera nodes + GPU/GMU/zap), no automatic GPU two-step (manually add sp11.gpu_diag=1; may reset the machine), USB dynamic debug (usb-typec R-I1), PDR dynamic debug, DSP trace string without power:power_domain_target; nothing variable",
                                "safe": "m15-safe: microphones only, camera and GPU nodes off (the M13/M14-safe content); the always-booting fallback, line 1 arguments except entry marker",
                                "nosnd": "m15-nosnd: sound card off", "notouch": "touch-pen section 8: m15-notouch, touch child disabled",
-                               "spk": "speaker FIRST TEST (D26): m15-spk, speaker UCM overlay, sp11.allow_nominal=1 on this entry only; kill switch sp11.nospk (operator edit)",
+                               "spk": "private-only closed-loop experiment: m15-spk must select the CL sound model; public image omits the CL topology and fails closed; sp11.nospk kill switch",
                                "spectra": "Qualcomm Spectra camera test: m15-spectra DTB, the safe arguments plus module_blacklist=camera_x1e80100 (the kernel then refuses every load of that module); sp11-spectra-load.service loads it only with the marker sp11/spectra-load on the boot medium and without that argument",
                                "usbdbg": "M13 USB + DSP trace (8M buffer) on m15-safe", "nodsp": "qcom_q6v5_pas blacklisted (no early DSP) on m15-safe",
                                "wifi-unblock": "sp11.wifi_unblock=1 on m15-safe", "nomodeset": "nomodeset on m15-safe", "initramfs": "rd.break=pre-mount on m15-safe", "vmtest": "L1 only, no devicetree"},
@@ -528,6 +546,8 @@ record = {
                "gpu_two_step": "enabled; runs only with manually supplied sp11.gpu_diag=1; plain-file markers on the boot medium"},
     "collector_sources": {c: sha256(f"{repo}/hardware/{c}/collector/{c}.sh") for c in ("dsp-subsystems", "wifi")},
     "m15_inputs": json.load(open(f"{repo}/image/component-inputs/m15.json")),
+    "m28_inputs": json.load(open(f"{repo}/image/component-inputs/m28.json")),
+    "d28_runtime_validation": json.load(open(f"{out}/image-inputs/audio/d28-runtime-validation.json")) if os.path.isfile(f"{out}/image-inputs/audio/d28-runtime-validation.json") else None,
     "m15_integration": json.load(open(f"{repo}/image/component-inputs/m15-integration.json")),
     "libcamera_source": read(f"{work}/libcamera-source.txt").strip(),
     "local_rpm_sha256": {os.path.basename(f): sha256(f) for f in sorted(__import__("glob").glob(f"{out}/repo/*.rpm")) if not os.path.basename(f).startswith("kernel")},

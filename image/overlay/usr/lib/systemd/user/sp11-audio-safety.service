@@ -1,0 +1,12 @@
+[Unit]
+Description=SP11 initial mute and speaker software ceiling (D28)
+After=pipewire.service wireplumber.service
+Before=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/sp11-audio-safety
+
+[Install]
+WantedBy=graphical-session-pre.target

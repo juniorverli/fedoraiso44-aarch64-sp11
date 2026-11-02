@@ -66,8 +66,8 @@ menuentry 'SP11 debug, touch off' --id sp11-notouch --class fedora --class gnu-l
 	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m15-notouch.dtb
 	initrd ($$root)${bootpath}/${initrd_file}
 }
-menuentry 'SP11 debug, speakers (gated)' --id sp11-spk --class fedora --class gnu-linux --class gnu --class os {
-	# Speaker FIRST-TEST entry (D26, hardware/audio-speakers/evidence/2026-10-31-topology-rfc.md section 6/7): m15-spk, speaker UCM overlay,
+menuentry 'SP11 debug, speakers (closed-loop experiment; private)' --id sp11-spk --class fedora --class gnu-linux --class gnu --class os {
+	# Closed-loop experiment only: m15-spk must select the CL sound model. Public images have no CL file and must fail closed.
 	# sp11.allow_nominal=1 here and nowhere else. Kill switch: press e and add `sp11.nospk` to the linux line, or power off.
 	echo 'SP11 speaker FIRST TEST: minimum volume, tones of at most 2 s, 3 min of silence between tones, at most 10 tones, any fault ends the session (power off).'
 	echo 'Unproven: ADSP cross-graph control link and capture graph with an unconnected input. If either fails the guard stays closed and the speakers stay muted.'

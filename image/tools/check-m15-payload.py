@@ -16,30 +16,24 @@ def check(root, repo, record):
     digest = lambda p: hashlib.sha256(Path(p).read_bytes()).hexdigest()
     pins = json.loads((repo / 'image/component-inputs/m15.json').read_text())
     assert pins == record['m15_inputs'], 'M15 input record differs from the build record'
-    ucm_store = root / 'usr/share/sp11/ucm-speakers/Qualcomm/x1e80100'
     ucm_live = root / 'usr/share/alsa/ucm2/Qualcomm/x1e80100'
     for name, want in pins['speaker_ucm_overlay'].items():
-        assert digest(ucm_store / name) == want, f'stored speaker UCM {name}'
-    for name in ('Surface11-SpeakerSeq.conf', 'Surface11-WsaInit.conf'):
-        assert not (ucm_live / name).exists(), f'speaker UCM {name} active in the default path (S1)'
-    assert digest(ucm_live / 'Surface11-HiFi.conf') != pins['speaker_ucm_overlay']['Surface11-HiFi.conf'], 'speaker HiFi profile is active by default'
-    assert digest(ucm_live / 'MICROSOFT-Surface-Pro-11.conf') != pins['speaker_ucm_overlay']['MICROSOFT-Surface-Pro-11.conf'], 'speaker card profile is active by default'
-    # microphone UCM fix: the driver file with the Surface Pro 11 branch, nothing else added
+        assert digest(ucm_live / name) == want, f'active D28 UCM {name}'
+    # D28: speaker and microphone routes are active on both safe/debug by sound-model selection.
     for rel, want in pins['ucm_fix'].items():
         assert digest(root / rel) == want, f'UCM fix {rel}'
     fix = (ucm_live / 'x1e80100.conf').read_text()
-    assert 'If.SURFACEPro11' in fix and fix.count('MICROSOFT-Surface-Pro-11.conf') == 1, 'UCM fix lacks the Surface Pro 11 branch'
-    assert not re.search(r'Surface11-(SpeakerSeq|WsaInit)', fix), 'UCM driver file names a speaker sequence'
-    unit = root / 'usr/lib/systemd/system/sp11-speaker-ucm.service'
-    assert unit.read_bytes() == (repo / 'image/overlay/usr/lib/systemd/system/sp11-speaker-ucm.service').read_bytes(), 'speaker UCM unit'
-    # Only debug and spk may install the overlay (the | makes the conditions OR).
-    unit_text = unit.read_text()
-    assert re.findall(r'^ConditionKernelCommandLine=(.*)$', unit_text, re.M) == ['|sp11.entry=spk', '|sp11.entry=debug'], 'speaker UCM unit gates differ'
-    assert (root / 'etc/systemd/system/sysinit.target.wants/sp11-speaker-ucm.service').readlink() == Path('/usr/lib/systemd/system/sp11-speaker-ucm.service')
-    script = root / 'usr/libexec/sp11/speaker-ucm-enable'
-    assert script.stat().st_mode & 0o111 and script.read_bytes() == (repo / 'image/overlay/usr/libexec/sp11/speaker-ucm-enable').read_bytes(), 'speaker UCM script'
-    script_text = script.read_text()
-    assert set(re.findall(r'" sp11\.entry=([a-z0-9-]+) "', script_text)) == {'spk', 'debug'}, 'speaker UCM script gates differ'
+    assert 'If.SURFACEPro11' in fix and 'Microsoft Surface Pro( with 5G)?, 11th Edition' in fix, 'D28 DMI match absent'
+    assert 'SP11-Audio.conf' not in fix, 'legacy verb replacement remains'
+    assert not (root / 'usr/lib/systemd/system/sp11-speaker-ucm.service').exists(), 'obsolete post-probe selector service'
+    cl_topology = root / 'usr/lib/firmware/qcom/x1e80100/X1E80100-Microsoft-Surface-Pro-11-CL-tplg.bin'
+    legacy_topology = root / 'usr/lib/firmware/qcom/x1e80100/X1E80100-Microsoft-Surface-Pro-11-closed-loop-tplg.bin'
+    private_audio = (record.get('private_m14') or {}).get('audio', {})
+    if record.get('private'):
+        assert cl_topology.is_file() and digest(cl_topology) == private_audio.get(cl_topology.name), 'private CL model topology/record'
+        assert not legacy_topology.exists(), 'old CL topology filename remains'
+    else:
+        assert not cl_topology.exists() and not legacy_topology.exists(), 'public ISO contains a closed-loop topology'
     # speaker first-test tooling: present everywhere, manual, gated by the entry and its arguments, with the policy limits
     for name in ('speaker-supervisor', 'speaker-first-test'):
         f = root / 'usr/libexec/sp11' / name
@@ -83,7 +77,7 @@ def check(root, repo, record):
     assert (root / 'etc/systemd/system/multi-user.target.wants/sp11-gpu-two-step.service').readlink() == Path('/usr/lib/systemd/system/sp11-gpu-two-step.service'), 'GPU two-step not enabled (M15: enabled, runs only through sp11.gpu_diag=1)'
     preset = (root / 'usr/lib/systemd/system-preset/80-sp11.preset').read_text()
     assert 'enable sp11-gpu-two-step.service' in preset and 'disable sp11-gpu-two-step.service' not in preset, 'preset does not enable the GPU two-step'
-    for u in ('sp11-speaker-ucm.service', 'sp11-sam-mode-rotor.service', 'sp11-cdsp-experiment.service', 'sp11-cpufreq-cap.service',
+    for u in ('sp11-sam-mode-rotor.service', 'sp11-cdsp-experiment.service', 'sp11-cpufreq-cap.service',
               'sp11-identity-switch.service', 'sp11-wifi-identity.service', 'sp11-identity-bt-pre.service',
               'sp11-suspend-policy.service', 'sp11-wakeup-policy.service', 'sp11-suspend-diag.service', 'sp11-thermal-sample.service'):
         assert f'enable {u}' in preset, f'preset lacks {u}'

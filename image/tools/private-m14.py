@@ -8,7 +8,7 @@
 Contents (all Windows-derived or generated from Windows data, never in git, never in a public ISO):
   cameras   ov13858/imx681/vd55g0 register blobs -> /usr/lib/firmware/updates/ (verified with the owner's verify_blob and MANIFEST.json)
   cdsp46    the CDSP c1-00046.1 pair -> /usr/lib/firmware-sp11-cdsp46/qcom/x1e80100/microsoft/Denali/ and the initramfs (dracut conf)
-  audio     closed-loop topology (replaces the public file of the same name), sp11cl, sp11cal -> /usr/lib/firmware/qcom/x1e80100/
+  audio     closed-loop topology -> <CARD>-CL-tplg.bin, sp11cl, sp11cal -> /usr/lib/firmware/qcom/x1e80100/
   sensors   the staged sensor tree out/firmware-private/sensors (sp11-sensors-stage.sh) installed by sp11-sensors-install-private.sh
             -> /usr/share/qcom/x1e80100/Microsoft/Surface-Pro-11/{sensors,socinfo}/; root-only private registry seeds are copied at first service start only into an empty StateDirectory child
   tuning    libcamera tuning YAMLs of the cameras owner -> /usr/share/libcamera/ipa/simple/ (hashes against libcamera-tuning.manifest.json)
@@ -39,6 +39,12 @@ AUDIO_FP = "audio/qcom/x1e80100"
 AUDIO_DEST = "usr/lib/firmware/qcom/x1e80100"
 CARD = "X1E80100-Microsoft-Surface-Pro-11"
 AUDIO = {f"{CARD}-tplg.bin": None, f"{CARD}-sp11cl.bin": "2eb5a1144d7718422210fd634d2b29f3c318025d56959b501e2c7a7c501ab280", f"{CARD}-sp11cal.bin": None}
+PRIVATE_TPLG = f"{CARD}-CL-tplg.bin"
+LEGACY_TPLG = f"{CARD}-closed-loop-tplg.bin"
+
+def audio_dest(name):
+    return PRIVATE_TPLG if name == f"{CARD}-tplg.bin" else name
+
 PUBLIC_TPLG = "b192044f01e97eabe7f6df9ae0d394086badb3c30124573210bc781093da8c03"
 SENSORS = "usr/share/qcom/x1e80100/Microsoft/Surface-Pro-11/sensors"
 SENSORS_ROOT = "usr/share/qcom/x1e80100/Microsoft/Surface-Pro-11"
@@ -138,8 +144,8 @@ def cmd_stage(a):
             raise Fail(f"audio file {name}: hash differs from the audio-speakers evidence")
         if name.endswith("-tplg.bin") and sha(src) == PUBLIC_TPLG:
             raise Fail("the private topology equals the public one: the closed-loop file was not generated")
-        put(src, root / AUDIO_DEST / name)
-    rec["audio"] = {n: sha(fp / AUDIO_FP / n) for n in AUDIO}
+        put(src, root / AUDIO_DEST / audio_dest(name))
+    rec["audio"] = {audio_dest(n): sha(fp / AUDIO_FP / n) for n in AUDIO}
     # Sensors: install static files; keep private seeds root-only in the overlay, then copy them at first daemon start
     # only if StateDirectory's configured registry child is empty. Runtime user/group names resolve after RPM install.
     sfp = fp / SENSORS_FP
@@ -236,13 +242,14 @@ def cmd_verify(a):
     if a.initrd_list:
         lst = Path(a.initrd_list).read_text()
         chk("cdsp46: both files are in the initramfs", all(f"{CDSP_ROOT}/{CDSP_DIR}/{f}" in lst for f in CDSP_FILES))
-    chk("audio: closed-loop topology, sp11cl, sp11cal equal the private tree", all(same(fp / AUDIO_FP / n, root / AUDIO_DEST / n) for n in AUDIO))
-    chk("audio: the topology differs from the public file", sha(root / AUDIO_DEST / f"{CARD}-tplg.bin") != PUBLIC_TPLG)
+    chk("audio: private closed-loop topology, sp11cl, sp11cal equal the private tree", all(same(fp / AUDIO_FP / n, root / AUDIO_DEST / audio_dest(n)) for n in AUDIO))
+    chk("audio: the private topology is installed under the CL sound model", sha(root / AUDIO_DEST / PRIVATE_TPLG) != sha(root / AUDIO_DEST / f"{CARD}-tplg.bin"))
+    chk("audio: former closed-loop filename is absent", not (root / AUDIO_DEST / LEGACY_TPLG).exists())
     chk("audio: sp11cl equals the evidence hash", sha(root / AUDIO_DEST / f"{CARD}-sp11cl.bin") == AUDIO[f"{CARD}-sp11cl.bin"])
     rec = json.loads(Path(a.record).read_text()).get("private_m14", {})
     chk("record: hashes of the private files equal the installed ones", rec.get("cameras") == {n: sha(root / CAM_DEST / n) for n in CAM.values()}
         and rec.get("cdsp46") == {f: sha(root / CDSP_ROOT / CDSP_DIR / f) for f in CDSP_FILES}
-        and rec.get("audio") == {n: sha(root / AUDIO_DEST / n) for n in AUDIO})
+        and rec.get("audio") == {audio_dest(n): sha(root / AUDIO_DEST / audio_dest(n)) for n in AUDIO})
     # Sensors: static files and root-only seeds match the stage; registry state remains empty in the ISO overlay.
     sfp = fp / SENSORS_FP
     sums = {}
@@ -305,7 +312,7 @@ def cmd_absent(a):
             bad.append(i)
 
     here = ([CAM_DEST + "/" + n for n in CAM.values()] + [CDSP_ROOT, DRACUT, SENSORS, SENSORS_ROOT + "/socinfo", REGISTRY, PRIVATE_SENSOR_SEEDS, PRIVATE_SENSOR_SEED_HELPER, PRIVATE_SENSOR_SEED_DROPIN, NPU, ICP_DEST, ICP_LIC_DEST]
-            + [TUNING_DEST + "/" + n for n in TUNING.values()] + list(PW.values()) + [AUDIO_DEST + "/" + n for n in list(AUDIO) + list(QUALITY) + [QUALITY_GATED] if not n.endswith("-tplg.bin")])
+            + [TUNING_DEST + "/" + n for n in TUNING.values()] + list(PW.values()) + [AUDIO_DEST + "/" + n for n in [PRIVATE_TPLG, LEGACY_TPLG] + [audio_dest(n) for n in AUDIO if not n.endswith("-tplg.bin")] + list(QUALITY) + [QUALITY_GATED]])
     present = [p for p in here if (root / p).exists()]
     chk("public image: no camera blob, tuning YAML, sensor configuration or registry, audio quality or PipeWire quality file, topology variant, CAMERA_ICP, CDSP alternate or NPU installer", not present, ",".join(present))
     t = root / AUDIO_DEST / f"{CARD}-tplg.bin"
