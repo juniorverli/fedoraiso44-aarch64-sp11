@@ -2,10 +2,9 @@
 /*
  * Diagnostic variant: enable the rear OV13858 camera path for a first test boot.
  *
- * Source: the cameras patches 0001-0005 describe CCI0, CAMSS, the pm8010 regulators, the
- * rear sensor and the camera indicator LED, all disabled. This file switches on exactly
- * that chain and nothing else: the IR emitter and the flash stay undescribed (risk S2),
- * the front IMX681 and the IR VD55G0 are not described at all.
+ * Requires camera patches 0001-0021. Only the rear endpoint is in the CAMSS
+ * graph; the front and IR endpoints are removed so they cannot block registration.
+ * The IR emitter and flash remain undescribed (risk S2).
  *
  * Expected on the device (see hardware/cameras/test-plan.md): ov13858 probes and reads
  * the chip id; /dev/media* shows the CAMSS graph; the indicator LED lights while streaming.
@@ -33,4 +32,30 @@
 
 &cci0_i2c1 {
 	status = "okay";
+};
+
+/* Only the rear sensor participates in this diagnostic graph. */
+&camss {
+	ports {
+		/delete-node/ port@0;
+		/delete-node/ port@2;
+	};
+};
+
+&ir_camera {
+	status = "disabled";
+	/delete-node/ port;
+};
+
+&front_camera {
+	status = "disabled";
+	/delete-node/ port;
+};
+
+&cci0_i2c0 {
+	status = "disabled";
+};
+
+&cci1_i2c1 {
+	status = "disabled";
 };
