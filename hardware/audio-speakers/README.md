@@ -93,10 +93,12 @@ Two WSA8845 smart amplifiers on SoundWire, driven by the ADSP through AudioReach
 - **kernel (M16 incident):** restore a speaker-off m15-safe while retaining microphone and DP links; exact three-include replacement, compiled-DTB assertions and isolation plan are in [M16 evidence](evidence/2026-11-01-m16-safe-audio-die.md). The missing oops header prevents assigning cause; do not change GPIOs, regulators or drivers on this evidence.
 - **image / audio-mics:** use microphone-only UCM on the speaker-off fallback and capture the first complete oops, active PCM and UCM state; validate microphone signal only after a stable boot. See [M16 evidence](evidence/2026-11-01-m16-safe-audio-die.md).
 
-- **kernel (M16 playback):** do not force RX channels or ignore the SP event failure on this evidence. Optionally integrate diagnostic patch 0019 after 0018; it preserves fail-closed behavior. Establish the SP diagnostics registration ABI and DSP target/state against independently reproducible sources before a functional fix. Retain BTF and all existing guards.
+- **kernel (M16 playback):** the ISO topology and parser evidence do not support a missing SH_MEM watermark as the backend failure: frontend graph 0 uses WRSH IID `0x6001`, backend graph 105 has no SH_MEM and does not call watermark registration. Do not add an endpoint or bypass watermark errors on this basis. Optionally integrate diagnostic patch 0019 after 0018; retain BTF and all existing guards. Establish the SP diagnostics registration ABI and correlate target/event and DSP response before a functional fix; see [playback evidence](evidence/2026-11-02-m16-safe-playback.md).
 - **image / audio-mics (M16 playback):** preserve the existing DP route layer when switching the speaker overlay; fix the collector to address the actual card with `amixer -c 0`, capture active UCM devices and PCM opener, topology hash and guard state without starting playback. Preserve the previously requested speaker-off fallback. See [playback evidence](evidence/2026-11-02-m16-safe-playback.md).
 
 ## 9. Log
+
+- 2026-11-02: checked the private ISO topology and kernel parser against the SH_MEM lead; the backend does not call watermark registration, and no functional fix is supported. See [M16 safe playback](evidence/2026-11-02-m16-safe-playback.md).
 
 - 2026-11-02: identified DSP opcode as SP event registration, not a proven RX format rejection; DP routes are present but live control state is unobserved. Added fail-closed diagnostic patch 0019 and retest evidence; functional fix remains open. See [M16 safe playback](evidence/2026-11-02-m16-safe-playback.md).
 
