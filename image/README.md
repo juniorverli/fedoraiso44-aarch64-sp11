@@ -1125,6 +1125,7 @@ Rollback: rebuild without `--private`. Q3 of the wifi dossier (is the OTP addres
 
 ## Log
 
+- 2026-11-02: refreshed the M15 camera collector pin to the R16 owner file. Rev19 L0 check 8.44 passes against its extracted root with a temporary build record containing the new pin and the current owner sources from main; the published rev19 record retains the old pin, so a new ISO build is required to regenerate the record. The image worktree must include the updated camera owner source when building.
 - 2026-11-02: added an early, persistent bounded kernel-message tail sharing the collector storage safety, lock and cap; hardware validation remains pending.
 
 - 2026-11-01: M15.1 device-log triage found the GPU diagnostic had no persisted marker after `STEP0_END`; the image arms the test with a bounded boot-state lock and aborts before GPU power-up if the marker write fails. `rotor-selftest.sh` covers the fail-closed path. Cause of the original stop remains unconfirmed pending another device boot.
