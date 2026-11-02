@@ -1,4 +1,28 @@
+# The next device boot must confirm these units on real hardware; the project's device logs were deleted.
 # Units that may be in "failed" state in the L1 virtual machine (scripts/image-test-qemu.sh).
 # Only units that need hardware the VM does not have. One unit name per line.
-# Empty until the first L1 run shows which units fail for hardware reasons; each entry
-# needs a reason in a comment and the log evidence.
+# Each entry needs a reason in a comment and the log evidence.
+
+# Fedora stock (not SP11-owned) ABRT crash-reporting daemon; the VM lacks the full device ABRT environment (hypothesis).
+# Boot 96658288-701d-4138-8619-5793cd358dd3: journal.txt.gz 506.865 start-pre -> stop-sigterm, 506.919 -> failed; units-failed.txt.gz lists it.
+abrtd.service
+
+# Fedora stock (not SP11-owned) accounts service; the VM lacks the full device accounts/seat environment (hypothesis).
+# Boot 96658288-701d-4138-8619-5793cd358dd3: journal.txt.gz 534.159 start job result=failed.
+accounts-daemon.service
+
+# Fedora stock (not SP11-owned) local network service discovery; the VM lacks the device network environment (hypothesis).
+# Boot 96658288-701d-4138-8619-5793cd358dd3: journal.txt.gz 506.114 start operation timed out, terminating.
+avahi-daemon.service
+
+# Fedora stock (not SP11-owned) network-online wait; the VM lacks the device network environment and uses QEMU user-mode networking.
+# Boot 96658288-701d-4138-8619-5793cd358dd3: journal.txt.gz 604.318 start job result=failed; the cause is unconfirmed.
+NetworkManager-wait-online.service
+
+# Fedora stock (not SP11-owned) system tuning daemon; the VM lacks the full device network and hardware environment (hypothesis).
+# Boot 96658288-701d-4138-8619-5793cd358dd3: journal.txt.gz 516.001 held back for network.target, 645.196 start -> stop-sigterm, 645.431 -> failed.
+tuned.service
+
+# Fedora stock (not SP11-owned) storage-device management daemon; the VM lacks the full device udisks/storage environment (hypothesis).
+# Boot 96658288-701d-4138-8619-5793cd358dd3: journal.txt.gz 506.008 start -> stop-sigterm; units-failed.txt.gz lists it.
+udisks2.service
