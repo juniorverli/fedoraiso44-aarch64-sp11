@@ -26,8 +26,8 @@ The RGB sensors output **RAW Bayer** frames (one colour sample per pixel behind 
 | Sensor | Output from the sensor | Needs RGB stage | Grade | Source |
 |:--|:--|:--|:--|:--|
 | Rear OV13858 | RAW Bayer 10 bit, order **GRBG** only (`MEDIA_BUS_FMT_SGRBG10_1X10`) | yes | Verified | `sources/linux/drivers/media/i2c/ov13858.c:1280-1284` |
-| Front IMX681 | RAW Bayer; bit depth and order TBD (no Linux driver) | yes | Inference (RGB Bayer sensor) / TBD (order) | REA of `surfacecamfrontsensor8380.sys` |
-| IR VD55G0 | monochrome (Y8/Y10), no colour filter | no demosaic; only black level and gamma | Inference | `vd55g1.c` handles a mono variant (`vd55g1_mbus_formats_mono`); whether it supports VD55G0 at all is TBD (no `vd55g0` string in 7.3) |
+| Front IMX681 | Windows mode data RAW10 RGGB; physical capture not yet checked | yes | Verified in module data and prior analysis; device output TBD | `evidence/2026-10-31-rea-bayer-poll-units.md` |
+| IR VD55G0 | Windows mode data monochrome RAW10; no device capture | no demosaic | Verified in module data; device output TBD | `evidence/2026-10-31-rea-bayer-poll-units.md` |
 
 Where the RGB stage can run on Linux:
 
@@ -45,8 +45,8 @@ Why CAMSS cannot do the RGB stage on this SoC (Verified, 2026-10-24):
 
 | Package (`sources/windows/DriverStore/<name>.inf_arm64_*`) | Role |
 |:--|:--|
-| `qccamplatform8380` | TBD |
-| `surfacecamplatform_ext8380` | TBD |
+| `qccamplatform8380` | Platform driver; privacy LED control |
+| `surfacecamplatform_ext8380` | Board-specific platform configuration |
 | `qccamisp8380` | TBD |
 | `qccamisp_ext8380` | TBD |
 | `qccammipicsi8380` | TBD |
@@ -56,12 +56,12 @@ Why CAMSS cannot do the RGB stage on this SoC (Verified, 2026-10-24):
 | `qccamflash_ext8380` | TBD |
 | `qccamsecureisp8380` | TBD |
 | `qccamsecureisp_ext8380` | TBD |
-| `surfacecamfrontsensor8380` | TBD |
-| `surfacecamfrontsensor_extension8380` | TBD |
-| `surfacecamrearsensor8380` | TBD |
-| `surfacecamrearsensor_extension8380` | TBD |
-| `surfacecamauxsensor8380` | TBD |
-| `surfacecamauxsensor_extension8380` | TBD |
+| `surfacecamfrontsensor8380` | Front sensor kernel subdriver |
+| `surfacecamfrontsensor_extension8380` | Front resources, mode data and tuning |
+| `surfacecamrearsensor8380` | Rear sensor kernel subdriver |
+| `surfacecamrearsensor_extension8380` | Rear resources, mode data and tuning |
+| `surfacecamauxsensor8380` | Auxiliary sensor kernel subdriver |
+| `surfacecamauxsensor_extension8380` | Auxiliary resources, mode data and tuning |
 | `surfacecamavs8380` | TBD |
 | `surfacecamavspro_ext8380` | TBD |
 | `qceva8380` | TBD |
@@ -83,11 +83,13 @@ Why CAMSS cannot do the RGB stage on this SoC (Verified, 2026-10-24):
 
 ## 5. Gaps
 
+The current graded upstream and Windows comparison is in [2026-11-02 upstream gap](evidence/2026-11-02-upstream-windows-gap.md). Proceed with the RGB-only graph first; posted PHY API and VD55G0 work require pinning and review, and are not established prerequisites for this test.
+
 | Gap | Planned answer |
 |:--|:--|
 | no CAMSS/CCI node in hamoa.dtsi | Patch 0003 (disabled nodes, `CHECK_DTBS` clean) |
-| no IMX681 driver | New driver needed (C-PHY, register tables derived on the device, not in git, S5) |
-| C-PHY support for the front camera | Not in v7.3. Backport the posted `phy: qcom-mipi-csi2` C-PHY and CAMSS PHY-type series (request R5); CSIPHY v2.1.2 C-PHY tables and CSID `CFG0` bit 24 are confirmed by the camera-kernel reference |
+| IMX681 driver | Patch 0016 and private register data bind; C-PHY, modes and image quality remain untested |
+| C-PHY support for the front camera | Patches 0006–0010 implement a legacy-CSIPHY path; compare with the posted standalone PHY API series and validate on device |
 | sensor power/reset/clock wiring from ACPI | Rear: patch 0005 (Windows sequence). Front and IR: after the IMX681 and VD55G0 drivers exist |
 | privacy LED binding/arbitration | Patch 0020 adds shared `led_classdev` user counting in the V4L2 core; GPIO225 LED node remains disabled; exact GPIO-to-camera mapping remains inference pending independent cross-check (see `evidence/2026-11-01-shared-privacy-led.md`) |
 | RAW Bayer frames need an RGB stage (demosaic, AWB, CCM, gamma) | libcamera Software ISP with per-sensor tuning; Spectra hardware ISP later |
@@ -115,6 +117,8 @@ Why CAMSS cannot do the RGB stage on this SoC (Verified, 2026-10-24):
 
 ## 8. Requests
 
+- **R15 (sources and orchestrator):** pin and review the currently available standalone PHY/CAMSS series and the VD55G0 candidates and follow-ups listed in the [gap evidence](evidence/2026-11-02-upstream-windows-gap.md); complete the listed REA functions with forced catalog language. The REA MCP rejected this worker under approval policy `never`.
+
 - **R13 (kernel, urgent):** apply `dtb-variants/x1-microsoft-denali-camera-no-ir.dtsi` after camera nodes to every camera-enabled CAMSS DT including m15-safe and inherited variants. It removes both IR graph ends and disables CCI0 bus 0 and the IR node. Keep both RGB endpoints enabled only when both sensor drivers and blobs are present; otherwise use the corrected rear-only variant. Confirm effective compiled DT statuses, endpoint phandles, `CONFIG_VIDEO_V4L2_SUBDEV_API`, and DT schema checks. Do not apply this CAMSS graph recipe blindly to the separate Spectra stack. Confirm patch 0021 and 0020 integration and run the shared LED KUnit suite when scheduled. See [M16 probe evidence](evidence/2026-11-02-m16-safe-camera-probe.md).
 - **R14 (image):** retain private RGB register blobs and Fedora libcamera SoftISP, IPA, tools, PipeWire and Snapshot; verify the image carries both `userspace/quality/libcamera-sp11.patch` and `libcamera-sp11-imx681-helper.patch`, generated sensor tuning and matching runtime IPA. Report actual installed tuning/helper coverage and packaging provenance. Blob presence alone does not establish correct colour or camera operation. Preserve the camera collector.
 
@@ -132,6 +136,8 @@ Why CAMSS cannot do the RGB stage on this SoC (Verified, 2026-10-24):
 - R11 (orchestrator): independently cross-check camera-to-privacy-LED GPIO mapping before enabling camera DT nodes; patch 0020 intentionally contains no GPIO values.
 
 ## 9. Log
+
+- 2026-11-02: compared available upstream PHY and VD55G0 proposals with the legacy path, documented Windows inputs and REA targets, and corrected the streaming test; REA approval policy blocked new analysis.
 
 - 2026-11-02: safe boot binds both RGB sensors; unbound IR endpoint likely prevents CAMSS completion and sensor links, so prepared RGB-only and rear-only DT exclusions and requested integration; streams and indicators remain unverified.
 
