@@ -81,7 +81,7 @@ srpm_name=$(toml srpm_file); srpm_sha=$(toml srpm_sha256)
 srpm="$SP11_OUT/srpms/$srpm_name"
 [[ -f $srpm ]] || { mkdir -p "$SP11_OUT/srpms"; curl -fL -o "$srpm" "$(toml srpm_url)"; }
 echo "$srpm_sha  $srpm" | sha256sum -c - >/dev/null || die "SRPM sha256 differs from kernel/base.toml"
-if [[ ! -f $TOPDIR/SPECS/kernel.spec || ! -f $TOPDIR/.srpm-$srpm_sha ]]; then
+if [[ ! -f $TOPDIR/SPECS/kernel.spec || ! -f $TOPDIR/.srpm-$srpm_sha || ! -d $TOPDIR/SOURCES ]]; then
   rm -rf "$TOPDIR"; mkdir -p "$TOPDIR"/{SOURCES,SPECS,BUILD,RPMS,SRPMS,BUILDROOT}
   cr rpm -D "_topdir $TOPDIR" -ivh "$srpm" >/dev/null
   touch "$TOPDIR/.srpm-$srpm_sha"
