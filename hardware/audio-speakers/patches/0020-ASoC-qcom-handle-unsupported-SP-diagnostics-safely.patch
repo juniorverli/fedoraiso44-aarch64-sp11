@@ -1,0 +1,74 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Mon, 2 Nov 2026 00:00:00 +0000
+Subject: [PATCH] ASoC: qcom: handle unsupported SP diagnostics safely
+
+Map the DSP unsupported status to EOPNOTSUPP. Allow graph preparation
+past an unsupported SP diagnostics subscription, but latch a guard fault
+because the DSP fault reports are no longer observable. Other failures
+remain fatal, and the amplifier cannot be unmuted on missing evidence.
+
+Keep a transport EOPNOTSUPP distinct from a DSP rejection of event
+registration, so a transport failure cannot take the optional path.
+
+Signed-off-by: Codex <codex@openai.com>
+---
+diff --git a/sound/soc/qcom/qdsp6/audioreach.c b/sound/soc/qcom/qdsp6/audioreach.c
+--- a/sound/soc/qcom/qdsp6/audioreach.c
++++ b/sound/soc/qcom/qdsp6/audioreach.c
+@@ -6,11 +6,13 @@
+ #include <linux/slab.h>
+ #include <linux/soc/qcom/apr.h>
+ #include <sound/soc.h>
++#include <sound/sp11-guard.h>
+ #include <sound/soc-dai.h>
+ #include <sound/pcm.h>
+ #include <sound/pcm_params.h>
+ #include <dt-bindings/soc/qcom,gpr.h>
+ #include "q6apm.h"
++#include "q6dsp-errno.h"
+ #include "audioreach.h"
+ 
+ /* SubGraph Config */
+@@ -629,8 +631,12 @@
+ 	else
+ 		rc = -EINVAL;
+ 
+-	if (rc < 0)
++	if (rc < 0) {
++		/* Reserve EOPNOTSUPP for a DSP response to registration. */
++		if (rc == -EOPNOTSUPP && hdr->opcode == APM_CMD_REGISTER_MODULE_EVENTS)
++			rc = -EIO;
+ 		goto err;
++	}
+ 
+ 	if (rsp_opcode)
+ 		rc = wait_event_timeout(*cmd_wait, (result->opcode == hdr->opcode) ||
+@@ -643,7 +649,7 @@
+ 		rc = -ETIMEDOUT;
+ 	} else if (result->status > 0) {
+ 		dev_err(dev, "DSP returned error[%x] %x\n", hdr->opcode, result->status);
+-		rc = -EINVAL;
++		rc = result->status == ADSP_EUNSUPPORTED ? -EOPNOTSUPP : -EINVAL;
+ 	} else {
+ 		/* DSP successfully finished the command */
+ 		rc = 0;
+@@ -1655,9 +1661,15 @@
+ 			rc = audioreach_module_enable(graph, module, true);
+ 		if (!rc) {
+ 			rc = audioreach_sp11_register_events(graph, module);
+-			if (rc)
++			if (rc == -EOPNOTSUPP) {
++				dev_warn_once(graph->dev,
++					      "SP diagnostics unavailable; speakers remain muted\n");
++				sp11_guard_fault("sp-diagnostics", ADSP_EUNSUPPORTED);
++				rc = 0;
++			} else if (rc) {
+ 				dev_err(graph->dev, "SP diagnostics event registration failed: %d\n",
+ 					rc);
++			}
+ 		}
+ 
+ 		break;
+-- 
+2.43.0
