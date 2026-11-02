@@ -32,16 +32,14 @@ def check(root, repo, record):
     assert not re.search(r'Surface11-(SpeakerSeq|WsaInit)', fix), 'UCM driver file names a speaker sequence'
     unit = root / 'usr/lib/systemd/system/sp11-speaker-ucm.service'
     assert unit.read_bytes() == (repo / 'image/overlay/usr/lib/systemd/system/sp11-speaker-ucm.service').read_bytes(), 'speaker UCM unit'
-    # M16: the overlay runs on the debug, safe and spk entries (the | makes the conditions OR).
+    # Only debug and spk may install the overlay (the | makes the conditions OR).
     unit_text = unit.read_text()
-    for entry in ('spk', 'debug', 'safe'):
-        assert f'ConditionKernelCommandLine=|sp11.entry={entry}' in unit_text, f'speaker UCM unit is not entry-gated for {entry}'
+    assert re.findall(r'^ConditionKernelCommandLine=(.*)$', unit_text, re.M) == ['|sp11.entry=spk', '|sp11.entry=debug'], 'speaker UCM unit gates differ'
     assert (root / 'etc/systemd/system/sysinit.target.wants/sp11-speaker-ucm.service').readlink() == Path('/usr/lib/systemd/system/sp11-speaker-ucm.service')
     script = root / 'usr/libexec/sp11/speaker-ucm-enable'
     assert script.stat().st_mode & 0o111 and script.read_bytes() == (repo / 'image/overlay/usr/libexec/sp11/speaker-ucm-enable').read_bytes(), 'speaker UCM script'
     script_text = script.read_text()
-    for entry in ('spk', 'debug', 'safe'):
-        assert f'" sp11.entry={entry} "' in script_text, f'speaker UCM script has no {entry} entry gate'
+    assert set(re.findall(r'" sp11\.entry=([a-z0-9-]+) "', script_text)) == {'spk', 'debug'}, 'speaker UCM script gates differ'
     # speaker first-test tooling: present everywhere, manual, gated by the entry and its arguments, with the policy limits
     for name in ('speaker-supervisor', 'speaker-first-test'):
         f = root / 'usr/libexec/sp11' / name

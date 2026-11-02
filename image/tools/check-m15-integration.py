@@ -76,7 +76,7 @@ def check(root, repo, record):
     assert (grp and 'hexagonrpcd' in grp[0].split(':')[3].split(',')) or re.search(r'^m\s+hexagonrpcd\s+fastrpc', sys_conf, re.M), 'user hexagonrpcd is not a member of fastrpc'
     isp = (root / 'usr/libexec/iio-sensor-proxy').read_bytes()
     assert b'ssc-accel' in isp, 'iio-sensor-proxy has no SSC accelerometer driver'
-    assert (root / 'etc/sp11-log-collector.d/sensors.sh').is_file(), 'sensors collector drop-in missing'
+    assert (root / 'etc/sp11-log-collector.d/sensors.sh').read_bytes() == (repo / 'hardware/sensors/userspace/collector/sensors.sh').read_bytes(), 'sensors collector differs from repository source'
     # ---- audio: route layer, UCM fix, gain, WirePlumber, dconf
     for rel, want in pins['audio_routes_overlay'].items():
         assert digest(root / rel) == want, f'audio route file {rel}'

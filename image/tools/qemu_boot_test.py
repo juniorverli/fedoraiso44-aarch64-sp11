@@ -291,7 +291,7 @@ def main():
                 if a.legacy_menu:
                     idx = ENTRIES.index(a.entry)
                 else:
-                    idx = ENTRIES.index(a.entry)   # flat menu: position = number of Down keys
+                    idx = (ENTRIES.index(a.entry) - 1) % len(ENTRIES)   # flat menu starts at the safe default (index 1)
                 for _ in range(idx):
                     child.send(b"\x1b[B")
                     time.sleep(0.5)

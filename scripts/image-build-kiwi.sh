@@ -89,9 +89,9 @@ if [ "$(rpm --eval "%{lua:print(rpm.vercmp('$newest_vr', '$min'))}")" -le 0 ]; t
 fi
 log "kernel $kver_full (newer than $min, the only kernel NEVRA at the top level of out/rpms)"
 
-# M15/M16 accepts revision-12/13/14/15 RPMs and all six atomically published DTB/JSON pairs (m15, m15-safe, m15-nosnd, m15-notouch, m15-spk, m15-spectra).
-[ "$kver_full" = 7.3.0-65.sp11.15.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.14.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.13.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.12.fc44.aarch64 ] || {
-	log "REFUSED: M15/M16 requires kernel revision 12, 13, 14 or 15 (7.3.0-65.sp11.*.fc44.aarch64), found $kver_full"; exit 6;
+# M15/M16 accepts revision-12/13/14/15/16 RPMs and all six atomically published DTB/JSON pairs (m15, m15-safe, m15-nosnd, m15-notouch, m15-spk, m15-spectra).
+[ "$kver_full" = 7.3.0-65.sp11.16.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.15.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.14.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.13.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.12.fc44.aarch64 ] || {
+	log "REFUSED: M15/M16 requires kernel revision 12, 13, 14, 15 or 16 (7.3.0-65.sp11.*.fc44.aarch64), found $kver_full"; exit 6;
 }
 patch_series_sha=$( . "$REPO/scripts/kernel-common.sh"; kernel_series_hash )
 for v in m15 m15-safe m15-nosnd m15-notouch m15-spk m15-spectra; do
@@ -101,7 +101,7 @@ for v in m15 m15-safe m15-nosnd m15-notouch m15-spk m15-spectra; do
 	}
 	[ "$(sha256sum "$vsrc.dtb" | cut -d' ' -f1)" = "$(jq -r .sha256 "$vsrc.json")" ] &&
 	[ "$(jq -r .kver "$vsrc.json")" = "$kver_full" ] &&
-	{ [ "$(jq -r .series_rev "$vsrc.json")" = 12 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 13 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 14 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 15 ]; } &&
+	{ [ "$(jq -r .series_rev "$vsrc.json")" = 12 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 13 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 14 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 15 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 16 ]; } &&
 	[ "$(jq -r .series_hash_sha256 "$vsrc.json")" = "$patch_series_sha" ] || {
 		log "REFUSED: $v DTB hash/release/series differs from the kernel worker JSON"; exit 6;
 	}
@@ -177,6 +177,7 @@ mkdir -p "$desc/root/etc/systemd/system/multi-user.target.wants"
 ln -sf /usr/lib/systemd/system/sp11-spectra-load.service "$desc/root/etc/systemd/system/multi-user.target.wants/sp11-spectra-load.service"
 # (4) volume buttons: the on-demand collector of the ec-sam owner (never run automatically)
 install -D -m 0755 "$REPO/hardware/ec-sam/tools/collect-volume-buttons.sh" "$desc/root/usr/libexec/sp11/ec-sam/collect-volume-buttons.sh"
+install -m 0644 "$REPO/hardware/sensors/userspace/collector/sensors.sh" "$desc/root/etc/sp11-log-collector.d/sensors.sh"
 # (1) sensors: units of package sp11-sensors, enabled explicitly as well as by the package preset (Fedora's preset-all would otherwise decide); adsprpcd* stays unmasked
 ln -sf /usr/lib/systemd/system/hexagonrpcd-sensors.service "$desc/root/etc/systemd/system/multi-user.target.wants/hexagonrpcd-sensors.service"
 mkdir -p "$desc/root/etc/systemd/system/sleep.target.wants"
@@ -193,7 +194,7 @@ install -D -m 0644 "$OUT/image-inputs/audio/$topology" "$desc/root/usr/lib/firmw
 # before Fedora's config.sh exits.
 sed -i '$i # SP11 M11: compile the locked GNOME volume policy.\ndconf update' "$desc/config.sh"
 # M13: the D26 speaker UCM profile is stored OUTSIDE the UCM search path (S1: the microphone-only profile stays in effect everywhere).
-# sp11-speaker-ucm.service copies it over the microphone profile only on the `spk` entry (sp11.entry=spk, DTB m13-spk).
+# sp11-speaker-ucm.service copies it over the microphone profile only on the `debug` and `spk` entries.
 spk_src=$REPO/hardware/audio-speakers/userspace/overlay-speakers/usr/share/alsa/ucm2/Qualcomm/x1e80100
 mkdir -p "$desc/root/usr/share/sp11/ucm-speakers/Qualcomm/x1e80100"
 for f in MICROSOFT-Surface-Pro-11.conf Surface11-HiFi.conf Surface11-SpeakerSeq.conf Surface11-WsaInit.conf; do
