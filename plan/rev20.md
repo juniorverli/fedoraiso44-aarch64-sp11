@@ -27,9 +27,11 @@ x2 : ffff800083aa5000   x1 : ffff800083aa6000
 
 Consequence: the first camera stream-on writes outside the mapping, oopses, and the preview stays black; the sensor never streams, so the privacy LED (asserted on stream) never turns on. Fixing the region size is the first camera change of revision 20. The rear OV13858 is on a D-PHY and the front IMX681 on a C-PHY; both PHYs use the same 3-phase common block in this driver.
 
+The safe-boot DTB confirms the sizes from `devicetree.dts.gz`: csiphy0/1/2 are `0xace4000/0xace6000/0xace8000` with `0x1000`, csiphy4 is `0xacec000` with `0x4000`. IMX681 (front, primary) is on csiphy2; OV13858 on csiphy1. The oops therefore occurs on the first stream of either RGB sensor, and the front is the one that must be fixed and tested first.
+
 ### 1.2 GPU: two GMU boots, then a reset with no kernel trace
 
-Debug boot `b1c603b5`: GMU firmware and HFI start twice (30.3 s and 58.9 s), both return 0; there is no panic, oops or SMMU message in the 385 KiB `kmsg-live` capture, whose last write is at 61.2 s. The reset happens after the desktop appears, i.e. after the second GMU start, and is consistent with a hard reset (PMIC/PSU/firmware) rather than a kernel panic. The `power/control=on` discriminator is not proven to have run: nothing logs it and the second resume suggests the device still autosuspended.
+Debug boot `b1c603b5`: GMU firmware and HFI start twice (30.3 s and 58.9 s), both return 0; there is no panic, oops or SMMU message in the 385 KiB `kmsg-live` capture, whose last write is at 61.2 s. The reset happens after the desktop appears, i.e. after the second GMU start, and is consistent with a hard reset (PMIC/PSU/firmware) rather than a kernel panic. The `power/control=on` discriminator is not proven to have run: nothing logs it, and the image service pins only `/sys/bus/platform/devices/3d00000.gpu`. `3d6a000.gmu` is a separate platform device with its own `power/control`; if the GMU is the device that autosuspends, the second boot is a GMU resume and the discriminator missed its target. Revision 20 must pin and log both devices.
 
 ### 1.3 Audio: 9 dB regression from the new late-probe caps; sink defaults are a second trap
 
