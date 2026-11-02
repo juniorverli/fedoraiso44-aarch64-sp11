@@ -112,3 +112,26 @@ libcamera preview directs investigation to the installed SoftISP, sensor helper,
 - The rear and front sensors deliver RGB/YUV frames with correct colours through libcamera (RAW only does not count).
 - The independently verified physical indicator LEDs follow every stream.
 - IR emitter, flash and sensor strobe never operated.
+
+### Rev19 current ISO: read-only graph capture
+
+Run after booting the reported safe entry, without opening a camera app. This does not start a stream, configure links, write LED brightness, scan I2C, or operate the IR illuminator or flash. Save all output including errors; `sudo` may be needed for kernel logs. Missing commands or permissions are evidence to report.
+
+```sh
+printf '%s\n' '=== device nodes ==='
+ls -l /dev/media* /dev/video* /dev/v4l-subdev* 2>&1
+printf '%s\n' '=== all media graphs ==='
+for node in /dev/media*; do
+    [ -e "$node" ] || continue
+    printf '\n=== %s ===\n' "$node"
+    timeout 10s media-ctl -d "$node" -p 2>&1
+done
+printf '\n%s\n' '=== V4L2 devices ==='
+timeout 10s v4l2-ctl --list-devices 2>&1
+printf '\n%s\n' '=== libcamera cameras ==='
+timeout 20s cam -l 2>&1
+printf '\n%s\n' '=== camera kernel messages ==='
+sudo dmesg | grep -Ei 'camss|csiphy|csid|vfe|cci|ov13858|imx681|v4l2|camera|privacy|led|firmware|defer'
+```
+
+A complete CAMSS graph has both sensor entities with source pads and immutable, enabled links to the sink pads of `msm_csiphy1` (rear) and `msm_csiphy2` (front), plus CSID, VFE and capture-video entities. Both sensor subdevices should have device nodes when the subdev API is enabled. Downstream links may be disabled until a pipeline is configured; node numbering and exact names vary. A complete kernel graph does not guarantee that `cam -l` finds two usable cameras: that also depends on libcamera pipeline/IPA/sensor support. A successful preview and visible privacy indicator are separate acceptance criteria. See [rev19 audit](evidence/2026-11-02-rev19-graph-led-audit.md) for the decision tree; do not initiate streams while the indicator is unverified.

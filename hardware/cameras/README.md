@@ -2,7 +2,7 @@
 
 ## 1. Summary
 
-Three cameras behind the Qualcomm CAMSS/Spectra ISP: front Sony IMX681 (Windows Hello RGB), rear OmniVision OV13858, IR STMicro VD55G0 with an IR illuminator, plus flash and privacy LED. Linux 7.3 has CAMSS support for this SoC and an OV13858 driver; this series adds camera DT and an IMX681 driver. Status: `testing` (M16 safe boot probes both RGB sensors, but the media graph lacks sensor links and no camera is usable yet).
+Three cameras behind the Qualcomm CAMSS/Spectra ISP: front Sony IMX681 (Windows Hello RGB), rear OmniVision OV13858, IR STMicro VD55G0 with an IR illuminator, plus flash and privacy LED. Linux 7.3 has CAMSS support for this SoC and an OV13858 driver; this series adds camera DT and an IMX681 driver. Status: `testing` (rev19 safe boot reports both RGB sensors, but the media graph and usable capture have not been verified).
 
 ## 2. Hardware
 
@@ -138,6 +138,7 @@ The current graded upstream and Windows comparison is in [2026-11-02 upstream ga
 
 ## 9. Log
 
+- 2026-11-02: audited rev19 RGB graph and privacy LED; reciprocal endpoints and local lane numbering permit notifier completion, but runtime graph and indicator wiring remain unverified; see [audit](evidence/2026-11-02-rev19-graph-led-audit.md).
 - 2026-11-02: compared available upstream PHY and VD55G0 proposals with the legacy path, documented Windows inputs and REA targets, and corrected the streaming test; REA approval policy blocked new analysis.
 
 - 2026-11-02: safe boot binds both RGB sensors; unbound IR endpoint likely prevents CAMSS completion and sensor links, so prepared RGB-only and rear-only DT exclusions and requested integration; streams and indicators remain unverified.
