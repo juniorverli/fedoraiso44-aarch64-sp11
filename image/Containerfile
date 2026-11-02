@@ -17,7 +17,7 @@ RUN dnf -y --setopt=install_weak_deps=False install \
         qemu-device-display-virtio-gpu qemu-device-display-virtio-gpu-pci qemu-device-usb-host \
         kiwi-cli kiwi-systemdeps-core kiwi-systemdeps-bootloaders kiwi-systemdeps-filesystems \
         kiwi-systemdeps-iso-media distribution-gpg-keys dnf5 \
-        alsa-topology-utils alsa-ucm-utils \
+        alsa-utils alsa-topology-utils alsa-ucm-utils \
         python3 python3-pexpect jq git curl tar xz zstd file findutils procps-ng \
  && dnf clean all
 
