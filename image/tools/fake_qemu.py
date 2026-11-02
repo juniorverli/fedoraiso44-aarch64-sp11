@@ -18,7 +18,7 @@ def out(s):
 
 out("UEFI firmware (fake)\r\n")
 time.sleep(1)
-MENU = ["SP11 debug", "SP11 debug, safe (no GPU)", "SP11 debug, no sound", "SP11 debug, touch off", "SP11 debug, speakers (gated)", "SP11 debug, USB + DSP trace", "SP11 debug, no early DSP", "SP11 debug, Wi-Fi unblock probe", "SP11 debug nomodeset", "SP11 debug, stop in initramfs", "SP11 debug, Spectra camera test", "VM test (no devicetree)"]
+MENU = ["SP11 debug", "SP11 debug, safe (no GPU)", "SP11 debug, no sound", "SP11 debug, touch off", "SP11 debug, speakers (closed-loop experiment; private)", "SP11 debug, USB + DSP trace", "SP11 debug, no early DSP", "SP11 debug, Wi-Fi unblock probe", "SP11 debug nomodeset", "SP11 debug, stop in initramfs", "SP11 debug, Spectra camera test", "VM test (no devicetree)"]
 IDS = ["debug", "safe", "nosnd", "notouch", "spk", "usbdbg", "nodsp", "wifi-unblock", "nomodeset", "initramfs", "spectra", "vmtest"]
 for e in MENU[:8]:   # M15: one flat menu; a 24-row terminal shows the first eight lines, the rest appears while scrolling
     out(f"\x1b[1;1H  {e}\r\n")

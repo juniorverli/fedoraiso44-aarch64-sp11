@@ -1,14 +1,5 @@
 {
  "note": "M15 inputs of the image layer; hashes of the owner files as installed (image/README.md, M15)",
- "speaker_ucm_overlay": {
-  "MICROSOFT-Surface-Pro-11.conf": "3cd05b43f782795d343a6dad0373ef10f95704724e7d57b224172d077f8de38d",
-  "Surface11-HiFi.conf": "5b331ba7b1f92207e4b1dd1001b7967dfd6ec1663cd5ee9f51b051b826151f7d",
-  "Surface11-SpeakerSeq.conf": "052f84e6f74320fc636764f43029bd4d75beb25399a9084be037232c2a03df43",
-  "Surface11-WsaInit.conf": "96e901a666557649edcfa894534579cefd7c613b4cdeae52df9463e33f2e364d"
- },
- "ucm_fix": {
-  "usr/share/alsa/ucm2/Qualcomm/x1e80100/x1e80100.conf": "95e36c3b62a24abca9673dbf3239f4c17395cf19a6cdc84c95c6f4b7c303d676"
- },
  "gpu_two_step": {
   "owner_script_sha256": "e705df29564fd6d61add0f08a76ffcab0f21b79b93f69380cfee4bd14e19c6f6",
   "hooks_sha256": "0e9831e0b3b1bd60de54e26c136dadec5a233bb2d9ceaf7874e0bdbf08e29b03",

@@ -67,8 +67,10 @@ def check(root, repo, record, release):
     speaker_seq = (ucm / 'Surface11-SpeakerSeq.conf').read_text()
     for control in ('WSA_RX0', 'WSA_RX1', 'WSA_RX0_MIX', 'WSA_RX1_MIX'):
         assert f"WSA {control} Digital Volume' 72\"" in wsa_init, control
-    assert "PA Volume' 0\"" in wsa_init
-    assert 'PA Volume' not in speaker_seq.split('DisableSequence', 1)[0], 'SpeakerSeq enable must not set PA gain'
+    default_enable = (root / 'usr/share/alsa/ucm2/codecs/wsa884x/two-speakers/DefaultEnableSeq.conf').read_text()
+    for sequence in (wsa_init, default_enable, speaker_seq.split('DisableSequence', 1)[0]):
+        commands = "\n".join(line for line in sequence.splitlines() if not line.lstrip().startswith("#"))
+        assert not re.search(r"\bcset\b[^\n]*PA Volume", commands), 'enable/init must not set PA gain'
     driver = (ucm / 'x1e80100.conf').read_text()
     assert 'Microsoft Corporation.*Surface.*Microsoft Surface Pro( with 5G)?, 11th Edition' in driver
     assert 'SP11-Audio.conf' not in driver, 'driver still includes the later replacement verb'

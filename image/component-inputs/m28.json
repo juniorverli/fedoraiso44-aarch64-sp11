@@ -12,7 +12,7 @@
     "usr/share/alsa/ucm2/Qualcomm/x1e80100/MICROSOFT-Surface-Pro-11.conf": "3cd05b43f782795d343a6dad0373ef10f95704724e7d57b224172d077f8de38d",
     "usr/share/alsa/ucm2/Qualcomm/x1e80100/Surface11-HiFi.conf": "ba24e854477ce3ed0fc13c9dda6a7bb0bcf2d978f0fff4e672a6f879bdb6a90c",
     "usr/share/alsa/ucm2/Qualcomm/x1e80100/Surface11-SpeakerSeq.conf": "052f84e6f74320fc636764f43029bd4d75beb25399a9084be037232c2a03df43",
-    "usr/share/alsa/ucm2/Qualcomm/x1e80100/Surface11-WsaInit.conf": "96e901a666557649edcfa894534579cefd7c613b4cdeae52df9463e33f2e364d",
+    "usr/share/alsa/ucm2/Qualcomm/x1e80100/Surface11-WsaInit.conf": "ca9d2725ed95bf5ade5ab6751b6e66b3e018bb0421535f71ba0626fdb7b97fbd",
     "usr/share/alsa/ucm2/Qualcomm/x1e80100/x1e80100.conf": "95e36c3b62a24abca9673dbf3239f4c17395cf19a6cdc84c95c6f4b7c303d676",
     "usr/share/wireplumber/wireplumber.conf.d/51-sp11-audio-safety.conf": "83c0e8a319bc0102c8856a03780612b3ca7b48228f44182c1b739ea468051594",
     "etc/dconf/db/distro.d/90-sp11-audio-safety": "f322831aefd849cbc5f2b03ce28d3897efd4ef01c5050a84321867176a1ebd85",
@@ -50,7 +50,10 @@
       "kernel_d28_guard",
       "closed_loop_fail_closed"
     ],
-    "private_required": ["source_commit", "topology_sha256"],
+    "private_required": [
+      "source_commit",
+      "topology_sha256"
+    ],
     "private_runtime_state": "unvalidated; private ISO is operator-only and must never be shared",
     "purpose": "Public builds require full D28 runtime safety evidence; private operator-only builds may proceed with pinned source and topology while runtime validation is pending."
   }

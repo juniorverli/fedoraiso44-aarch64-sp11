@@ -17,11 +17,12 @@ def check(root, repo, record):
     pins = json.loads((repo / 'image/component-inputs/m15.json').read_text())
     assert pins == record['m15_inputs'], 'M15 input record differs from the build record'
     ucm_live = root / 'usr/share/alsa/ucm2/Qualcomm/x1e80100'
-    for name, want in pins['speaker_ucm_overlay'].items():
-        assert digest(ucm_live / name) == want, f'active D28 UCM {name}'
-    # D28: speaker and microphone routes are active on both safe/debug by sound-model selection.
-    for rel, want in pins['ucm_fix'].items():
-        assert digest(root / rel) == want, f'UCM fix {rel}'
+    # D28 owns the active UCM files and their hashes; no stored overlay exists.
+    d28 = json.loads((repo / 'image/component-inputs/m28.json').read_text())
+    assert d28 == record['m28_inputs'], 'D28 input record differs from the build record'
+    for rel, want in d28['installed_files'].items():
+        if rel.startswith('usr/share/alsa/ucm2/Qualcomm/x1e80100/'):
+            assert digest(root / rel) == want, f'active D28 UCM {rel}'
     fix = (ucm_live / 'x1e80100.conf').read_text()
     assert 'If.SURFACEPro11' in fix and 'Microsoft Surface Pro( with 5G)?, 11th Edition' in fix, 'D28 DMI match absent'
     assert 'SP11-Audio.conf' not in fix, 'legacy verb replacement remains'

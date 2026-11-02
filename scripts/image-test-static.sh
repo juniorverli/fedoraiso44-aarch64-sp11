@@ -190,7 +190,7 @@ fi
 titles=$(grep -o -E "^[[:space:]]*(menuentry|submenu) '[^']*'" "$cfg_esp" | sed -E "s/^[[:space:]]*(menuentry|submenu) '//;s/'\$//")
 if [ "$builder" = kiwi ]; then
 	# M15: one FLAT static menu (M13 style), twelve entries, no submenu
-	expect=$'SP11 debug\nSP11 debug, safe (no GPU)\nSP11 debug, no sound\nSP11 debug, touch off\nSP11 debug, speakers (gated)\nSP11 debug, USB + DSP trace\nSP11 debug, no early DSP\nSP11 debug, Wi-Fi unblock probe\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nSP11 debug, Spectra camera test\nVM test (no devicetree)'
+	expect=$'SP11 debug\nSP11 debug, safe (no GPU)\nSP11 debug, no sound\nSP11 debug, touch off\nSP11 debug, speakers (closed-loop experiment; private)\nSP11 debug, USB + DSP trace\nSP11 debug, no early DSP\nSP11 debug, Wi-Fi unblock probe\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nSP11 debug, Spectra camera test\nVM test (no devicetree)'
 	nentries=12
 else
 	expect=$'SP11 debug\nSP11 debug + DRM trace\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)'
@@ -568,15 +568,15 @@ if [ "$builder" = kiwi ]; then
 	else fail 8.40 "UCM lookup failed ($(tail -n 2 "$W/ucm-lookup.txt" | tr '\n' ';' | cut -c1-200))"; fi
 	# M15 integration of the finished pieces: sensors packages/units/rules/permissions, audio route layer and gain, cameras and Spectra payloads, libcamera, volume tool, CDSP variants
 	if python3 -I "$REPO/image/tools/check-m15-integration.py" "$ROOT" "$LREPO" "$rec" >"$W/m15-integration.txt" 2>&1; then
-		pass 8.44 "M15 integration: current sensor collector and sensor RPMs (hexagonrpcd -s as user hexagonrpcd, ADSP node fastrpc 0660, no 0666, adsprpcd not masked, iio-sensor-proxy with ssc-accel), audio route layer (HDMI0/HDMI1, SP11-Audio, gain step 98 capped, WirePlumber, dconf, alsaucm), camera and Spectra collectors, Spectra module for the image kernel (vermagic), libcamera ($(jq_ .libcamera_source)), volume tool on demand, CDSP variants for the tri-state keep_proxy_pds"
+		pass 8.44 "M15 integration: current sensor collector and sensor RPMs (hexagonrpcd -s as user hexagonrpcd, ADSP node fastrpc 0660, no 0666, adsprpcd not masked, iio-sensor-proxy with ssc-accel), audio route layer (D28 Speaker/Mic/HDMI0/HDMI1, gain step 98 capped, WirePlumber, dconf, alsaucm), camera and Spectra collectors, Spectra module for the image kernel (vermagic), libcamera ($(jq_ .libcamera_source)), volume tool on demand, CDSP variants for the tri-state keep_proxy_pds"
 	else fail 8.44 "M15 integration validation failed ($(tail -n1 "$W/m15-integration.txt" | cut -c1-200))"; fi
-	# audio-mics tests against the files shipped in the image: the sources the tests read are byte-identical to the ISO files (8.44), the gain check runs on the ISO's SP11-MicGain.conf
+	# Historical audio-mics fixture tests and the shipped gain file; active D28 routes are checked in 8.44.
 	if cmp -s "$ROOT/usr/share/alsa/ucm2/Qualcomm/x1e80100/SP11-MicGain.conf" "$LREPO/hardware/audio-mics/userspace/overlay-audio-routes/usr/share/alsa/ucm2/Qualcomm/x1e80100/SP11-MicGain.conf" &&
 	   sh "$LREPO/hardware/audio-mics/userspace/tests/mic-gain-check.sh" >"$W/mic-gain.txt" 2>&1; then
 		ucm_ok=0
 		ln -sfn "$LREPO/hardware" /hw; mkdir -p /work
 		sh "$LREPO/hardware/audio-mics/userspace/tests/ucm-routes-test.sh" >"$W/ucm-routes.txt" 2>&1 && grep -q '^ALL PASS' "$W/ucm-routes.txt" && grep -q '^PASS.*safe Mic activation has no speaker controls' "$W/ucm-routes.txt" && ucm_ok=1
-		[ "$ucm_ok" = 1 ] && pass 8.45 "audio-mics tests on the shipped route files: safe Mic avoids WSA controls, mic-gain-check (default +14 dB = step 98, cap 108) and ucm-routes-test ($(grep -c '^PASS' "$W/ucm-routes.txt") PASS, ALL PASS)" || fail 8.45 "ucm-routes-test failed ($(grep '^FAIL' "$W/ucm-routes.txt" | head -n 2 | tr '\n' ';' | cut -c1-200))"
+		[ "$ucm_ok" = 1 ] && pass 8.45 "audio-mics historical route fixture: safe Mic avoids WSA controls; shipped mic-gain-check (default +14 dB = step 98, cap 108) and ucm-routes-test ($(grep -c '^PASS' "$W/ucm-routes.txt") PASS, ALL PASS)" || fail 8.45 "ucm-routes-test failed ($(grep '^FAIL' "$W/ucm-routes.txt" | head -n 2 | tr '\n' ';' | cut -c1-200))"
 	else fail 8.45 "mic-gain-check failed or the shipped SP11-MicGain.conf differs from the source ($(tail -n 1 "$W/mic-gain.txt" | cut -c1-150))"; fi
 	if python3 -I "$REPO/image/tools/test-d28-build-gate.py" >"$W/d28-build-gate.txt" 2>&1; then
 		pass 8.46 "D28 gate/record policy: private accepts pinned source/topology with runtime fields absent or false and records unvalidated; public requires all seven fields true"
