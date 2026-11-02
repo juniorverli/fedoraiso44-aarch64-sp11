@@ -224,8 +224,6 @@ ln -sf /usr/lib/systemd/user/sp11-audio-safety.service "$desc/root/etc/systemd/u
 # Compile the locked distro dconf database after kiwi has installed dconf,
 # before Fedora's config.sh exits.
 sed -i '$i # SP11 M11: compile the locked GNOME volume policy.\ndconf update' "$desc/config.sh"
-# D28 uses the single DMI-selected profile on safe and debug. The obsolete entry-time selector is not enabled.
-rm -f "$desc/root/etc/systemd/system/sysinit.target.wants/sp11-speaker-ucm.service"
 # M15: the gpu worker's two-step diagnostic (hardware/gpu/collector) is ENABLED (multi-user.target.wants, preset `enable`) and runs only through the owner
 # unit's ConditionKernelCommandLine=sp11.gpu_diag=1, an operator-supplied argument absent from every menu entry; the image drop-in orders it before
 # gdm. GRUB is static; the markers are plain files on the boot medium (sp11-boot-state). The machine reset of the first DRM open cannot be prevented here.
@@ -274,7 +272,6 @@ install -m 0755 "$REPO/hardware/bluetooth/collector/sp11-identity-bt" "$desc/roo
 install -m 0644 "$REPO/hardware/bluetooth/collector/sp11-identity-bt-pre.service" "$desc/root/usr/lib/systemd/system/sp11-identity-bt-pre.service"
 ln -sf /usr/lib/systemd/system/sp11-identity-bt-pre.service "$desc/root/etc/systemd/system/sys-subsystem-bluetooth-devices-hci0.device.wants/sp11-identity-bt-pre.service"
 # M14 (d): the NPU installer for the operator's own QAIRT download is private-mode only (below); fastrpc, fastrpc-services and qrtr are packages (sp11.xml)
-chmod 0755 "$desc/root/usr/libexec/sp11/speaker-ucm-enable"
 ln -sf /usr/lib/systemd/system/sp11-bt-address.service "$desc/root/etc/systemd/system/sys-subsystem-bluetooth-devices-hci0.device.wants/sp11-bt-address.service"
 mkdir -p "$desc/root/etc/systemd/system/multi-user.target.wants"
 # Plymouth is installed (required by Fedora's package groups) but switched off: units masked
