@@ -1,0 +1,46 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: cam <cam@x.invalid>
+Date: Mon, 2 Nov 2026 00:00:00 +0000
+Subject: [PATCH] arm64: dts: qcom: x1-microsoft-denali: exclude the unbound IR
+ camera
+
+CAMSS enumerates every described endpoint and waits for all of them
+before it completes registration. The IR sensor VD55G0 has no usable
+driver, so it never binds and CAMSS creates no sensor media links for
+any of the three cameras. The rear OV13858 and the front IMX681 bind,
+but with zero links, and userspace sees no camera.
+
+Remove the IR endpoint from CAMSS port 0 and disable the IR sensor node
+and its CCI0 bus 0, so that registration covers the two RGB sensors
+only: rear on CCI0 bus 1 and front on CCI1 bus 1. The fragment is
+included only by the m15-safe fallback and the variants that build on
+it, not by the packaged DTS.
+---
+ arch/arm64/boot/dts/qcom/x1-microsoft-denali-camera-no-ir.dtsi | 16 ++++++++++++++++
+ 1 file changed, 16 insertions(+)
+ create mode 100644 arch/arm64/boot/dts/qcom/x1-microsoft-denali-camera-no-ir.dtsi
+
+diff --git a/arch/arm64/boot/dts/qcom/x1-microsoft-denali-camera-no-ir.dtsi b/arch/arm64/boot/dts/qcom/x1-microsoft-denali-camera-no-ir.dtsi
+new file mode 100644
+index 000000000..4110dd284063
+--- /dev/null
++++ b/arch/arm64/boot/dts/qcom/x1-microsoft-denali-camera-no-ir.dtsi
+@@ -0,0 +1,16 @@
++// SPDX-License-Identifier: BSD-3-Clause
++/* Exclude the unsupported IR endpoint from CAMSS's async notifier. */
++&camss {
++	ports {
++		/delete-node/ port@0;
++	};
++};
++
++&ir_camera {
++	status = "disabled";
++	/delete-node/ port;
++};
++
++&cci0_i2c0 {
++	status = "disabled";
++};
+--
+2.43.0

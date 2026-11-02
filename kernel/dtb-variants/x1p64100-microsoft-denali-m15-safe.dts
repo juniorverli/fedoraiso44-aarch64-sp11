@@ -2,7 +2,8 @@
 /*
  * M15 fallback / safe mode (no GPU): complete functional system with
  * audio (speakers with D26 open-loop protection, microphones, DisplayPort audio),
- * cameras (rear OV13858, front IMX681, IR VD55G0), LCD, Wi-Fi, and Bluetooth.
+ * cameras (rear OV13858 and front IMX681, RGB only; the unbound IR VD55G0 is
+ * excluded from the CAMSS graph), LCD, Wi-Fi, and Bluetooth.
  * GPU disabled (safe from GPU bring-up resets / hangs).
  * Built by the kernel DTB variants script; not a patch, not part of the RPM.
  */
@@ -61,3 +62,11 @@
 &cci1_i2c1 {
 	status = "okay";
 };
+
+/*
+ * M16.4 (cameras 0022): CAMSS enumerates every described endpoint before completing registration.
+ * The IR sensor VD55G0 has no usable driver, so it never binds and the notifier leaves both RGB
+ * sensors with zero media links. Drop the IR endpoint from CAMSS, disable its node and its CCI0
+ * bus 0; the rear OV13858 (CCI0 bus 1) and front IMX681 (CCI1 bus 1) stay enabled.
+ */
+#include "x1-microsoft-denali-camera-no-ir.dtsi"
