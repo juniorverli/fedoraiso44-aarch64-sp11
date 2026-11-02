@@ -2,7 +2,7 @@
 
 ## 1. Summary
 
-Three cameras behind the Qualcomm CAMSS/Spectra ISP: front Sony IMX681 (Windows Hello RGB), rear OmniVision OV13858, IR STMicro VD55G0 with an IR illuminator, plus flash and privacy LED. Linux 7.3 has CAMSS support code for this SoC and two of the three sensor drivers, but no CAMSS node in the DT. Status: `designed` (camera-enabled boot is unsafe pending a CCI completion fix and device validation; the reported M16 DIE is not yet attributed).
+Three cameras behind the Qualcomm CAMSS/Spectra ISP: front Sony IMX681 (Windows Hello RGB), rear OmniVision OV13858, IR STMicro VD55G0 with an IR illuminator, plus flash and privacy LED. Linux 7.3 has CAMSS support for this SoC and an OV13858 driver; this series adds camera DT and an IMX681 driver. Status: `testing` (M16 safe boot probes both RGB sensors, but the media graph lacks sensor links and no camera is usable yet).
 
 ## 2. Hardware
 
@@ -92,7 +92,8 @@ Why CAMSS cannot do the RGB stage on this SoC (Verified, 2026-10-24):
 | privacy LED binding/arbitration | Patch 0020 adds shared `led_classdev` user counting in the V4L2 core; GPIO225 LED node remains disabled; exact GPIO-to-camera mapping remains inference pending independent cross-check (see `evidence/2026-11-01-shared-privacy-led.md`) |
 | RAW Bayer frames need an RGB stage (demosaic, AWB, CCM, gamma) | libcamera Software ISP with per-sensor tuning; Spectra hardware ISP later |
 | VD55G0 has no matching driver | Keep unbound; add support only after model and register map are verified |
-| CCI reset uses an uninitialized master 0 completion when only master 1 is enabled | Patch 0021 initializes every master completion; kernel integration, object build and device validation remain; see [M16 evidence](evidence/2026-11-01-m16-safe-camera-die.md) |
+| CCI reset uses an uninitialized master 0 completion when only master 1 is enabled | Patch 0021 initializes every master completion; revision-15 safe boot reaches camera probe, race coverage remains |
+| Unbound IR endpoint likely stalls CAMSS async completion and prevents RGB sensor links | Exclude the IR graph from RGB DTs using `dtb-variants/x1-microsoft-denali-camera-no-ir.dtsi`; device validation pending |
 | IR illuminator safety (risk S2) | Never described in any DT; stays off |
 
 ## 6. Open questions
@@ -114,7 +115,10 @@ Why CAMSS cannot do the RGB stage on this SoC (Verified, 2026-10-24):
 
 ## 8. Requests
 
-- **R12 (kernel, urgent):** driver part: **patch 0021 written, awaiting kernel series integration and object build**. Test enabled-child combinations and IRQ/timeout races. The preferred next device test is the CCI fix with cameras **KEPT ENABLED** in m15-safe, as requested by the operator. Keep the reviewable [m15-safe camera gate](m16-safe-camera-gate.diff) as the recovery fallback only if the fixed boot still dies; validate compiled effective statuses if using it. The main `m15.dts` inherits this gate; spectra has its own separate downstream stack. Historical camera-enabled debug variants can trigger the same CCI defect and need explicit warnings/gating. The fix does not validate the camera stack or privacy wiring. See [evidence and controlled test plan](evidence/2026-11-01-m16-safe-camera-die.md).
+- **R13 (kernel, urgent):** apply `dtb-variants/x1-microsoft-denali-camera-no-ir.dtsi` after camera nodes to every camera-enabled CAMSS DT including m15-safe and inherited variants. It removes both IR graph ends and disables CCI0 bus 0 and the IR node. Keep both RGB endpoints enabled only when both sensor drivers and blobs are present; otherwise use the corrected rear-only variant. Confirm effective compiled DT statuses, endpoint phandles, `CONFIG_VIDEO_V4L2_SUBDEV_API`, and DT schema checks. Do not apply this CAMSS graph recipe blindly to the separate Spectra stack. Confirm patch 0021 and 0020 integration and run the shared LED KUnit suite when scheduled. See [M16 probe evidence](evidence/2026-11-02-m16-safe-camera-probe.md).
+- **R14 (image):** retain private RGB register blobs and Fedora libcamera SoftISP, IPA, tools, PipeWire and Snapshot; verify the image carries both `userspace/quality/libcamera-sp11.patch` and `libcamera-sp11-imx681-helper.patch`, generated sensor tuning and matching runtime IPA. Report actual installed tuning/helper coverage and packaging provenance. Blob presence alone does not establish correct colour or camera operation. Preserve the camera collector.
+
+- **R12 (kernel, historical):** patch 0021 was requested for integration and the revision-15 safe boot now reaches camera enumeration; confirm its exact build provenance and exercise IRQ/timeout races. Test enabled-child combinations and IRQ/timeout races. The camera-enabled safe boot result is now recorded in the M16 probe evidence; use R13 for the next graph fix. Keep the reviewable [m15-safe camera gate](m16-safe-camera-gate.diff) as the recovery fallback only if the fixed boot still dies; validate compiled effective statuses if using it. The main `m15.dts` inherits this gate; spectra has its own separate downstream stack. Historical camera-enabled debug variants can trigger the same CCI defect and need explicit warnings/gating. The fix does not validate the camera stack or privacy wiring. See [evidence and controlled test plan](evidence/2026-11-01-m16-safe-camera-die.md).
 
 - R1 (kernel): add `hardware/cameras/patches/0001`-`0005` to `kernel/series` in this order (binding, driver, hamoa DT, Denali LED, Denali rear camera); all five apply on the current full series and the DT checks are clean. Confirm `CONFIG_VIDEO_QCOM_CAMSS`, `CONFIG_I2C_QCOM_CCI`, `CONFIG_VIDEO_OV13858`, `CONFIG_LEDS_GPIO`, `CONFIG_CLK_X1E80100_CAMCC` and `CONFIG_REGULATOR_QCOM_RPMH` in the Fedora-based config. Build `hardware/cameras/dtb-variants/x1p64100-microsoft-denali-cam-rear.dts` as a diagnostic variant (`scripts/kernel-dev.sh <id> variant`, tested with `--check`: clean). The driver patch 0002 has never been compiled.
 - R2 (operator, next boot): run the collector in `test-plan.md`; no `i2cdetect`.
@@ -128,6 +132,8 @@ Why CAMSS cannot do the RGB stage on this SoC (Verified, 2026-10-24):
 - R11 (orchestrator): independently cross-check camera-to-privacy-LED GPIO mapping before enabling camera DT nodes; patch 0020 intentionally contains no GPIO values.
 
 ## 9. Log
+
+- 2026-11-02: safe boot binds both RGB sensors; unbound IR endpoint likely prevents CAMSS completion and sensor links, so prepared RGB-only and rear-only DT exclusions and requested integration; streams and indicators remain unverified.
 
 - 2026-10-23: dossier created from the static survey.
 - 2026-10-24: RAW-to-RGB requirement recorded; OV13858 Bayer order verified.
