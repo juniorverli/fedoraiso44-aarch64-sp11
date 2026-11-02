@@ -14,7 +14,7 @@
   "hooks_sha256": "0e9831e0b3b1bd60de54e26c136dadec5a233bb2d9ceaf7874e0bdbf08e29b03",
   "installed_script_sha256": "6dd82cc198b8372d445ec072aa08172162a6109189c6e64f96a1085339657788",
   "unit_sha256": "5f4e927db1f0e6713346c1882239dbd0f7527f591adaf1fad2cce6ad96192d3a",
-  "image_changes": "label list gains BOOT; hook functions inserted before the main section; the GPU test aborts before power-up if its testing marker cannot be persisted; state-helper lock wait is bounded to 10 seconds; four hook call sites; forced-quote awk transformation is pinned and executed in builder preflight; M15: ENABLED only through sp11.gpu_diag=1 on line 1; state uses plain files on boot medium (S4)",
+  "image_changes": "label list gains BOOT; hook functions inserted before the main section; the GPU test aborts before power-up if its testing marker cannot be persisted; state-helper lock wait is bounded to 10 seconds; four hook call sites; forced-quote awk transformation is pinned and executed in builder preflight; M15: ENABLED only through sp11.gpu_diag=1 when manually supplied; state uses plain files on boot medium (S4)",
   "transform_sha256": "5117534060903f51b92ebf31f131df0fd1fa055811cdb779a457df43de785f55"
  },
  "dsp_collector_sha256": "82a1d919198f0702dc5c69998c45ca91015ab64e9212bc795119cf351fe4fb47",
@@ -74,14 +74,15 @@
    "sp11/cpufreq-uncapped": "lifts the default cpufreq cap",
    "sp11/disable-cdsp-experiment": "turns the CDSP experiment off",
    "sp11/touch-conf-A": "iptsd profile A (default is B)",
-   "sp11/enable-thermal-sample": "enables sp11-thermal-sample.service (drop-in; no kernel argument)"
+   "sp11/enable-thermal-sample": "enables sp11-thermal-sample.service (drop-in; no kernel argument)",
+   "sp11/cdsp-experiment": "opts in to the CDSP experiment on debug boots"
   },
   "kernel_requests": [
    "qcom_q6v5_pas keep_proxy_pds permission 0444 -> 0644 (runtime toggle; without it the CDSP experiment skips variants 2 and 3)"
   ]
  },
  "menu": {
-  "line1": "SP11 debug: DTB m15 (microphones + cameras + GPU/GMU/zap), constant sp11.gpu_diag=1",
+  "line1": "SP11 debug: DTB m15 (microphones + cameras + GPU/GMU/zap), no automatic GPU diagnostic",
   "line2": "SP11 debug, safe (no GPU, no cameras): DTB m15-safe",
   "dtbs_from_kernel_worker": [
    "m15",

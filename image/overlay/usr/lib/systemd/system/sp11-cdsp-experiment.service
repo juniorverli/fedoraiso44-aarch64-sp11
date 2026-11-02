@@ -1,7 +1,8 @@
 [Unit]
 Description=SP11 CDSP experiment (one variant per boot: firmware pair and keep_proxy_pds, restart of the CDSP after the ADSP is up)
 # M15: runs after the ADSP and CDSP are up (the script waits for them); asynchronous (Type=simple, nothing is ordered after it).
-# Main entry only (sp11.entry=debug), once per boot, guarded by timeouts; counter in a plain file on the boot medium (S4).
+# Main entry only (sp11.entry=debug); script requires boot-medium sp11/cdsp-experiment marker, with disable marker override.
+# Once per boot, guarded by timeouts; counter in a plain file on the boot medium (S4).
 After=local-fs.target systemd-udevd.service sp11-sam-mode-rotor.service
 ConditionKernelCommandLine=sp11.entry=debug
 Conflicts=shutdown.target

@@ -203,7 +203,7 @@ done
 mkdir -p "$desc/root/etc/systemd/system/sysinit.target.wants"
 ln -sf /usr/lib/systemd/system/sp11-speaker-ucm.service "$desc/root/etc/systemd/system/sysinit.target.wants/sp11-speaker-ucm.service"
 # M15: the gpu worker's two-step diagnostic (hardware/gpu/collector) is ENABLED (multi-user.target.wants, preset `enable`) and runs only through the owner
-# unit's ConditionKernelCommandLine=sp11.gpu_diag=1, a constant argument of line 1 `SP11 debug` and of no other line; the image drop-in orders it before
+# unit's ConditionKernelCommandLine=sp11.gpu_diag=1, an operator-supplied argument absent from every menu entry; the image drop-in orders it before
 # gdm. GRUB is static; the markers are plain files on the boot medium (sp11-boot-state). The machine reset of the first DRM open cannot be prevented here.
 # Image-owned changes to the owner script, pinned in image/component-inputs/m15.json and required exactly by L0 8.37: (1) the label list gains BOOT (this ISO's embedded ESP label);
 # (2) the hook functions of image/component-inputs/gpu-state-hooks.sh are inserted before the main section; (3) four one-line calls to them.
@@ -231,7 +231,7 @@ for u in sp11-suspend-policy.service sp11-wakeup-policy.service sp11-suspend-dia
 done
 # M15: Linux-side experiments (image-owned; the GRUB menu is static, state is plain files on the boot medium via sp11-boot-state, S4): the SAM
 # shutdown mode rotor, the identity switch (marker sp11/identity-none) and the cpufreq cap (marker sp11/enable-cpufreq-cap) at sysinit/multi-user,
-# the CDSP experiment (main entry only), all shown through operator-notice.
+# the opt-in CDSP experiment (main entry and boot-medium marker), all shown through operator-notice.
 mkdir -p "$desc/root/etc/systemd/system/sysinit.target.wants" "$desc/root/etc/systemd/system/multi-user.target.wants"
 for u in sp11-sam-mode-rotor.service sp11-identity-switch.service sp11-wifi-identity.service; do
 	ln -sf "/usr/lib/systemd/system/$u" "$desc/root/etc/systemd/system/sysinit.target.wants/$u"
@@ -513,8 +513,8 @@ record = {
                       "ucsi_glink": "retained early", "ath12k.debug_mask": "0x70; CONFIG_ATH12K_DEBUG=y; output checked by L0",
                       "scmi_cpufreq": "modules-load.d/sp11-cpufreq.conf (soc-boot R-I2); cap by default, lifted only by the boot-medium marker sp11/cpufreq-uncapped"},
     "menu": "M15 flat static menu, 12 entries, no GRUB function except load_video, no grubenv, no variable: debug (m15 with GPU and cameras), safe (m15-safe), nosnd, notouch, spk, usbdbg, nodsp, wifi-unblock, nomodeset, initramfs, spectra, vmtest",
-    "diagnostic_args_reason": {"debug": "M15 line 1: m15 DTB (microphones + rear/front/IR camera nodes + GPU/GMU/zap), the constant sp11.gpu_diag=1 (two-step before gdm; may reset the machine), USB dynamic debug (usb-typec R-I1), PDR dynamic debug, DSP trace string without power:power_domain_target; nothing variable",
-                               "safe": "m15-safe: microphones only, camera and GPU nodes off (the M13/M14-safe content); the always-booting fallback, line 1 arguments without sp11.gpu_diag",
+    "diagnostic_args_reason": {"debug": "M15 line 1: m15 DTB (microphones + rear/front/IR camera nodes + GPU/GMU/zap), no automatic GPU two-step (manually add sp11.gpu_diag=1; may reset the machine), USB dynamic debug (usb-typec R-I1), PDR dynamic debug, DSP trace string without power:power_domain_target; nothing variable",
+                               "safe": "m15-safe: microphones only, camera and GPU nodes off (the M13/M14-safe content); the always-booting fallback, line 1 arguments except entry marker",
                                "nosnd": "m15-nosnd: sound card off", "notouch": "touch-pen section 8: m15-notouch, touch child disabled",
                                "spk": "speaker FIRST TEST (D26): m15-spk, speaker UCM overlay, sp11.allow_nominal=1 on this entry only; kill switch sp11.nospk (operator edit)",
                                "spectra": "Qualcomm Spectra camera test: m15-spectra DTB, the safe arguments plus module_blacklist=camera_x1e80100 (the kernel then refuses every load of that module); sp11-spectra-load.service loads it only with the marker sp11/spectra-load on the boot medium and without that argument",
@@ -522,10 +522,10 @@ record = {
                                "wifi-unblock": "sp11.wifi_unblock=1 on m15-safe", "nomodeset": "nomodeset on m15-safe", "initramfs": "rd.break=pre-mount on m15-safe", "vmtest": "L1 only, no devicetree"},
     "linux_side_experiments": {"sam_mode_order": "silent, clean, quiet, default (sp11-sam-mode-rotor.service; counter sp11_sam_counter in sp11/state/ on the boot medium)",
                "cdsp_variants": ["fw=c1-00078 keep_proxy_pds=0 forced", "fw=c1-00046.1 keep_proxy_pds=default (-1: votes kept)", "fw=c1-00046.1 keep_proxy_pds=0 forced", "fw=c1-00078 keep_proxy_pds=default (-1: votes kept)"],
-               "cdsp_mechanism": "sp11-cdsp-experiment.service: main entry only, once per boot, restart of the cdsp remoteproc with keep_proxy_pds and the firmware directory; counter sp11_cdsp_counter",
+               "cdsp_mechanism": "sp11-cdsp-experiment.service: main entry with boot-medium sp11/cdsp-experiment marker only, once per boot, restart of the cdsp remoteproc with keep_proxy_pds and the firmware directory; counter sp11_cdsp_counter",
                "identity_switch": "marker sp11/identity-none on the boot medium (private ISO); sp11-identity-switch.service",
                "cpufreq_cap": "cap applies BY DEFAULT (schedutil, median scaling_max_freq); marker sp11/cpufreq-uncapped lifts it (S6); sp11-cpufreq-cap.service",
-               "gpu_two_step": "enabled; runs only with sp11.gpu_diag=1 (line 1 only); plain-file markers on the boot medium"},
+               "gpu_two_step": "enabled; runs only with manually supplied sp11.gpu_diag=1; plain-file markers on the boot medium"},
     "collector_sources": {c: sha256(f"{repo}/hardware/{c}/collector/{c}.sh") for c in ("dsp-subsystems", "wifi")},
     "m15_inputs": json.load(open(f"{repo}/image/component-inputs/m15.json")),
     "m15_integration": json.load(open(f"{repo}/image/component-inputs/m15-integration.json")),

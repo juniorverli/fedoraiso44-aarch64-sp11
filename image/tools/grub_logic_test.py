@@ -6,7 +6,7 @@ Usage: grub_logic_test.py [--cfg RENDERED_GRUB_CFG]     (no argument: render the
 1. renders image/kiwi/overlay/grub-arm.cfg.iso-template like kiwi does (string.Template) with typical values;
 2. grub2-script-check accepts it (local binary, else inside the container of scripts/image-container.sh);
 3. image/tools/check-m8-menu.py accepts it (the policy: flat, no function but load_video, no load_env/save_env/variable/submenu, fixed DTBs);
-4. mutants: a GRUB function, a load_env, a variable DTB, a submenu, a separate GPU DTB, gpu_diag off line 1 or on another line, a rotor argument must each be REJECTED by the policy checker.
+4. mutants: a GRUB function, a load_env, a variable DTB, a submenu, a separate GPU DTB, gpu_diag on any entry, a rotor argument must each be REJECTED by the policy checker.
 No QEMU, no ISO, no GRUB environment block: nothing to simulate. Exit status 0 only when everything passes.
 """
 import argparse
@@ -82,7 +82,7 @@ def main():
         "a submenu": cfg.rstrip() + "\nsubmenu 'x' {\n}\n",
         "a separate GPU DTB": cfg.replace("denali-m15-nosnd.dtb", "denali-m15-gpu.dtb", 1),
         "sp11.gpu_diag=1 on safe": cfg.replace("sp11.entry=safe", "sp11.gpu_diag=1 sp11.entry=safe", 1),
-        "no sp11.gpu_diag=1 on line 1": cfg.replace("sp11.gpu_diag=1 sp11.entry=debug", "sp11.entry=debug", 1),
+        "sp11.gpu_diag=1 on debug": cfg.replace("sp11.entry=debug", "sp11.gpu_diag=1 sp11.entry=debug", 1),
         "a GRUB-chosen GPU DTB argument": cfg.replace("sp11.entry=nosnd", "sp11.gpu_dtb=m15 sp11.entry=nosnd", 1),
         "a rotor argument": cfg.replace("sp11.entry=nosnd", "sp11.cdsp_variant=1 sp11.entry=nosnd", 1),
         "firmware_class.path": cfg.replace("sp11.entry=notouch", "firmware_class.path=/x sp11.entry=notouch", 1),

@@ -88,8 +88,7 @@ def check(root, repo, record):
               'sp11-suspend-policy.service', 'sp11-wakeup-policy.service', 'sp11-suspend-diag.service', 'sp11-thermal-sample.service'):
         assert f'enable {u}' in preset, f'preset lacks {u}'
     gd = [e['title'] for e in record['grub_entries'] if 'sp11.gpu_diag' in (e['linux_args'] or '')]
-    assert gd == ['SP11 debug'], f'sp11.gpu_diag=1 only on line 1: {gd}'
-    assert 'sp11.gpu_diag=1' in record['grub_entries'][0]['linux_args'].split(), 'gpu_diag missing on line 1'
+    assert not gd, f'GPU diagnostic must be opt-in: {gd}'
     assert not any('sp11.gpu_dtb' in (e['linux_args'] or '') for e in record['grub_entries']), 'GPU DTB argument in the M15 menu'
     assert 'RESET THE MACHINE' in hooks.read_text() and 'line 2' in hooks.read_text(), 'GPU hooks lack the plain reset warning'
     assert 'sp11-boot-state' in hooks.read_text() and 'grubenv' not in hooks.read_text().replace('no grubenv', ''), 'GPU hooks must use the boot-state helper only'
@@ -154,6 +153,8 @@ def check(root, repo, record):
     for needle in ('shutdown_mode', 'sp11_sam_counter', 'sp11-boot-state', 'SAM shutdown mode for this boot:', 'add 10-sam'):
         assert needle in sam, f'SAM rotor lacks {needle}'
     cd = (root / 'usr/libexec/sp11/cdsp-experiment').read_text()
+    assert 'if ! "$BS" marker cdsp-experiment 2>/dev/null; then' in cd, "CDSP opt-in marker guard missing"
+    assert cd.index('marker cdsp-experiment') < cd.index('twrite "$cd_dir/state" stop'), "CDSP marker guard too late"
     for needle in ('sp11_cdsp_counter', 'keep_proxy_pds', 'FULL POWER-OFF', 'NOT a reboot', 'firmware-sp11-cdsp46', 'twrite "$cd_dir/state" stop', 'twrite "$cd_dir/state" start', 'mkdir "$RUN/cdsp-experiment.lock"', 'sp11.entry', 'WAIT_STATE', 'firmware_class/parameters/path'):
         assert needle in cd, f'CDSP experiment lacks {needle}'
     cf = (root / 'usr/libexec/sp11/cpufreq-cap').read_text()
