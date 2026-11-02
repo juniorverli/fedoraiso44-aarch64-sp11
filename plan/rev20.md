@@ -93,6 +93,7 @@ The audio and microphone test must be the **first** action on a clean safe boot,
 
 One variable per boot, in this order, stopping at the first failure:
 
+0. **Camera-disabled LED map (before any stream):** boot the safe entry with `module_blacklist=imx681,ov13858` so the gpio-leds are not claimed by the V4L2 privacy path. Set each LED's brightness to 1 and 0 (`/sys/class/leds/white:indicator` and `white:indicator-1`) and record which physical indicator lights (front near the user camera vs rear). This is the independent camera-to-indicator wiring cross-check; no stream and no manual simulation of a streaming LED. Reboot without the blacklist afterwards.
 1. **Safe baseline:** no camera app, no audio test. Confirm boot, caps, collector, kmsg debug-only, no oops.
 2. **Safe audio/microphone only:** clean boot, no camera app. Verify muted state, caps_ready, PA 6, ceiling; unmute and play a known tone; record the stereo microphone RMS/peak and channel order.
 3. **Safe camera graph only:** no stream; collect media graph, video nodes, formats, `cam -l`, camera collector.
