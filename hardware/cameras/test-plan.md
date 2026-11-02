@@ -1,18 +1,17 @@
-# Cameras test plan: front first, rear second
+# Cameras test plan: rear mapping first, then front C-PHY
 
-Revision 19 safe boot already reported a complete RGB graph but oopsed at CSIPHY stream-on; see [mapping evidence](evidence/2026-11-02-csiphy-mapping-oops.md). Test the revision 20 kernel with corrected patch 0003 and the RGB-only, no-IR graph. Do not scan the CCI buses with `i2cdetect`. The IR sensor and endpoint remain excluded; the IR illuminator, flash and sensor strobe must stay off (S2). Use the operator's live USB, and retain raw logs and frames privately under `out/`.
+Revision 19 reached both RGB sensor links and oopsed at CSIPHY stream-on. Revision 20 corrects the mapping and is expected to stop the front stream at the known C-PHY clock error; revision 21 adds patch 0023. See [mapping evidence](evidence/2026-11-02-csiphy-mapping-oops.md) and [C-PHY clock evidence](evidence/2026-11-02-cphy-clock-fix.md). This is a plan, not a device result. Keep the IR sensor/endpoint excluded and the IR illuminator, flash and sensor strobe off (S2). Do not scan CCI buses with `i2cdetect`; retain raw logs and frames privately under `out/`.
 
-Before any stream, independently cross-check the camera-to-indicator wiring and its polarity (dossier request R11); confirm the effective DT assigns the privacy LED to both sensors. The V4L2 core already obtains and controls this LED on stream (`v4l2-fwnode.c:1275`, `v4l2-subdev.c:173-186,490-500`); patch 0020 adds shared-LED accounting. Observe the physical indicator throughout each stream and stop immediately if it is not on. Verify it turns off after the last stream. Do not manually force LED brightness to simulate this test.
+## Before any stream
 
-## Before boot
-
-- Integrate the corrected camera patch series including 0003, 0020, 0021 and the IR exclusion 0022; use the camera-enabled safe entry and verify effective DT endpoints and statuses. Keep BTF enabled. Confirm the four CSIPHY `reg` sizes are `0x2000` and full VFE sizes `0xf000` in the compiled image DTB.
-- Include both private sensor register blobs, Fedora libcamera with SoftISP, sensor helpers and tuning, `cam`, `qcam`, PipeWire/portal integration, `media-ctl` and `v4l2-ctl`. Report exact tuning/helper coverage; presence of a blob does not prove image quality.
-- Install the read-only camera collector and preserve its timeout/incomplete markers. Record the kernel/DTB/image revisions and the capture application versions.
+- Use the correct kernel/DTB and RGB-only camera graph; verify the four CSIPHY windows are `0x2000` and full VFE windows `0xf000`. For rev21, integrate 0023 **after** the complete rev20 camera series. Retain BTF in the packaged kernel.
+- Complete the independent camera-to-indicator wiring/polarity cross-check first. On a camera-disabled boot, blacklist `imx681,ov13858` and separately turn the two gpio-leds on and off to map each physical indicator, as in `plan/rev20.md` §3. Reboot with drivers enabled. This idle wiring check must not be mistaken for a streaming LED test.
+- Verify each RGB sensor's effective DT references its own privacy LED. Observe the mapped physical indicator during every stream and stop immediately if it stays dark; verify it goes off after the last stream. The V4L2 core controls the indicator after successful sensor `s_stream`; never force it to simulate streaming.
+- Check the installed private sensor blobs, Fedora libcamera SoftISP, IMX681/OV13858 sensor helpers, IPA and their matching tuning files. Record package versions and actual file coverage; presence is not evidence of correct colour. Keep the read-only collector and its timeout markers.
 
 ## Graph and enumeration
 
-Run before starting a camera application; save output and failures:
+Before starting any camera application, save output and failures:
 
 ```sh
 for m in /dev/media*; do [ -e "$m" ] && media-ctl -d "$m" -p; done
@@ -22,20 +21,32 @@ cam -l
 journalctl -k -b | grep -Ei 'camss|csiphy|csid|vfe|imx681|ov13858|cci|privacy|oops|fault'
 ```
 
-Confirm `imx681 8-0010` has an enabled immutable sensor link to `msm_csiphy2` and `ov13858 7-0010` to `msm_csiphy1`, as seen in revision 19. Adapter numbers may change on another boot: identify by sensor and link, not number alone. CSIPHY-to-CSID and CSID-to-VFE links can start disabled until libcamera configures a route. There must be no IR sensor link or endpoint. `cam -l` must list the front IMX681 first and the rear OV13858 second; confirm the portal/default app also selects the front. If graph links, enumeration, ordering or the LED safety prerequisite fail, collect evidence and stop before streaming.
+Confirm IMX681 has an enabled immutable sensor link to `msm_csiphy2` and OV13858 to `msm_csiphy1`; adapter numbers may change. CSIPHY-to-CSID and CSID-to-VFE links may initially be disabled. No IR endpoint or sensor link may be present. Record camera order, `Location::Front`, portal/default selection and actual application behavior; a universal portal default is not assumed. Stop before streaming if the graph or privacy prerequisite fails.
 
-## Stream and capture
+## Rear stream, then front stream
 
-1. Start `qcam` and open its first/default camera, IMX681. Verify the physical privacy LED remains on throughout the stream. Capture an RGB/YUV frame through libcamera and save it privately. Record resolution, format, frame count, timing, exposure and whether the image has sensible colours. Check that the portal/default app opens this same front camera. If preview, LED or capture fails, stop and save the error and kernel log.
-2. Stop the stream, check the LED turns off, then use `qcam` or `cam` to explicitly select the second camera, OV13858. Repeat the LED, RGB/YUV preview and saved-frame checks. Inspect `cam --help` for the installed release's camera-selection and file-output syntax; preserve the commands actually used. RAW alone is diagnostic and does not satisfy acceptance.
-3. Re-run `media-ctl -p`, `cam -l` and `journalctl -k -b` after the attempts. There must be no `csiphy_reset` oops, translation fault or other new camera-related oops. Save graph, complete kernel messages, application output, negotiated formats and captured frame metadata. Record regulator state before and after if debugfs is available.
-4. If front streams but has no frame or incorrect colours, inspect its C-PHY trio, negotiated lane/settle/link frequency, sensor mode and SoftISP helper/tuning. For rear, compare negotiated Bayer code with the actual mode: built-in OV13858 mode uses SGRBG10, Windows blob modes use SBGGR10; front Windows data indicates SRGGB10, but physical Bayer order still needs capture verification. Use a colour target. Capture diagnosis must not bypass the indicator gate.
+1. Select the rear OV13858 explicitly first. Watch the mapped rear indicator, capture an RGB/YUV frame through libcamera, and stop immediately if the LED is dark. Record app, command, format, dimensions, frame count, colour and logs; check the LED turns off after stopping. This tests the revision-20 mapping fix on D-PHY. Stop on a fault or oops.
+2. Select the front IMX681 explicitly. On revision 20, record the expected `Pixel clock is too high for CSIPHY` error and stop; do not count a front frame. On revision 21, enable CAMSS dynamic debug as below, then start the stream while watching the front indicator and sample clocks while it remains active. Stop immediately if the LED stays dark. Save RGB/YUV through libcamera, format, size, frame count and colour; RAW capture alone is a diagnostic, not acceptance. Verify LED off after stop.
+3. Re-run the graph, `cam -l` and kernel log checks; collect the camera log after each attempt. There must be no CSIPHY reset oops, translation fault or new camera oops. Use the image's installed `cam --help`/`qcam` interface to select cameras and save frames, and record exact commands. For colour diagnosis use a colour target: front Windows mode data indicates SRGGB10, while rear built-in mode uses SGRBG10 and Windows blob modes use SBGGR10. Physical Bayer output and SoftISP tuning still require verification.
 
-If needed for RAW diagnostics, use `media-ctl` to inspect actual entity names and pad numbers, enable the chosen CSIPHY → CSID → VFE RDI path and set matching pad formats; use `v4l2-ctl` only on the corresponding video node and record the negotiated pixel format. Device numbers and pad routes are not stable. Do not operate IR or flash.
+## Revision 21 C-PHY clock and CSID checks
+
+With debugfs and dynamic debug available, before starting the front stream enable the module's debug statements and preserve the kernel log. `qcom_camss` is the module name; if it is built in or dynamic debug is absent, record that limitation rather than assuming the lines exist.
+
+```sh
+sudo sh -c 'echo "module qcom_camss +p" > /sys/kernel/debug/dynamic_debug/control'
+journalctl -kf
+# In a separate terminal, while the observed front stream is active:
+sudo grep -E 'cam_cc_(cphy_rx_clk_src|csiphy2_clk|csi2phytimer_clk|csid_clk|csid_csiphy_rx_clk)' /sys/kernel/debug/clk/clk_summary
+```
+
+The configured link frequency is 1.2 GHz, corresponding to 2.4 Gsym/s and approximately 5.472 Gbit/s per trio using Qualcomm's 2.28 approximation. Patch 0023 requests `csiphy2` **480 MHz**, `csiphy2_timer` **400 MHz**, and `csid` and `csid_csiphy_rx` **480 MHz**. Compare dynamic-debug request lines with active `clk_summary` rates, clock parent and enable counts. `csiphy2` and `csid_csiphy_rx` share the CPHY RX source; a debug line is a request, not a rate readback. Save the full summary if naming or rate differs. Check for rate/clock errors and absence of the old pre-reset `Pixel clock is too high for CSIPHY` failure.
+
+Record the negotiated RAW data type and VC. For VC 0 and RAW10 (`0x2b`), the C-PHY capture-control debug write is expected to be `0x2b002b5`; disable writes zero. These are header diagnostic selectors, not the RDI payload routing or proof of a register readback. Verify the media route and incoming frame counters separately. Do not use `devmem` or write CSID/PHY registers to perform this check. Also record any PHY/CSID IRQ, lane, settle, ECC or CRC errors and sensor `s_stream` errors. Repeat the rear D-PHY stream after the front test to check for regressions; concurrent front/rear streaming and shared-clock arbitration are separate, currently unproven tests.
 
 ## Acceptance
 
-- Front IMX681 enumerated first and selected by default in libcamera/portal; rear OV13858 second.
-- Both cameras deliver saved, correctly coloured RGB/YUV frames through libcamera, front tested first.
-- The physical privacy indicator is on for every stream and off after the last stream; wiring cross-check completed.
-- No CSIPHY reset oops or other new camera oops; the IR node/endpoint is excluded, and the IR illuminator and flash stay off.
+- Wiring/polarity cross-check completed; privacy indicator on throughout every sensor stream and off after the last stream.
+- Both cameras are selectable, front is identified as front, and both deliver saved RGB/YUV frames with sensible colours through libcamera. Record actual enumeration and portal behavior; RAW alone does not count.
+- Revision 21 front requests and observed active clocks match the rates above or any difference is explained by clock readback and shared-parent state; CSID C-PHY header selector and route are recorded.
+- No CSIPHY reset or other new camera oops; IR endpoint remains excluded and IR illuminator and flash remain off.

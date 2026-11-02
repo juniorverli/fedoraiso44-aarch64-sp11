@@ -89,7 +89,7 @@ The current graded upstream and Windows comparison is in [2026-11-02 upstream ga
 |:--|:--|
 | no CAMSS/CCI node in hamoa.dtsi; CSIPHY mapping too short in rev19 | Patch 0003 adds disabled nodes and fixes PHY and full-VFE sizes; corrected DTB compiled, schema validation pending |
 | IMX681 driver | Patch 0016 and private register data bind; C-PHY, modes and image quality remain untested |
-| C-PHY support for the front camera | Patches 0006–0010 implement a legacy-CSIPHY path; compare with the posted standalone PHY API series and validate on device |
+| C-PHY support for the front camera | Patches 0006–0010 implement the legacy-CSIPHY path; rev21 patch 0023 selects Hamoa nominal clocks and configures CSID header capture. Object build passed; rates, streaming and posted-series reconciliation remain open |
 | sensor power/reset/clock wiring from ACPI | Rear: patch 0005 (Windows sequence). Front and IR: after the IMX681 and VD55G0 drivers exist |
 | privacy LED binding/arbitration | V4L2 core already controls the sensor privacy LED on stream; patch 0020 adds shared `led_classdev` user counting. Rev19 DT references the indicator for both sensors, but GPIO-to-camera mapping and visible streaming operation need independent cross-check and device test |
 | RAW Bayer frames need an RGB stage (demosaic, AWB, CCM, gamma) | libcamera Software ISP with per-sensor tuning; Spectra hardware ISP later |
@@ -117,6 +117,11 @@ The current graded upstream and Windows comparison is in [2026-11-02 upstream ga
 
 ## 8. Requests
 
+- **R19 (kernel, rev21):** integrate `patches/0023-media-qcom-camss-use-hamoa-cphy-clock-votes.patch` after the complete rev20 camera series, without changing rev20 patch 0003. Preserve BTF, run the integrated build and verify exact patch provenance, D-PHY behavior and shared clock interactions. The local W=1 CAMSS object build passed; independent cross-check and device streaming remain open. See [clock evidence](evidence/2026-11-02-cphy-clock-fix.md).
+- **R20 (sources):** pin Qualcomm Hamoa camera DT at `17bbb4b37bbc4fc5827b4667445a0c43967c0f48`, including the `hamoa-camera.dtsi` hash in the clock evidence; pin camera-driver `08171ddc9d6ad81c13e6f1b362248d4736b0e804` and the posted X1E C-PHY PHY/CAMSS series mboxes, including [PHY RFC v3](https://lists.openwall.net/linux-kernel/2026/10/16/2163), with provenance and hashes. Reconcile the posted revisions with patches 0006–0010 and 0023.
+- **R21 (image):** verify the installed front IMX681 SoftISP sensor helper, IPA and matching tuning data and their actual package/runtime paths; report coverage and colour-validation gaps. Preserve the camera collector and logs. This request does not change the image in this session.
+- **R22 (orchestrator):** arrange the protocol §5.1 independent cross-check of the Hamoa PHY/core/timer and CSID nominal votes, shared clock parents and CSID capture fields before promotion to `sw-ready`; keep physical LED wiring verification as the separate R11 gate.
+
 - **R17 (kernel, rev20):** assemble series rev20 using the corrected `patches/0003-arm64-dts-qcom-hamoa-describe-disabled-camera-blocks.patch` (four PHYs at `0x2000`, both full VFEs at `0xf000`), plus camera series and RGB-only IR exclusion. Check all 17 compiled CAMSS resources, effective IR exclusion and `CHECK_DTBS`/schema validation in the integrated DTBs; publish those variants and retain BTF. The standalone v7.3 DTB compiles; normal make was blocked by missing `flex` and schema tooling was unavailable locally. See [register audit](evidence/2026-11-02-csiphy-mapping-oops.md).
 - **R18 (image, rev20):** make IMX681 the first libcamera camera and portal default, OV13858 second; ship the front/rear SoftISP helpers and tuning, and verify actual enumeration, qcam/default portal preview and saved RGB/YUV capture on both, front first. Preserve read-only graph and kernel logs after stream attempts; include visible privacy LED on/off and no-oops checks in the device run. Keep IR excluded and flash/IR illuminator off (S2). See [test plan](test-plan.md).
 
@@ -140,6 +145,8 @@ The current graded upstream and Windows comparison is in [2026-11-02 upstream ga
 - R11 (orchestrator): independently cross-check camera-to-privacy-LED GPIO mapping before enabling camera DT nodes; patch 0020 intentionally contains no GPIO values.
 
 ## 9. Log
+
+- 2026-11-02: prepared rev21 patch 0023 for C-PHY nominal clock votes and CSID header capture; W=1 ARM64 CAMSS objects pass with BTF options enabled, while cross-check, integrated build, active rates and device streaming remain open.
 
 - 2026-11-02: fixed four CSIPHY and two full VFE mapping windows, audited all CAMSS resources, compiled a v7.3 Denali DTB and requested rev20 integration and front-first capture; device streaming and schema validation remain pending.
 
