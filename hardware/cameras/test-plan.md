@@ -1,137 +1,41 @@
-# Cameras test plan (rear OV13858 first, then front IMX681, IR node inert)
+# Cameras test plan: front first, rear second
 
-The revised next-boot procedure and safety gate are in `evidence/2026-11-02-m16-safe-camera-probe.md`. Do not follow the streaming steps below until the camera-to-indicator wiring has been independently cross-checked and the physical indicator is visibly on throughout every stream.
+Revision 19 safe boot already reported a complete RGB graph but oopsed at CSIPHY stream-on; see [mapping evidence](evidence/2026-11-02-csiphy-mapping-oops.md). Test the revision 20 kernel with corrected patch 0003 and the RGB-only, no-IR graph. Do not scan the CCI buses with `i2cdetect`. The IR sensor and endpoint remain excluded; the IR illuminator, flash and sensor strobe must stay off (S2). Use the operator's live USB, and retain raw logs and frames privately under `out/`.
 
-One batched boot on the operator's own PC, live USB only (no install, S-rules in `plan/risks.md`).
-Every step is read-only except binding the sensor drivers, which read the chip id and, when the user asks,
-stream. No `i2cdetect` on the CCI buses (they carry an EEPROM and a lens actuator). The IR emitter, the PMIC
-flash and the sensor strobe are not described in any DTB and must stay off (S2). Raw logs stay under `out/`.
+Before any stream, independently cross-check the camera-to-indicator wiring and its polarity (dossier request R11); confirm the effective DT assigns the privacy LED to both sensors. The V4L2 core already obtains and controls this LED on stream (`v4l2-fwnode.c:1275`, `v4l2-subdev.c:173-186,490-500`); patch 0020 adds shared-LED accounting. Observe the physical indicator throughout each stream and stop immediately if it is not on. Verify it turns off after the last stream. Do not manually force LED brightness to simulate this test.
 
-## Contents required before boot
+## Before boot
 
-- Kernel with the camera patches `hardware/cameras/patches/0001`-`0021`, plus the integrated RGB-only exclusion (CAMSS C-PHY 0006-0010, register blob parser
-  0011, OV13858 blob modes 0012-0014, IMX681 0015-0016, VD55G0 binding 0017, front and IR DT 0018-0019), BTF on, and
-  `CONFIG_VIDEO_QCOM_CAMSS=m`, `CONFIG_I2C_QCOM_CCI=m`, `CONFIG_VIDEO_OV13858=m`, `CONFIG_VIDEO_IMX681=m`,
-  `CONFIG_CRC32=y`, `CONFIG_LEDS_GPIO` (m or y), `CONFIG_CLK_X1E80100_CAMCC=m`, `CONFIG_REGULATOR_QCOM_RPMH=y`,
-  `CONFIG_DMABUF_HEAPS_SYSTEM=y` (kernel worker to confirm against the Fedora config).
-- The revised RGB-only diagnostic DTB `x1p64100-microsoft-denali-cam-all.dtb` and its `x1-microsoft-denali-camera-no-ir.dtsi` include, or the corrected `...-cam-rear.dtb` for isolation. Confirm the effective DT graph and statuses after integration.
-- Private image mode only: the local register blobs `ov13858-mshw0491.bin` and `imx681-mshw0490.bin` in
-  `/usr/lib/firmware/updates/` (generated with `hardware/cameras/userspace/build-camera-firmware.py`; never in git, never
-  in a public image). Without the OV13858 blob the rear camera runs on its built-in modes; without the IMX681 blob the
-  front driver refuses to probe before it touches the hardware, with a clear message.
-- Fedora `libcamera`, `libcamera-ipa`, `libcamera-tools` (`cam`), `libcamera-qcam`, `libcamera-gstreamer`,
-  `pipewire-plugin-libcamera`, `snapshot`, `v4l-utils`.
-- The collector `hardware/cameras/collector/cameras.sh` (read-only) installed in the log collector.
+- Integrate the corrected camera patch series including 0003, 0020, 0021 and the IR exclusion 0022; use the camera-enabled safe entry and verify effective DT endpoints and statuses. Keep BTF enabled. Confirm the four CSIPHY `reg` sizes are `0x2000` and full VFE sizes `0xf000` in the compiled image DTB.
+- Include both private sensor register blobs, Fedora libcamera with SoftISP, sensor helpers and tuning, `cam`, `qcam`, PipeWire/portal integration, `media-ctl` and `v4l2-ctl`. Report exact tuning/helper coverage; presence of a blob does not prove image quality.
+- Install the read-only camera collector and preserve its timeout/incomplete markers. Record the kernel/DTB/image revisions and the capture application versions.
 
-## Collector
+## Graph and enumeration
 
-The log collector sources `cameras.sh` and writes `extra-cameras.txt`: kernel configuration, modules, kernel log,
-deferred devices, blob names with a SHA-256 prefix, bound I2C devices (no bus scan), `media-ctl -p` for every media
-device, `v4l2-ctl --list-devices`, per-video-node `--list-formats-ext`, subdev media bus codes and controls, `cam -l`,
-the LED class state, GPIO, pinmux, regulator and clock state. It only enumerates formats; it never streams or writes.
-Graph and video-format enumeration runs first, has a 55-second aggregate budget and short per-command timeouts to fit
-the log collector's 90-second drop-in deadline. Any timeout or exhausted budget is marked `INCOMPLETE`; the collector
-must preserve those markers rather than truncate them silently.
-
-## Steps
-
-1. Boot the revised RGB-only `cam-all` variant (IR endpoint removed). Expected, rear: `ov13858` probes on `cci0` bus 1 at `0x10` and reads the chip id (`0x300A`,
-   `0xD855` expected); with the blob it logs `3 modes loaded from ov13858-mshw0491.bin`. If it reports `-ENODEV` or an
-   I2C error, record the message and stop: the address, a rail or the reset polarity is wrong.
-2. Front: confirm that `imx681` binds and inspect blob errors. A chip-ID mismatch is logged if the blob specifies an ID; successful binding produces no ID success log and the ID check is skipped when the blob has no ID. The IR node and its bus are disabled; the IR endpoint is absent from the CAMSS graph.
-3. `media-ctl -p`: a CAMSS media graph with `msm_csiphy1` (rear), `msm_csiphy2` (front), CSIDs, VFEs and the sensor entities.
-4. After independent indicator wiring cross-check and confirmation of physical LED operation, test rear first, then front. The sensor must illuminate its physical privacy LED throughout each stream; stop immediately if it does not. Do not operate the flash, IR strobe or illuminator. Patch 0020 provides shared LED accounting but its KUnit suite remains unexecuted.
-5. Configure a complete sensor → CSIPHY → CSID → VFE RDI route and matching formats using `media-ctl`, or let libcamera configure them. Select actual entity names, pad numbers, format, dimensions and video node from the newly printed graph; they may differ between boots. Run the commands below after substituting the chosen route and checking the graph. Never use the old video-number mapping as a guarantee.
-6. The rear built-in 4224x3136 mode is SGRBG10; Windows blob modes are SBGGR10. The front Windows data is SRGGB10. Verify each negotiated mode and Bayer order with a colour target; no stream has yet established it on this device.
-7. libcamera: `cam -l` and a capture with the Software ISP; the result must be a coloured RGB or YUV picture, not RAW. Confirm which tuning and sensor helper are actually installed; uncalibrated processing and incomplete control support may give poor colour or exposure.
-8. Record `/sys/kernel/debug/regulator` state before and after, to confirm all rails return to off.
-
-### Commands for the next boot
-
-Read-only graph and enumeration (save output through the collector):
+Run before starting a camera application; save output and failures:
 
 ```sh
-for m in /dev/media*; do media-ctl -d "$m" -p; done
+for m in /dev/media*; do [ -e "$m" ] && media-ctl -d "$m" -p; done
 v4l2-ctl --list-devices
-for v in /dev/video*; do v4l2-ctl -d "$v" --list-formats-ext; done
-ls -l /dev/v4l-subdev*
+for v in /dev/video*; do [ -e "$v" ] && v4l2-ctl -d "$v" --list-formats-ext; done
 cam -l
-journalctl -k -b | grep -Ei 'camss|csiphy|csid|vfe|ov13858|imx681|cci'
+journalctl -k -b | grep -Ei 'camss|csiphy|csid|vfe|imx681|ov13858|cci|privacy|oops|fault'
 ```
 
-Expected RGB graph after applying the no-IR exclusion: rear OV13858 (`cci0`, master 1, DT bus 1/address 0x10) has a
-sensor source link to `msm_csiphy1` (four-lane D-PHY); front IMX681 (`cci1`, master 1, DT bus 1/address 0x10) links to
-`msm_csiphy2` (one C-PHY trio). Both sensor entities, CAMSS CSIPHY/CSID/VFE entities, the CAMSS video nodes and V4L2
-subdevice nodes should exist once the async notifier completes. The sensor-to-CSIPHY links are expected enabled and
-immutable. CSIPHY-to-CSID and CSID-to-VFE RDI links are expected to exist but start disabled/configurable; userspace
-must enable a complete route. There must be no IR sensor entity, CSIPHY0 sensor link, or IR endpoint. These expected
-topology details derive from the camera DT patches 0005/0018 and exclusion patch 0022; they are not yet verified in the
-rev18 runtime graph. TPG entity-type warnings were seen in rev18; by themselves they do not show a sensor path failure.
-Linux I²C adapter numbers are assigned at runtime: rev18 logged the rear at `7-0010`, so do not assume the DT bus
-number appears as the Linux device prefix.
+Confirm `imx681 8-0010` has an enabled immutable sensor link to `msm_csiphy2` and `ov13858 7-0010` to `msm_csiphy1`, as seen in revision 19. Adapter numbers may change on another boot: identify by sensor and link, not number alone. CSIPHY-to-CSID and CSID-to-VFE links can start disabled until libcamera configures a route. There must be no IR sensor link or endpoint. `cam -l` must list the front IMX681 first and the rear OV13858 second; confirm the portal/default app also selects the front. If graph links, enumeration, ordering or the LED safety prerequisite fail, collect evidence and stop before streaming.
 
-If sensor entities or their immutable links are absent, collect `media-ctl -p` and notifier/async dmesg and stop
-before streaming. A bound sensor and mode-table log proves probe/mode parsing only. A missing sensor-to-CSIPHY link
-points first to the effective DT endpoint/exclusion or incomplete CAMSS notifier. If the links and subdevices exist,
-query formats at each stage; C-PHY lane/rate setup (front only), CSID input configuration, disabled or mismatched
-CSID-to-RDI routing, VFE format/stride, or a sensor mode whose PLL/link-frequency/lane data do not match the DT can
-still produce no frame. CAMSS VFE680 is RDI-only and does not demosaic RAW Bayer; absent/unusable libcamera SoftISP,
-IPA helper or tuning explains a black/unsupported application preview after RAW capture succeeds, not a missing raw
-frame. Rev18 has no graph nor capture attempt, so none of these candidates can yet be selected as the cause.
+## Stream and capture
 
-For RAW debugging after the privacy gate, choose and configure the actual route from the graph. `media-ctl -p` gives entity names and pads; use its reported pad numbers to enable the CSIPHY-to-CSID and CSID-to-RDI links, and set matching sensor/subdevice formats before capture. Example shell variables must be filled from that graph, and the selected format must match the sensor and VFE:
+1. Start `qcam` and open its first/default camera, IMX681. Verify the physical privacy LED remains on throughout the stream. Capture an RGB/YUV frame through libcamera and save it privately. Record resolution, format, frame count, timing, exposure and whether the image has sensible colours. Check that the portal/default app opens this same front camera. If preview, LED or capture fails, stop and save the error and kernel log.
+2. Stop the stream, check the LED turns off, then use `qcam` or `cam` to explicitly select the second camera, OV13858. Repeat the LED, RGB/YUV preview and saved-frame checks. Inspect `cam --help` for the installed release's camera-selection and file-output syntax; preserve the commands actually used. RAW alone is diagnostic and does not satisfy acceptance.
+3. Re-run `media-ctl -p`, `cam -l` and `journalctl -k -b` after the attempts. There must be no `csiphy_reset` oops, translation fault or other new camera-related oops. Save graph, complete kernel messages, application output, negotiated formats and captured frame metadata. Record regulator state before and after if debugfs is available.
+4. If front streams but has no frame or incorrect colours, inspect its C-PHY trio, negotiated lane/settle/link frequency, sensor mode and SoftISP helper/tuning. For rear, compare negotiated Bayer code with the actual mode: built-in OV13858 mode uses SGRBG10, Windows blob modes use SBGGR10; front Windows data indicates SRGGB10, but physical Bayer order still needs capture verification. Use a colour target. Capture diagnosis must not bypass the indicator gate.
 
-```sh
-media-ctl -d "$MEDIA" --get-v4l2 "'$SENSOR':$SENSOR_SOURCE"
-media-ctl -d "$MEDIA" --set-v4l2 "'$SENSOR':$SENSOR_SOURCE [fmt:$MBUS_CODE/${WIDTH}x${HEIGHT}]"
-media-ctl -d "$MEDIA" --set-v4l2 "'$PHY':$PHY_SINK [fmt:$MBUS_CODE/${WIDTH}x${HEIGHT}]"
-media-ctl -d "$MEDIA" --set-v4l2 "'$CSID':$CSID_SINK [fmt:$MBUS_CODE/${WIDTH}x${HEIGHT}]"
-media-ctl -d "$MEDIA" --links "'$PHY':$PHY_SOURCE -> '$CSID':$CSID_SINK [1]"
-media-ctl -d "$MEDIA" --set-v4l2 "'$CSID':$CSID_SOURCE [fmt:$MBUS_CODE/${WIDTH}x${HEIGHT}]"
-media-ctl -d "$MEDIA" --set-v4l2 "'$RDI':$RDI_SINK [fmt:$MBUS_CODE/${WIDTH}x${HEIGHT}]"
-media-ctl -d "$MEDIA" --links "'$CSID':$CSID_SOURCE -> '$RDI':$RDI_SINK [1]"
-media-ctl -d "$MEDIA" -p
-media-ctl -d "$MEDIA" --get-v4l2 "'$SENSOR':$SENSOR_SOURCE"
-media-ctl -d "$MEDIA" --get-v4l2 "'$PHY':$PHY_SINK"
-media-ctl -d "$MEDIA" --get-v4l2 "'$CSID':$CSID_SINK"
-media-ctl -d "$MEDIA" --get-v4l2 "'$RDI':$RDI_SINK"
-v4l2-ctl -d "$VIDEO" --list-formats-ext
-v4l2-ctl -d "$VIDEO" --set-fmt-video=width="$WIDTH",height="$HEIGHT",pixelformat="$PIXEL_FORMAT" --stream-mmap=4 --stream-count=5 --stream-to=/tmp/camera-test.raw --verbose
-```
-
-Set and check every intermediate pad as required by the graph. The pixel format is the fourcc listed by the selected video node, not the media-bus code. Check the configured graph and physical LED during capture; save kernel errors and negotiated format, count and byte size, then stop. Test the front only after the rear and use the same safety gate. RAW capture is diagnostic, not acceptance; use `cam`/qcam or Snapshot and SoftISP for RGB/YUV validation.
-
-The capture command starts streaming and is a manual diagnostic only: do not run it until the camera-to-indicator
-mapping is independently verified and the physical privacy LED is visibly on. If capture returns frames, compare
-the output byte count with the negotiated size and verify the RAW mosaic is nonzero. A working RAW capture but black
-libcamera preview directs investigation to the installed SoftISP, sensor helper, tuning, Bayer order and controls.
-`cam -l` with no camera points back to graph completion or libcamera pipeline matching.
+If needed for RAW diagnostics, use `media-ctl` to inspect actual entity names and pad numbers, enable the chosen CSIPHY → CSID → VFE RDI path and set matching pad formats; use `v4l2-ctl` only on the corresponding video node and record the negotiated pixel format. Device numbers and pad routes are not stable. Do not operate IR or flash.
 
 ## Acceptance
 
-- The rear and front sensors deliver RGB/YUV frames with correct colours through libcamera (RAW only does not count).
-- The independently verified physical indicator LEDs follow every stream.
-- IR emitter, flash and sensor strobe never operated.
-
-### Rev19 current ISO: read-only graph capture
-
-Run after booting the reported safe entry, without opening a camera app. This does not start a stream, configure links, write LED brightness, scan I2C, or operate the IR illuminator or flash. Save all output including errors; `sudo` may be needed for kernel logs. Missing commands or permissions are evidence to report.
-
-```sh
-printf '%s\n' '=== device nodes ==='
-ls -l /dev/media* /dev/video* /dev/v4l-subdev* 2>&1
-printf '%s\n' '=== all media graphs ==='
-for node in /dev/media*; do
-    [ -e "$node" ] || continue
-    printf '\n=== %s ===\n' "$node"
-    timeout 10s media-ctl -d "$node" -p 2>&1
-done
-printf '\n%s\n' '=== V4L2 devices ==='
-timeout 10s v4l2-ctl --list-devices 2>&1
-printf '\n%s\n' '=== libcamera cameras ==='
-timeout 20s cam -l 2>&1
-printf '\n%s\n' '=== camera kernel messages ==='
-sudo dmesg | grep -Ei 'camss|csiphy|csid|vfe|cci|ov13858|imx681|v4l2|camera|privacy|led|firmware|defer'
-```
-
-A complete CAMSS graph has both sensor entities with source pads and immutable, enabled links to the sink pads of `msm_csiphy1` (rear) and `msm_csiphy2` (front), plus CSID, VFE and capture-video entities. Both sensor subdevices should have device nodes when the subdev API is enabled. Downstream links may be disabled until a pipeline is configured; node numbering and exact names vary. A complete kernel graph does not guarantee that `cam -l` finds two usable cameras: that also depends on libcamera pipeline/IPA/sensor support. A successful preview and visible privacy indicator are separate acceptance criteria. See [rev19 audit](evidence/2026-11-02-rev19-graph-led-audit.md) for the decision tree; do not initiate streams while the indicator is unverified.
+- Front IMX681 enumerated first and selected by default in libcamera/portal; rear OV13858 second.
+- Both cameras deliver saved, correctly coloured RGB/YUV frames through libcamera, front tested first.
+- The physical privacy indicator is on for every stream and off after the last stream; wiring cross-check completed.
+- No CSIPHY reset oops or other new camera oops; the IR node/endpoint is excluded, and the IR illuminator and flash stay off.
