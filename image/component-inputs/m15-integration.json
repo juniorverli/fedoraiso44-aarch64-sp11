@@ -8,7 +8,7 @@
   "usr/share/wireplumber/wireplumber.conf.d/52-sp11-audio-routes.conf": "f3bb74e221b68bdff93560c98cfe60ce906866cbc8454710a2bcf8d1f334c574"
  },
  "collectors": {
-  "etc/sp11-log-collector.d/cameras.sh": "bc7be127324ca4777e7c586dd63561ae655d5a4f71b22638db9ecee2a0c2e0f6",
+  "etc/sp11-log-collector.d/cameras.sh": "3ae9ac285c6c6b601a173d4896bdad84d492d53304b0dec00ef29f63a637efbe",
   "etc/sp11-log-collector.d/spectra.sh": "9672153dc7f65897c13681f3318cc2277d4bc5e91fdfb3d83795a80624b928e9",
   "usr/libexec/sp11/ec-sam/collect-volume-buttons.sh": "53f9fa9cbff4f4c96f282fe798522cf4375004e082b91f8240c62c5170331a73"
  },
