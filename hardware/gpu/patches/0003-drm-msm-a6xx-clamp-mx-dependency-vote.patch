@@ -1,0 +1,55 @@
+From 86f80884fb7f4601a49444a3c36df894b218336e Mon Sep 17 00:00:00 2001
+From: Akhil P Oommen <akhilpo@oss.qualcomm.com>
+Date: Wed, 23 Sep 2026 15:55:46 +0530
+Subject: [PATCH] drm/msm/a6xx: Clamp MX dependency vote
+
+In some chipsets the GPU arc level can exceed the highest available MX
+corner. Use the highest non-zero MX vote instead of failing dependency
+vote construction.
+
+Backport to the v7.3 open-coded lookup. Trim trailing zero padding, as
+upstream's preceding helper refactor does, and reject an empty table. The
+revision-21 GPU OPP ownership fix is required to resolve the GPU levels.
+The X1P64100 reports GPU level 432 and an MX table ending at 416 followed
+by zero padding. The GMU caller currently ignores the returned failure;
+this change does not establish the cause of the device reset.
+
+Upstream-commit: 86f80884fb7f4601a49444a3c36df894b218336e
+Link: https://patchwork.freedesktop.org/patch/755599/
+Prerequisite: eab0aff8965ee17cf972a37eb6456032c45b7acd
+Signed-off-by: Akhil P Oommen <akhilpo@oss.qualcomm.com>
+Reviewed-by: Konrad Dybcio <konrad.dybcio@oss.qualcomm.com>
+Signed-off-by: Rob Clark <robin.clark@oss.qualcomm.com>
+---
+--- a/drivers/gpu/drm/msm/adreno/a6xx_gmu.c
++++ b/drivers/gpu/drm/msm/adreno/a6xx_gmu.c
+@@ -1794,6 +1794,9 @@
+ 	 * count accordingly
+ 	 */
+ 	count >>= 1;
++	/* Exclude trailing zero padding from the MX corner list. */
++	while (count && !mx[count - 1])
++		count--;
+ 	if (!count)
+ 		return -EINVAL;
+ 
+@@ -1813,16 +1816,9 @@
+ 			}
+ 		}
+ 
+-		if (j == count) {
+-			DRM_DEV_ERROR(dev,
+-				      "Mx Level %u not found in the RPMh list\n",
+-				      level);
+-			DRM_DEV_ERROR(dev, "Available levels:\n");
+-			for (j = 0; j < count; j++)
+-				DRM_DEV_ERROR(dev, "  %u\n", mx[j]);
+-
+-			return -EINVAL;
+-		}
++		/* Clamp requests above the MX table to the last valid corner. */
++		if (j == count)
++			index = count - 1;
+ 
+ 		/* Construct the vote */
+ 		votes[i] = (0x3fff << 14) | (index << 8) | (0xff);
