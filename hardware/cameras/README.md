@@ -2,7 +2,7 @@
 
 ## 1. Summary
 
-Three cameras behind the Qualcomm CAMSS/Spectra ISP: front Sony IMX681 (Windows Hello RGB), rear OmniVision OV13858, IR STMicro VD55G0 with an IR illuminator, plus flash and privacy LED. Linux 7.3 has CAMSS support for this SoC and an OV13858 driver; this series adds camera DT and an IMX681 driver. Status: `testing` (rev19 safe boot reports both RGB sensor links, but stream-on oopsed and usable capture remains unverified).
+Three cameras behind the Qualcomm CAMSS/Spectra ISP: front Sony IMX681 (Windows Hello RGB), rear OmniVision OV13858, IR STMicro VD55G0 with an IR illuminator, plus flash and privacy LED. Linux 7.3 has CAMSS support for this SoC and an OV13858 driver; this series adds camera DT and an IMX681 driver. Status: `testing` (rev21 enumerates only the rear camera in libcamera; neither a completed stream nor a negotiated app mode is evidenced in the reset logs).
 
 ## 2. Hardware
 
@@ -25,7 +25,7 @@ The RGB sensors output **RAW Bayer** frames (one colour sample per pixel behind 
 
 | Sensor | Output from the sensor | Needs RGB stage | Grade | Source |
 |:--|:--|:--|:--|:--|
-| Rear OV13858 | RAW Bayer 10 bit, order **GRBG** only (`MEDIA_BUS_FMT_SGRBG10_1X10`) | yes | Verified | `sources/linux/drivers/media/i2c/ov13858.c:1280-1284` |
+| Rear OV13858 | RAW Bayer 10 bit; base modes report **GRBG**, private blob modes report **BGGR** | yes | Verified in source and blob data; actual capture TBD | `sources/linux/drivers/media/i2c/ov13858.c:1280-1284`; `evidence/2026-10-31-bayer-units-gain-crosscheck.md` |
 | Front IMX681 | Windows mode data RAW10 RGGB; physical capture not yet checked | yes | Verified in module data and prior analysis; device output TBD | `evidence/2026-10-31-rea-bayer-poll-units.md` |
 | IR VD55G0 | Windows mode data monochrome RAW10; no device capture | no demosaic | Verified in module data; device output TBD | `evidence/2026-10-31-rea-bayer-poll-units.md` |
 
@@ -117,6 +117,9 @@ The current graded upstream and Windows comparison is in [2026-11-02 upstream ga
 
 ## 8. Requests
 
+- **R23 (image):** regenerate only the private IMX681 register blob with `python3 -I hardware/cameras/userspace/build-camera-firmware.py imx681 --ccs-controls --again-range 0:479:1:0`, verify the manifest has three control records and stage its new hash in a future private image. Verify that the running kernel exposes exposure and analogue gain, and that libcamera now enumerates the front; the assumed CCS registers and gain law require device validation. Do not rebuild an ISO in this session. See [M16 evidence](evidence/2026-11-03-m16-camera-stream-quality.md).
+- **R24 (kernel/image/operator):** use the reset-resilient capture plan to distinguish camera stream start, completed buffers and GPU rendering, and obtain active clock/IRQ data before changing patch 0023. Derive OV13858 native/active and per-mode crop geometry before implementing `get_selection`; avoid fabricated rectangles. Preserve privacy LED and S2 gates.
+
 - **R19 (kernel, rev21):** integrate `patches/0023-media-qcom-camss-use-hamoa-cphy-clock-votes.patch` after the complete rev20 camera series, without changing rev20 patch 0003. Preserve BTF, run the integrated build and verify exact patch provenance, D-PHY behavior and shared clock interactions. The local W=1 CAMSS object build passed; independent cross-check and device streaming remain open. See [clock evidence](evidence/2026-11-02-cphy-clock-fix.md).
 - **R20 (sources):** pin Qualcomm Hamoa camera DT at `17bbb4b37bbc4fc5827b4667445a0c43967c0f48`, including the `hamoa-camera.dtsi` hash in the clock evidence; pin camera-driver `08171ddc9d6ad81c13e6f1b362248d4736b0e804` and the posted X1E C-PHY PHY/CAMSS series mboxes, including [PHY RFC v3](https://lists.openwall.net/linux-kernel/2026/10/16/2163), with provenance and hashes. Reconcile the posted revisions with patches 0006–0010 and 0023.
 - **R21 (image):** verify the installed front IMX681 SoftISP sensor helper, IPA and matching tuning data and their actual package/runtime paths; report coverage and colour-validation gaps. Preserve the camera collector and logs. This request does not change the image in this session.
@@ -145,6 +148,8 @@ The current graded upstream and Windows comparison is in [2026-11-02 upstream ga
 - R11 (orchestrator): independently cross-check camera-to-privacy-LED GPIO mapping before enabling camera DT nodes; patch 0020 intentionally contains no GPIO values.
 
 ## 9. Log
+
+- 2026-11-03: analyzed three M16 boots; rear-only libcamera enumeration and missing front controls are established, but app mode, stream completion, reset cause and quality causes remain unproven; added front-blob and reset-resilient diagnostic proposals.
 
 - 2026-11-02: prepared rev21 patch 0023 for C-PHY nominal clock votes and CSID header capture; W=1 ARM64 CAMSS objects pass with BTF options enabled, while cross-check, integrated build, active rates and device streaming remain open.
 
