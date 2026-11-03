@@ -41,3 +41,8 @@ user@1000.service
 # powerdown after both session snapshots. Boot, GDM and both sessions passed.
 # Boot 821805ef-e679-4f8b-b59e-903ad90621f0: units-failed.txt.gz lists it failed.
 systemd-hostnamed.service
+
+# Fedora stock (not SP11-owned) realtime-kit scheduling service; under TCG it fails during the
+# harness's forced powerdown after both session snapshots. Boot, GDM and both sessions passed.
+# Boot de9612d9-1dfb-4b0e-a3c6-c1149e9a385c: units-failed.txt.gz lists it failed.
+rtkit-daemon.service
