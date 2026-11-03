@@ -102,8 +102,8 @@ if [ "$(rpm --eval "%{lua:print(rpm.vercmp('$newest_vr', '$min'))}")" -le 0 ]; t
 fi
 log "kernel $kver_full (newer than $min, the only kernel NEVRA at the top level of out/rpms)"
 
-# M15/M16 accepts revision-12..22 RPMs and all six atomically published DTB/JSON pairs (m15, m15-safe, m15-nosnd, m15-notouch, m15-spk, m15-spectra).
-[ "$kver_full" = 7.3.0-65.sp11.22.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.21.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.20.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.19.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.18.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.17.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.16.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.15.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.14.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.13.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.12.fc44.aarch64 ] || {
+# M15/M16 accepts revision-12..23 RPMs and all six atomically published DTB/JSON pairs (m15, m15-safe, m15-nosnd, m15-notouch, m15-spk, m15-spectra).
+[ "$kver_full" = 7.3.0-65.sp11.23.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.22.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.21.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.20.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.19.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.18.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.17.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.16.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.15.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.14.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.13.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.12.fc44.aarch64 ] || {
 	log "REFUSED: M15/M16 requires kernel revision 12 through 21 (7.3.0-65.sp11.*.fc44.aarch64), found $kver_full"; exit 6;
 }
 patch_series_sha=$( . "$REPO/scripts/kernel-common.sh"; kernel_series_hash )
@@ -114,7 +114,7 @@ for v in m15 m15-safe m15-nosnd m15-notouch m15-spk m15-spectra; do
 	}
 	[ "$(sha256sum "$vsrc.dtb" | cut -d' ' -f1)" = "$(jq -r .sha256 "$vsrc.json")" ] &&
 	[ "$(jq -r .kver "$vsrc.json")" = "$kver_full" ] &&
-	{ [ "$(jq -r .series_rev "$vsrc.json")" = 12 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 13 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 14 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 15 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 16 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 17 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 18 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 19 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 20 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 21 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 22 ]; } &&
+	{ [ "$(jq -r .series_rev "$vsrc.json")" = 12 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 13 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 14 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 15 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 16 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 17 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 18 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 19 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 20 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 21 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 22 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 23 ]; } &&
 	[ "$(jq -r .series_hash_sha256 "$vsrc.json")" = "$patch_series_sha" ] || {
 		log "REFUSED: $v DTB hash/release/series differs from the kernel worker JSON"; exit 6;
 	}

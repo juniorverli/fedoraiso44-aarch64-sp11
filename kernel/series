@@ -156,3 +156,7 @@ kernel/patches/0007-drm-msm-a6xx-check-runtime-resume-errors.patch
 # Revision 22: clamp the MX dependency vote when the GPU arc level exceeds
 # the highest RPMh MX corner (X1P64100 reports 432; the table ends at 416).
 hardware/gpu/patches/0003-drm-msm-a6xx-clamp-mx-dependency-vote.patch
+
+# Revision 23: clear the stale boot GPU bus bandwidth vote when the GMU
+# scales bandwidth (upstream 2026-10-24, Jie Zhang/Akhil P Oommen).
+hardware/gpu/patches/0004-drm-msm-a6xx-clear-stale-boot-bw-vote.patch

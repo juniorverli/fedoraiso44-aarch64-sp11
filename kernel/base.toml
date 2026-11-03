@@ -36,6 +36,7 @@ dist = ".fc44"
 # 20 = camera CSIPHY/VFE register-window corrections and EFI-vars pstore; retain lazy DMA.
 # 21 = Hamoa C-PHY clock/capture fix and applicable upstream GPU PM/RPMh fixes.
 # 22 = MX dependency vote clamp (upstream 86f80884) for the X1P64100 432 > 416 table.
+# 23 = clear the stale boot GPU bandwidth vote when the GMU scales BW (2026-10-24 series).
 # kernel-build.sh and kernel-check fail on a mismatch.
-series_rev = 22
-series_sha256 = "0a7c409465292c28824db6970aee83e4aad588240b7d55bca86e4dc7faab7bf2"
+series_rev = 23
+series_sha256 = "687fc008d7bda25433db098731084f213da6cbc7ee27d017511dcde0d2565f16"
