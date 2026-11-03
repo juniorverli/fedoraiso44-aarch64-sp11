@@ -80,6 +80,18 @@ a separate test.
 The rev22 kernel adds the upstream MX dependency-vote clamp. It is a correctness fix, not a
 proven reset fix; the round must say so.
 
+0. Before the action, prepare live evidence (no rebuild): at the GRUB editor replace the
+   debug line's `trace_event=` value with
+   `trace_event=:mod:qcom_glink,:mod:smp2p,:mod:qcom_aoss,rpmh:rpmh_send_msg,:mod:msm,power:runtime_suspend,power:runtime_resume,power:runtime_idle`.
+   After boot, find the collector directory (`/EFI/sp11-logs/<boot-id>` or the SP11LOGS
+   equivalent) and run in a second terminal, with `LOGDIR` set to it:
+
+   ```sh
+   sudo stdbuf -oL cat /sys/kernel/debug/tracing/trace_pipe | stdbuf -oL tee -a "$LOGDIR/trace-live.txt"
+   ```
+
+   Flush it with `sync -f "$LOGDIR/trace-live.txt"` from another terminal during the action.
+   The trace ring is in RAM; this live copy is the only one likely to survive a hard reset.
 1. Boot `SP11 debug` as shipped (early pin on). Record the pin kmsg line
    (`3d00000.gpu ... written=on readback=on`), GPU/GMU PM state and every `GPU_BOOT_TRACE`.
    Confirm whether `Mx Level 432 not found` is absent.
@@ -90,6 +102,10 @@ proven reset fix; the round must say so.
    Stop at the first reset; recover the complete previous-boot stream and any actual pstore
    payload after the reset. A reset only during the camera action is correlation, not proof; a
    reset during the GPU-only action strengthens GPU involvement but is not conclusive.
+   After a reset, do not rely on the automatic safe boot: boot debug again with
+   `rd.systemd.mask=systemd-pstore.service rd.break=pre-mount`, mount pstore if needed
+   (`mount -t pstore pstore /sys/fs/pstore`), read `/sys/fs/pstore`, continue, then read
+   `/var/lib/systemd/pstore`.
 3. Do not start the 3+3 repeat matrix, ACD/preemption or IFPC experiments until the A/B result
    and the pin-off (`sp11.gpu_pin=0`) result. No frequency or thermal change.
 
