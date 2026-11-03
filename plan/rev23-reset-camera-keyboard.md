@@ -130,3 +130,34 @@ no private ISO/log sharing. Preserve the D26 speaker path and the LED gate.
   `plan/rev23-device-checklist.md`.
 - **Review:** Gemini 3.8 Flash ranked front C-PHY first; Sonnet 5.5 found no proven cause
   and recommended the debug-idle 150 s and direct-camera A/B before any behavioral fix.
+
+## 7. Cross-project breakthrough: the working front C-PHY stack (2026-11-03)
+
+The public `karsies-wq/sp11-imx681-linux` project (GPL-2.0, cloned read-only at
+`out/ref/sp11-imx681-linux`) reports a working front IMX681 on another x1e80100 kernel:
+C-PHY on CSIPHY2/trio 0, a standalone `phy-qcom-mipi-csi2` C-PHY path ported from
+Qualcomm 2.1.2, CAMSS CSID-680/VFE-680 fixes, CSID crop/stride alignment,
+`LINE_LENGTH_PCK 7552 -> 8704`, inverted analogue gain, libcamera soft-IPA/AGC and
+Windows-derived CCMs.
+
+Comparison with our tree found concrete gaps:
+
+- **CSID-680 does not set `CSI2_RX_CFG0_PHY_TYPE_SEL` for C-PHY.** The reference sets
+  it; our legacy CAMSS path leaves the CSID in D-PHY mode while the sensor/CSIPHY send
+  C-PHY. This is a prime hard-reset/black-stream candidate and is a one-line fix.
+- **CSID-680 RDI enables drop/crop with reset-zero patterns/windows**, which the
+  reference says discards every pixel; our source still has it.
+- **VFE-680 starts the write master in QCOM_PLAIN/frame-check mode**, which the
+  reference says rejects every RDI frame with IMAGE_VIOLATION; our source still does.
+- **Front line length/gain:** the reference uses `LINE_LENGTH_PCK 8704` and an inverted
+  analogue-gain law; our front blob reports HTS 6752 and the driver's gain law is
+  unverified. The receiver FIFO/quality symptoms are plausible.
+- **The reference's C-PHY PHY path** is a dedicated standalone driver; our 0009 legacy
+  C-PHY table/lane path is experimental. The camera worker is deciding whether the
+  CAMSS/CSID/VFE fixes suffice or the standalone PHY must be ported.
+
+The debug reset is therefore likely the front C-PHY stream hitting the legacy CAMSS
+path, not the GPU: the front LED precedes the reset, the safe boot never streams, and
+the reference's working front uses a different receiver stack. This is still a
+source-level hypothesis until the rev24 candidate is tested; the rev23 A/B remains the
+control (debug idle/no camera and direct front/rear).
