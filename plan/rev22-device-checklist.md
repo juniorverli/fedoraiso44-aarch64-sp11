@@ -8,10 +8,10 @@ This checklist supersedes `plan/rev21-device-checklist.md` for the rev22 boot; t
 
 | Item | Value |
 |:--|:--|
-| ISO | `out/iso/<rev22-private>.iso` (from the build record) |
-| SHA-256 | from `out/iso/<rev22-private>.iso.sha256` |
+| ISO | `out/iso/sp11-fedora44-aarch64-kiwi-20261103T130351Z-private.iso` |
+| SHA-256 | `0f3e6bacdd2647954a2ea2253e1094eb135457ae629cbcc1f51efb61bf5e6bd9` |
 | Kernel | `7.3.0-65.sp11.22.fc44.aarch64` |
-| L0/L1 | must be 0 failures and PASS before the boot |
+| L0/L1 | L0 272 passed, 0 failed; L1 PASS (`dd7b52e7-e923-4dce-aeb6-06304071c3cc`, 7 allowed stock units); boot ready |
 
 - Private ISO: never share it or its raw logs; keep logs on the live boot medium and copy them
   to `out/device-logs/2026-11-03/` before shutdown; redact before evidence (S5).

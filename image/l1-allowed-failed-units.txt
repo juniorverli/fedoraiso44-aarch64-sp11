@@ -46,3 +46,9 @@ systemd-hostnamed.service
 # harness's forced powerdown after both session snapshots. Boot, GDM and both sessions passed.
 # Boot de9612d9-1dfb-4b0e-a3c6-c1149e9a385c: units-failed.txt.gz lists it failed.
 rtkit-daemon.service
+
+# Fedora stock (not SP11-owned) NTP client; under TCG its start operation times out
+# (chronyd.service: start operation timed out. Terminating.) after GDM and both sessions
+# are up. The VM has no usable network time source.
+# Boot 41443915-ca14-4414-a42e-a96093391e51: journal-warnings.txt.gz 877.739; units-failed.txt.gz lists it.
+chronyd.service
