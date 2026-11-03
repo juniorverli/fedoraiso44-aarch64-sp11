@@ -2,7 +2,7 @@
 
 ## 1. Summary
 
-Three cameras behind the Qualcomm CAMSS/Spectra ISP: front Sony IMX681 (Windows Hello RGB), rear OmniVision OV13858, IR STMicro VD55G0 with an IR illuminator, plus flash and privacy LED. Linux 7.3 has CAMSS support for this SoC and an OV13858 driver; this series adds camera DT and an IMX681 driver. Status: `testing` (rev21 enumerates only the rear camera in libcamera; neither a completed stream nor a negotiated app mode is evidenced in the reset logs).
+Three cameras behind the Qualcomm CAMSS/Spectra ISP: front Sony IMX681 (Windows Hello RGB), rear OmniVision OV13858, IR STMicro VD55G0 with an IR illuminator, plus flash and privacy LED. Linux 7.3 has CAMSS support for this SoC and an OV13858 driver; this series adds camera DT and an IMX681 driver. Status: `testing` (rev22 enumerates both; safe Snapshot configured the front but WirePlumber crashed, and neither boot proves sensor stream completion).
 
 ## 2. Hardware
 
@@ -47,7 +47,7 @@ Why CAMSS cannot do the RGB stage on this SoC (Verified, 2026-10-24):
 |:--|:--|
 | `qccamplatform8380` | Platform driver; privacy LED control |
 | `surfacecamplatform_ext8380` | Board-specific platform configuration |
-| `qccamisp8380` | TBD |
+| `qccamisp8380` | Qualcomm ISP kernel driver; package contains ICP firmware |
 | `qccamisp_ext8380` | TBD |
 | `qccammipicsi8380` | TBD |
 | `qccammipicsi_ext8380` | TBD |
@@ -117,7 +117,12 @@ The current graded upstream and Windows comparison is in [2026-11-02 upstream ga
 
 ## 8. Requests
 
-- **R23 (image):** regenerate only the private IMX681 register blob with `python3 -I hardware/cameras/userspace/build-camera-firmware.py imx681 --ccs-controls --again-range 0:479:1:0`, verify the manifest has three control records and stage its new hash in a future private image. Verify that the running kernel exposes exposure and analogue gain, and that libcamera now enumerates the front; the assumed CCS registers and gain law require device validation. Do not rebuild an ISO in this session. See [M16 evidence](evidence/2026-11-03-m16-camera-stream-quality.md).
+- **R25 (image, rev23):** include `/usr/libexec/sp11-camera-spectra-guard` and its shell/runtime dependencies in the initramfs whenever its modprobe install configuration is included, or safely defer and explicitly retrigger guarded module loading after switch-root. Test both CAMSS and Spectra DTs and verify the mutually exclusive stacks cannot claim the same resources. Rev22 safe early load failed with 127 but rootfs retry succeeded. Preserve BTF, S2 and LED gate. See [rev23 evidence](evidence/2026-11-03-rev23-final32-camera.md).
+- **R26 (image/userspace and kernel):** diagnose safe WirePlumber SIGSEGV in llvmpipe following front SoftISP configuration, preserve coredump and package provenance; provide sensor-identified stream entry/return instrumentation, completed buffer metadata, active media routes and clocks/IRQ logs for the [rev23 matrix](test-plan.md). Coordinate GPU-only vs camera trials with GPU owner. Headless `cam` can still initialize EGL/llvmpipe. Do not claim the debug reset as camera-caused without the matched A/B.
+- **R28 (sources/REA):** continue listed-function REA of rear sensor mode/control handling and catalogued ISP/ICP with forced languages, function addresses and evidence IDs; the new session confirms Windows platform LED reference counting and front configuration parsing but does not establish hardware CFA, gain or HDR. See [rev23 evidence](evidence/2026-11-03-rev23-final32-camera.md).
+- **R27 (kernel/image):** retain existing 0013 per-mode GRBG built-in/BGGR blob handling, verify the integrated image exposes both and collect active mode and RAW colour-target evidence before changing CFA or regenerating blobs. Derive and independently cross-check OV13858 selection rectangles; do not fabricate them or alter 0023 without active evidence. Confirm actual IPA/helper/tuning hashes and measured exposure/gain, crop, black and tone data before quality changes.
+
+- **R23 (image; enumeration completed in rev22):** the three-control IMX681 blob now permits both sensors to enumerate. Retain its provenance and verify the full installed hash and actual control ranges; assumed CCS registers and gain law still require physical validation. See [M16 evidence](evidence/2026-11-03-m16-camera-stream-quality.md) and [rev23 evidence](evidence/2026-11-03-rev23-final32-camera.md).
 - **R24 (kernel/image/operator):** use the reset-resilient capture plan to distinguish camera stream start, completed buffers and GPU rendering, and obtain active clock/IRQ data before changing patch 0023. Derive OV13858 native/active and per-mode crop geometry before implementing `get_selection`; avoid fabricated rectangles. Preserve privacy LED and S2 gates.
 
 - **R19 (kernel, rev21):** integrate `patches/0023-media-qcom-camss-use-hamoa-cphy-clock-votes.patch` after the complete rev20 camera series, without changing rev20 patch 0003. Preserve BTF, run the integrated build and verify exact patch provenance, D-PHY behavior and shared clock interactions. The local W=1 CAMSS object build passed; independent cross-check and device streaming remain open. See [clock evidence](evidence/2026-11-02-cphy-clock-fix.md).
@@ -148,6 +153,8 @@ The current graded upstream and Windows comparison is in [2026-11-02 upstream ga
 - R11 (orchestrator): independently cross-check camera-to-privacy-LED GPIO mapping before enabling camera DT nodes; patch 0020 intentionally contains no GPIO values.
 
 ## 9. Log
+
+- 2026-11-03: Rev22 safe configured front then WirePlumber SIGSEGV; mode-dependent Bayer and early guard retry clarified; rev23 A/B and LED-gated quality matrix added.
 
 - 2026-11-03: analyzed three M16 boots; rear-only libcamera enumeration and missing front controls are established, but app mode, stream completion, reset cause and quality causes remain unproven; added front-blob and reset-resilient diagnostic proposals.
 
