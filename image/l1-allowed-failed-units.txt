@@ -30,3 +30,9 @@ tuned.service
 # Fedora stock (not SP11-owned) storage-device management daemon; the VM lacks the full device udisks/storage environment (hypothesis).
 # Boot 96658288-701d-4138-8619-5793cd358dd3: journal.txt.gz 506.008 start -> stop-sigterm; units-failed.txt.gz lists it.
 udisks2.service
+
+# systemd user manager for liveuser (not an SP11 unit). It only fails at the harness's forced
+# powerdown: under TCG the user manager stop times out (stop-sigterm -> final-sigkill -> failed,
+# result=timeout) after both session snapshots; boot, GDM and both sessions passed.
+# Boot c037736b-6e92-449b-b0c5-66036b04dffb: session-user-journal.txt.gz 874.601-875.154.
+user@1000.service
