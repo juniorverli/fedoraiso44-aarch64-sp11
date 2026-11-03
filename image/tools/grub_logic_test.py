@@ -73,6 +73,9 @@ def main():
         rendered.write_text(cfg)
     p, detail = policy(cfg)
     ok("policy checker accepts the menu", p, detail)
+    ok("shipped menu has no GPU pin marker", not re.search(r"(?m)^\s*linux\s+.*\bsp11\.gpu_pin", cfg))
+    opt_out = cfg.replace("sp11.entry=debug", "sp11.gpu_pin=0 sp11.entry=debug", 1)
+    ok("policy checker accepts the manual debug GPU pin opt-out", opt_out != cfg and policy(opt_out)[0])
     mutants = {
         "debug as default": re.sub(r"(?m)^set default=1$", "set default=0", cfg, count=1),
         "a GRUB function": cfg.replace("load_video\nset gfxpayload", "function f {\n\techo x\n}\nload_video\nset gfxpayload", 1),
@@ -94,8 +97,8 @@ def main():
         "missing always kmsg dump": cfg.replace("printk.always_kmsg_dump=1 ", "", 1),
         "EFI pstore enable on safe": cfg.replace("sp11.entry=safe", "efi_pstore.pstore_disable=0 sp11.entry=safe", 1),
         "always kmsg dump on safe": cfg.replace("sp11.entry=safe", "printk.always_kmsg_dump=1 sp11.entry=safe", 1),
-        "missing debug GPU pin skip": cfg.replace("sp11.gpu_pin=0 ", "", 1),
-        "GPU pin enabled on debug": cfg.replace("sp11.gpu_pin=0", "sp11.gpu_pin=1", 1),
+        "GPU pin enabled marker on debug": cfg.replace("sp11.entry=debug", "sp11.gpu_pin=1 sp11.entry=debug", 1),
+        "duplicate GPU pin opt-out on debug": cfg.replace("sp11.entry=debug", "sp11.gpu_pin=0 sp11.gpu_pin=0 sp11.entry=debug", 1),
         "GPU pin skip on safe": cfg.replace("sp11.entry=safe", "sp11.gpu_pin=0 sp11.entry=safe", 1),
         "quiet": cfg.replace("sp11.entry=safe", "quiet sp11.entry=safe", 1),
     }

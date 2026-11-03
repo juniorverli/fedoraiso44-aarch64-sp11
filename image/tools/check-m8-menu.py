@@ -6,7 +6,8 @@ Usage: check-m8-menu.py grub.cfg
 M15 policy (image/README.md, "M15 menu"):
   * the file has NO function except load_video, NO load_env/save_env/grubenv, NO variable assignment except the standard header ones,
     NO submenu, NO GRUB variable inside any entry except the template's own ($root); every entry has a fixed DTB (or none for the VM test);
-  * line 1 `SP11 debug` = m15 (microphones + camera nodes + GPU/GMU/zap) without `sp11.gpu_diag` and with `sp11.gpu_pin=0`;
+  * line 1 `SP11 debug` = m15 (microphones + camera nodes + GPU/GMU/zap) without `sp11.gpu_diag`;
+    `sp11.gpu_pin=0` is allowed there as a manual opt-out;
     line 2 `safe (no GPU)` = m15-safe (default, cameras on, no gpu_diag); no separate GPU or camera entry;
   * no per-variant SAM/CDSP entries (those are Linux-side rotors);
   * the main-entry diagnostic arguments are the M13 ones with the corrected trace string; nothing variable; the command line never carries
@@ -26,7 +27,7 @@ USBDSP = set(BASE + USB + PDR + ["trace_event=:mod:qcom_glink", "trace_buf_size=
 
 # ident: (title, DTB variant or None, set of special arguments); order is the menu order
 ENTRIES = {
-    "debug": ("SP11 debug", "m15", DEFAULT | EFI_PSTORE | {"sp11.gpu_pin=0"}),
+    "debug": ("SP11 debug", "m15", DEFAULT | EFI_PSTORE),
     "safe": ("SP11 debug, safe (no GPU)", "m15-safe", DEFAULT),
     "nosnd": ("SP11 debug, no sound", "m15-nosnd", DEFAULT),
     "notouch": ("SP11 debug, touch off", "m15-notouch", DEFAULT),
@@ -56,9 +57,11 @@ def check_entry(body, ident, variant, want):
     linux = re.search(r"^\s*linux \S+ (.*)$", body, re.M)
     assert linux, f"{ident}: linux command missing"
     args = shlex.split(linux[1])
+    pin_args = [a for a in args if a.startswith("sp11.gpu_pin")]
+    assert pin_args == [] or (ident == "debug" and pin_args == ["sp11.gpu_pin=0"]), f"{ident}: invalid GPU pin control"
     assert not FORBIDDEN_WORDS & set(args), f"{ident}: quiet/rhgb/splash argument"
     assert "debug" in args and "loglevel=8" in args and "ignore_loglevel" in args, f"{ident}: not verbose"
-    spec = {a for a in args if a in want or a.startswith(SPECIAL_PREFIX) or ".dyndbg=" in a} - COMMON_KIWI
+    spec = {a for a in args if a in want or a.startswith(SPECIAL_PREFIX) or ".dyndbg=" in a} - COMMON_KIWI - {"sp11.gpu_pin=0"}
     assert spec == want, f"{ident}: diagnostic args differ: {sorted(spec ^ want)}"
     assert args.count("sp11.entry=" + ident) == 1 and sum(a.startswith("sp11.entry=") for a in args) == 1, f"{ident}: wrong entry mark"
     assert not any(a.startswith(NEVER_PREFIX) for a in args), f"{ident}: rotor/GPU/SAM/firmware argument on the command line (Linux side owns it)"
