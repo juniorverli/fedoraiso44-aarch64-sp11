@@ -47,7 +47,7 @@ search ${search_params}
 # their state in plain files on the boot medium (image/README.md, "M15"). The GPU two-step markers are plain files too; GRUB has no GPU logic.
 # S1: the only DTB that enables the speaker sound card is m15-spk, only in the `spk` entry, checked against the d26 profile by L0.
 menuentry 'SP11 debug' --id sp11-debug --class fedora --class gnu-linux --class gnu --class os {
-	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr pmic_glink_altmode.dyndbg=+p ps883x.dyndbg=+p phy_qcom_qmp_combo.dyndbg=+p ucsi_glink.dyndbg=+p typec_ucsi.dyndbg=+p dwc3.dyndbg=+p dwc3_qcom.dyndbg=+p qcom_pd_mapper.dyndbg=+p pdr_interface.dyndbg=+p trace_event=:mod:qcom_glink,:mod:smp2p,:mod:qcom_aoss,rpmh:rpmh_send_msg trace_buf_size=16M efi_pstore.pstore_disable=0 printk.always_kmsg_dump=1 sp11.entry=debug
+	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr pmic_glink_altmode.dyndbg=+p ps883x.dyndbg=+p phy_qcom_qmp_combo.dyndbg=+p ucsi_glink.dyndbg=+p typec_ucsi.dyndbg=+p dwc3.dyndbg=+p dwc3_qcom.dyndbg=+p qcom_pd_mapper.dyndbg=+p pdr_interface.dyndbg=+p trace_event=:mod:qcom_glink,:mod:smp2p,:mod:qcom_aoss,rpmh:rpmh_send_msg trace_buf_size=16M efi_pstore.pstore_disable=0 printk.always_kmsg_dump=1 sp11.gpu_pin=0 sp11.entry=debug
 	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m15.dtb
 	initrd ($$root)${bootpath}/${initrd_file}
 }
