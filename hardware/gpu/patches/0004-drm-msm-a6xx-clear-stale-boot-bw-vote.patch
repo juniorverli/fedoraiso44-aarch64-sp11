@@ -1,0 +1,97 @@
+From: Jie Zhang <jie.zhang@oss.qualcomm.com>
+Date: Sat, 24 Oct 2026 16:00:09 +0530
+Subject: [PATCH] drm/msm/a6xx: Fix stale boot up BW vote
+
+An initial bus bandwidth is voted during boot to bring up the GMU. In GPUs
+where the GMU drives bandwidth scaling, this boot-time BW vote is
+redundant and can be removed.
+
+Fixes: 7047e655a567 ("drm/msm: adreno: find bandwidth index of OPP and set it along freq index")
+Link: https://lore.jethome.com/lkml/20261024-assorted-fixes-oct-v1-3-2977f974ddb7@oss.qualcomm.com/
+Cc: stable@vger.kernel.org
+Signed-off-by: Jie Zhang <jie.zhang@oss.qualcomm.com>
+Signed-off-by: Akhil P Oommen <akhilpo@oss.qualcomm.com>
+
+Backport to the revision-22 integrated tree: context adjusted for the
+existing boot trace and RPMh dependency vote fixes. The code is unchanged
+from the upstream proposal.
+---
+diff --git a/drivers/gpu/drm/msm/adreno/a6xx_gmu.c b/drivers/gpu/drm/msm/adreno/a6xx_gmu.c
+--- a/drivers/gpu/drm/msm/adreno/a6xx_gmu.c
++++ b/drivers/gpu/drm/msm/adreno/a6xx_gmu.c
+@@ -76,6 +76,13 @@
+ 	return IRQ_HANDLED;
+ }
+ 
++bool a6xx_gmu_scales_bw(struct a6xx_gmu *gmu)
++{
++	struct a6xx_gpu *a6xx_gpu = container_of(gmu, struct a6xx_gpu, gmu);
++
++	return a6xx_gpu->base.info->a6xx->bcms && gmu->nr_gpu_bws > 1;
++}
++
+ bool a6xx_gmu_sptprac_is_on(struct a6xx_gmu *gmu)
+ {
+ 	u32 val;
+@@ -156,7 +163,6 @@
+ 		       bool suspended)
+ {
+ 	struct adreno_gpu *adreno_gpu = to_adreno_gpu(gpu);
+-	const struct a6xx_info *info = adreno_gpu->info->a6xx;
+ 	struct a6xx_gpu *a6xx_gpu = to_a6xx_gpu(adreno_gpu);
+ 	struct a6xx_gmu *gmu = &a6xx_gpu->gmu;
+ 	u32 perf_index;
+@@ -174,7 +180,7 @@
+ 			break;
+ 
+ 	/* If enabled, find the corresponding DDR bandwidth index */
+-	if (info->bcms && gmu->nr_gpu_bws > 1) {
++	if (a6xx_gmu_scales_bw(gmu)) {
+ 		unsigned int bw = dev_pm_opp_get_bw(opp, true, 0);
+ 
+ 		for (bw_index = 0; bw_index < gmu->nr_gpu_bws - 1; bw_index++) {
+@@ -1390,6 +1396,10 @@
+ 	/* Set the GPU to the current freq */
+ 	a6xx_gmu_set_initial_freq(gpu, gmu);
+ 
++	/* Clear the boot bus quota to allow GMU-driven BW scaling */
++	if (a6xx_gmu_scales_bw(gmu))
++		dev_pm_opp_set_opp(&gpu->pdev->dev, NULL);
++
+ 	return 0;
+ 
+ disable_irq:
+@@ -1878,7 +1888,7 @@
+ 		gmu->gmu_freqs, gmu->nr_gmu_freqs, "cx.lvl", "mx.lvl");
+ 
+ 	/* Build the interconnect votes */
+-	if (info->bcms && gmu->nr_gpu_bws > 1)
++	if (a6xx_gmu_scales_bw(gmu))
+ 		ret |= a6xx_gmu_rpmh_bw_votes_init(adreno_gpu, info, gmu);
+ 
+ 	return ret;
+diff --git a/drivers/gpu/drm/msm/adreno/a6xx_gmu.h b/drivers/gpu/drm/msm/adreno/a6xx_gmu.h
+--- a/drivers/gpu/drm/msm/adreno/a6xx_gmu.h
++++ b/drivers/gpu/drm/msm/adreno/a6xx_gmu.h
+@@ -238,6 +238,7 @@
+ bool a7xx_gmu_gx_is_on(struct adreno_gpu *adreno_gpu);
+ bool a8xx_gmu_gx_is_on(struct adreno_gpu *adreno_gpu);
+ bool a6xx_gmu_sptprac_is_on(struct a6xx_gmu *gmu);
++bool a6xx_gmu_scales_bw(struct a6xx_gmu *gmu);
+ void a6xx_sptprac_disable(struct a6xx_gmu *gmu);
+ int a6xx_sptprac_enable(struct a6xx_gmu *gmu);
+ 
+diff --git a/drivers/gpu/drm/msm/adreno/a6xx_hfi.c b/drivers/gpu/drm/msm/adreno/a6xx_hfi.c
+--- a/drivers/gpu/drm/msm/adreno/a6xx_hfi.c
++++ b/drivers/gpu/drm/msm/adreno/a6xx_hfi.c
+@@ -810,7 +810,7 @@
+ 	if (!msg)
+ 		return -ENOMEM;
+ 
+-	if (info->bcms && gmu->nr_gpu_bws > 1)
++	if (a6xx_gmu_scales_bw(gmu))
+ 		a6xx_generate_bw_table(info, gmu, msg);
+ 	else if (adreno_is_a618(adreno_gpu))
+ 		a618_build_bw_table(msg);
+-- 
+2.55.0

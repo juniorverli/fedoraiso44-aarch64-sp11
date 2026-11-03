@@ -1,3 +1,111 @@
+# Revision 23: controlled reset discriminator — 2026-11-03
+
+This section supersedes the revision-22 and earlier reset capture instructions below. **No test was run.** Safe remains default; debug retains the existing early GPU-only `on` pin, GMU is read-only. Keep the same DTB, AC/battery, peripherals, desktop, login, ambient conditions and logging across the matched control and patched debug boots. No camera app or automatic camera capture in the GPU-only boot. No IR/flash, thermal/frequency change, GMU `power/control` write, ACD/preemption change, or speaker-policy change. First check recovery, thermal gate and free space. Stop after the first reset, collect evidence on safe, and only resume the remaining matrix after the operator has the logs and recovery is confirmed. Report every failed/missing event or collector. These short diagnostic actions are not the 30-minute acceptance load.
+
+## Kernel and image owner preflight
+
+1. Keep revision-22 clamp and BTF. Include tracing and runtime PM event support; verify actual built config and actual booted tracefs events, not only config. Set debug kernel command line to the following **single** `trace_event=` argument (merge it into any existing list, never duplicate/replace required events):
+
+   `trace_clock=mono trace_event=:mod:qcom_glink,:mod:smp2p,:mod:qcom_aoss,rpmh:rpmh_send_msg,interconnect:icc_set_bw,interconnect:icc_set_bw_end,rpm:rpm_suspend,rpm:rpm_resume,rpm:rpm_idle,rpm:rpm_return_int,rpm:rpm_status,power:device_pm_callback_start,power:device_pm_callback_end,drm_msm_gpu:*:mod:msm trace_buf_size=16M`
+
+   The requested `power:runtime_*` names do not exist in pinned v7.3 `include/trace/events/power.h`; runtime-PM events are in `include/trace/events/rpm.h` as `rpm:rpm_*`. Include power callback events as complementary evidence. Rev22 has `CONFIG_DRM_MSM=m`; the `:mod:msm` suffix retains the request until module load (`Documentation/trace/events.rst:55`). Verify enabled events after msm loads and before action, otherwise explicitly enable with `echo 'drm_msm_gpu:*' >> /sys/kernel/tracing/set_event`. Keep existing event entries. Record `available_events`, `set_event`, buffer overruns and clock selection. The trace only records enabled instrumented sites, not the GMU's internal IFPC state or a physical rail.
+2. Start live trace and kmsg capture **early**, ideally initramfs after mounting the verified writable boot medium and before first GPU load; preserve early ring when handing off to the single trace_pipe reader. The manual commands below begin only when run and cannot recover overwritten events. Require a boot-ID-named directory, live kmsg plus trace, bounded free-space policy, reported write/sync errors and no automatic pruning of the failing boot. Confirm progress and heartbeats; per-second fsync limits but does not eliminate loss, and USB/controller cache or reset can lose the last data. Boot-medium I/O and tracing can change timing; repeat with same instrumentation.
+3. On a safe boot, preserve prior `/sys/fs/pstore` and `/var/lib/systemd/pstore` before any tests or cleanup. Verify actual registered pstore backend and mounted pstore. If `/dev/pmsg0` exists, write a uniquely labelled non-sensitive sentinel, sync, perform a normal warm reboot, copy both raw pstore and systemd-pstore archive to boot medium, then verify the sentinel and provenance persist through another reboot. Do not induce a panic or assume EFI pstore supplies pmsg. Rev22 config has EFI pstore and pmsg enabled but `CONFIG_PSTORE_RAM=m` (`out/build/kernel/rpmbuild/BUILD/kernel-7.3.0-build/kernel-7.3/linux-7.3.0-65.sp11.22.fc44.aarch64/.config:2610,12848`); configured is not registered or retained. If no qualified backend/sentinel, explicitly record that pstore recovery is unverified and keep the A/B interpretation bounded. Any new ramoops reservation needs the separate ownership and retention checks in historical notes below; do not blindly add one.
+4. Retain successful GPU pin before first open; log its exact path, write/readback, time and errors, plus read-only GPU and GMU `control`, `runtime_status`, `runtime_suspended_time`, all firmware/HFI start results, initial and final status, kernel/DTB/ISO hashes and command line. Preserve actual pstore payloads with original filenames and previous boot ID before systemd-pstore or cleanup consumes them. Build and identify the control and patch-0004 diagnostic kernel variants described below; image instrumentation is requested.
+
+## Live capture and markers
+
+The image owner should implement this from early userspace; the following is an explicit root-shell manual fallback, run on the **device** after tracefs and the confirmed writable boot-medium filesystem are mounted. Substitute `LOGROOT` only after checking `findmnt -T` and free space; it must be a directory on the boot medium, not `/run`, the live overlay, or Windows. This starts one destructive consumer of trace_pipe: do not run another trace_pipe reader. Preserve prior files and never run cleanup. `sync -f` depends on GNU coreutils; record any failure. This procedure cannot guarantee a hard-reset tail survives.
+
+```sh
+# Root shell; replace path with the verified mounted boot-medium directory.
+LOGROOT=/mnt/BOOT-MEDIUM/sp11-rev23
+findmnt -T "$LOGROOT" || exit 1
+df -h "$LOGROOT" || exit 1
+BID=$(cat /proc/sys/kernel/random/boot_id)
+D="$LOGROOT/$BID"
+mkdir -m 700 "$D" || exit 1
+T=/sys/kernel/tracing
+mountpoint -q "$T" || mount -t tracefs tracefs "$T" || exit 1
+cat /proc/cmdline > "$D/cmdline.txt"
+cat "$T/trace_clock" > "$D/trace-clock.txt"
+cat "$T/available_events" > "$D/available-events.txt"
+# msm must already be loaded here; the boot argument requests earlier events.
+for e in rpm/rpm_suspend rpm/rpm_resume rpm/rpm_idle rpm/rpm_return_int rpm/rpm_status power/device_pm_callback_start power/device_pm_callback_end; do
+    test -e "$T/events/$e/enable" || { echo "MISSING $e" | tee -a "$D/errors.txt"; exit 1; }
+    echo 1 > "$T/events/$e/enable" || exit 1
+done
+test -d "$T/events/drm_msm_gpu" || { echo 'MISSING drm_msm_gpu' | tee -a "$D/errors.txt"; exit 1; }
+echo 1 > "$T/events/drm_msm_gpu/enable" || exit 1
+cat "$T/set_event" > "$D/enabled-events.txt"
+cat "$T/trace_pipe" >> "$D/trace-live.txt" 2>> "$D/errors.txt" & TRACEPID=$!
+# Existing image kmsg stream should be used; only start one if it is absent.
+# This reads new messages from /dev/kmsg; do not replace existing early kmsg.
+(dmesg --follow --decode --time-format=raw >> "$D/kmsg-live.txt" 2>> "$D/errors.txt") & KMSGPID=$!
+(while kill -0 "$TRACEPID" 2>/dev/null && kill -0 "$KMSGPID" 2>/dev/null; do
+    sync -f "$D/trace-live.txt" || { echo 'trace sync failed' >> "$D/errors.txt"; exit 1; }
+    sync -f "$D/kmsg-live.txt" || { echo 'kmsg sync failed' >> "$D/errors.txt"; exit 1; }
+    sleep 1
+done; echo 'collector stopped' >> "$D/errors.txt") & SYNCPID=$!
+mark() {
+    printf '%s\n' "REV23 $BID $*" > "$T/trace_marker" || return 1
+    printf '<6>REV23 %s %s\n' "$BID" "$*" > /dev/kmsg || return 1
+    printf '%s uptime=%s\n' "$*" "$(cut -d' ' -f1 /proc/uptime)" >> "$D/actions.txt"
+    sync -f "$D/actions.txt"
+}
+mark capture_ready
+```
+
+Check trace lines and kmsg are advancing, the selected clock is `mono`, and `kill -0` succeeds for all three PIDs. Capture `cat /sys/kernel/tracing/per_cpu/cpu*/stats` before and after the action, all status/errors and PM attributes. Avoid dumping unsafe DRM debugfs state. Action output must itself reach the verified medium; image services should capture it and flush it with the action markers. At clean end mark `test_end`, sync, terminate the two readers and sync loop, save event/overrun stats and their exit status, and sync again. A loss, missing marker, no completed action, or reset before action makes that case inconclusive. A live trace last line can precede reset by storage latency and ring overruns; compare with independent kmsg and observed boot time, not as exact reset time.
+
+On the next safe boot **before another debug boot**, copy the existing original boot-ID directory and raw `/sys/fs/pstore` files plus `/var/lib/systemd/pstore` archive to a new durable recovery directory; record source, filenames, hashes and any read errors. Capture available firmware/EC/watchdog reset reason read-only through owner-provided tooling. Never assume an empty pstore means no panic or no hard reset, and never erase records before the copy.
+
+## Kernel A/B and workload matrix
+
+Request a rev22-derived **control** kernel and an otherwise identical **patched** kernel with only [GPU patch 0004](patches/0004-drm-msm-a6xx-clear-stale-boot-bw-vote.patch) added after the existing rev21 RPMh fixes and GPU MX clamp 0003. Kernel owner must review OPP NULL side effects and live GPU OPP dependencies, apply with zero fuzz, build and verify BTF (`CONFIG_DEBUG_INFO_BTF=y`, `CONFIG_DEBUG_INFO_BTF_MODULES=y`) and matching modules. Use distinct kernel release identifiers, images, initramfs/module directories and hashes; verify each booted artifact to prevent cross-loading. Do not bundle Oct 1/2/6/7 or other behavioral fixes. Keep the same DTB and firmware. Image owner: preserve safe as default and provide explicit separate control and patched debug entries, each with the same existing early GPU-only pin, trace and collection, with no automatic retry. Record the actual kernel, module, initramfs, DTB, firmware and image IDs. If a single image cannot hold both unambiguously, use two otherwise matched images and document every difference.
+
+Before action, record boot OPP and host ICC votes read-only, including path/client/aggregate if actually exposed. Enable both `interconnect:icc_set_bw` and `interconnect:icc_set_bw_end` from boot; these trace host requests and return values (`sources/linux/drivers/interconnect/trace.h`), not autonomous GMU bandwidth votes or physical rails. Record failures and event availability. Ask kernel owner for an owner-reviewed read-only diagnostic of `nr_gpu_bws` and the generated table if no existing interface exposes them; do not infer the exact runtime count from source. Compare the initial host request and successful later clear for this GPU, controlling for other ICC clients; an absent clear, failed return or missing trace makes mechanism verification inconclusive.
+
+Run the A/B/C workload rows below on the control and repeat the **same** rows on the patched kernel under matched conditions. At minimum compare the same baseline and action in both variants; collect repeated matched pairs after recovery where practical. Stop after every reset, recover and preserve evidence before any subsequent boot; do not schedule automatic retries. Trace from early boot through at least the 130 s baseline and the action plus 60 s. If control resets before an action, compare that same pre-action interval first; do not claim camera causality. A reproducible control-only reset with patched survival supports a patch association, while both resetting weakens a sole-cause claim and both surviving is inconclusive. Correlate actions, ICC return, GPU jobs/frequency/PM and other events; a trace or pstore gap cannot exclude silent firmware/hardware reset. Other workload or artifact differences invalidate a clean patch A/B.
+
+## Workload rows and inference
+
+All debug action runs in each kernel variant start at matched uptime (target >=130 s, later if capture setup is not ready); observe an idle baseline to at least 130 s on each boot, then at least 60 s after the marked action or after stream ends. A reset before action is a separate baseline result. Use `cam -l` to establish actual index/ID; do not infer LED or sensor identity from index alone. Log command start/end/exit, request/frame count and observable LED, including operator timestamp. Capture with no GUI/preview, no saved images by default, and stop immediately if LED is dark; make a distinct boot for each camera. No automatic retries.
+
+| Boot | Marked intervention | Readout and interpretation |
+|:--|:--|:--|
+| A debug GPU-only | No camera clients or `cam -l`; mark `gpu_begin`, run `vulkaninfo --summary` and `glxinfo -B`; if the power-thermal owner permits short GPU rendering, run e.g. `timeout 10s vkcube`, then mark `gpu_end` and exit codes. Record renderer and GPU submit events. | Reset before any camera access shows camera streaming is **not necessary in that run**; GPU/display, time, Wi-Fi, unrelated services and shared PM remain candidates. Passing only bounds this particular exposure and workload. `vulkaninfo` alone does not establish actual GPU jobs. |
+| B debug rear | Mark `rear_begin` immediately before `LIBCAMERA_LOG_LEVELS='*:INFO' stdbuf -oL -eL cam --camera <observed-rear-index> --capture=120 --metadata`; route output live to boot medium and check exit; mark `rear_end`. Observe LED, negotiated sensor, stream-start messages and increasing completed request sequence/nonzero bytes. | Reset reproducibly after confirmed rear stream but not A strengthens stream-associated H1; it does not prove CAMSS versus stream-induced GPU/CPU/ISP/PMIC/shared-rail load. A launch without completed frames is not a confirmed stream. |
+| C debug front | New boot, same procedure, `front_begin` / front ID / `front_end`, no rear stream in this boot. | Same logic independently for front. Rear-only vs front-only correlations narrow sensor/path candidates but do not establish the faulty component; failure to reach confirmed stream is inconclusive. |
+
+A concrete action sequence after `mark capture_ready` (set the IDs from `cam -l` in each camera boot, and substitute only the applicable block):
+
+```sh
+# A: In the graphical session with the correct DISPLAY/WAYLAND_DISPLAY and XDG_RUNTIME_DIR.
+mark gpu_begin
+vulkaninfo --summary 2>&1 | stdbuf -oL tee "$D/vulkaninfo-live.txt"; VULKAN_RC=${PIPESTATUS[0]}
+glxinfo -B 2>&1 | stdbuf -oL tee "$D/glxinfo-live.txt"; GLX_RC=${PIPESTATUS[0]}
+# Only after the power-thermal gate permits short rendering:
+timeout 10s vkcube 2>&1 | stdbuf -oL tee "$D/vkcube-live.txt"; CUBE_RC=${PIPESTATUS[0]}
+mark "gpu_end vulkan=$VULKAN_RC glx=$GLX_RC cube=$CUBE_RC"
+
+# B or C, as an authorized session user with camera access, using actual cam -l identity.
+# REAR_OR_FRONT must be rear or front; CAMERA_INDEX is the observed numeric index.
+REAR_OR_FRONT=rear
+CAMERA_INDEX=1
+mark "${REAR_OR_FRONT}_begin index=$CAMERA_INDEX"
+LIBCAMERA_LOG_LEVELS='*:INFO' stdbuf -oL -eL cam --camera "$CAMERA_INDEX" --capture=120 --metadata 2>&1 | stdbuf -oL tee "$D/${REAR_OR_FRONT}-cam-live.txt"
+CAM_RC=${PIPESTATUS[0]}
+mark "${REAR_OR_FRONT}_end exit=$CAM_RC"
+sync -f "$D/${REAR_OR_FRONT}-cam-live.txt"
+```
+
+The root-only trace marker, kmsg and root-owned destination require a small image-provided wrapper for session-user actions, or root/session permissions deliberately arranged by the image owner; do not run a root-owned graphical client without valid session access. The example defaults reproduce the *observed* rear index only; confirm it on that boot and set `REAR_OR_FRONT=front` and the observed front index for C. Image logging must flush action output periodically while `cam` runs: `tee` plus the end-of-command sync alone can lose the final stream output on reset. Preserve the exit code, camera output and observation separately even if the command exits unsuccessfully. The 120-frame exposure may be brief; never infer a long-term pass from it.
+
+For robust correlation repeat the matched case after safe recovery; one pass is not proof of absence. Both camera cases reset with A passing favors a common stream path or common power load; A also resetting weakens stream necessity but does not exclude an independent camera issue. All pass means the intermittent trigger or prior workload/timing was not reproduced, not that H1/H2 are false. If A resets, do not proceed automatically; inspect trace/pstore and device state before deciding next controlled test. **A GPU pin-off comparison, ACD/preemption/IFPC experiment, or changes to camera timing are not part of this first matrix** and need a new evidence-backed plan. Concurrent GNOME rendering means the headless stream is not physically GPU-off; the test isolates the additional explicit stream action, not all GPU traffic.
+
+---
+
 # GPU device acceptance plan
 
 ## Revision 22: MX clamp and reset discrimination (2026-11-03)

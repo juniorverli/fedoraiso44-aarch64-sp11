@@ -2,7 +2,7 @@
 
 ## 1. Summary
 
-The X1P64100's Adreno X1-85 (chip ID `0x43050c01`, "C512v2") has native Linux 7.3 support, and the captured Windows configuration selects a 1.25 GHz graphics ceiling. Status: `designed`; revision 21 reports an MX dependency lookup failure, and the reset cause remains unknown. A targeted upstream clamp backport awaits review and device testing; see [2026-11-03 evidence](evidence/2026-11-03-rev21-mx-reset.md) and the revision-22 [test plan](test-plan.md).
+The X1P64100's Adreno X1-85 (chip ID `0x43050c01`, "C512v2") has native Linux 7.3 support, and the captured Windows configuration selects a 1.25 GHz graphics ceiling. Status: `testing`; revision 22 removes the MX lookup error, but the debug reset remains unexplained. H1 (camera stream) is weakly favored for test ordering; H2 includes an applicable stale boot bandwidth-vote candidate; see [revision-23 evidence](evidence/2026-11-03-rev23-reset-investigation.md) and [test matrix](test-plan.md).
 
 ## 2. Hardware
 
@@ -41,10 +41,10 @@ The X1P64100's Adreno X1-85 (chip ID `0x43050c01`, "C512v2") has native Linux 7.
 |:--|:--|
 | Zap shader not in Fedora | Ship from the DriverStore (firmware worker, `firmware/manifest.toml`) |
 | Firmware/image pin | Verified Fedora file lists: `qcom-firmware-0:20261019-1.fc44.noarch` supplies both `gen70500_*` as `.xz`; firmware/image owners must pin actual RPMs and verify initramfs plus XZ loader support |
-| Physical fuse and safe initial GPU enablement | Safe boot measured fuse 7; debug snapshot shows 1.25 GHz ceiling. Independent cross-check and stable GPU initialization remain pending; no behavioral kernel patch justified |
+| Physical fuse and safe initial GPU enablement | Safe boot measured fuse 7; debug snapshot shows 1.25 GHz ceiling. Independent cross-check and stable GPU initialization remain pending; no frequency change requested |
 | Independent cross-check | Orchestrator must reproduce the active config selection, clock table, fuse extraction and OPP arithmetic before using these safety values |
 | Mesa/image pin | Verified available `mesa-{dri,vulkan}-drivers-0:26.2.5-1.fc44.aarch64`; sources/image owners pin the actual compose. No Mesa change indicated |
-| GPU reset and MX vote | Rev21 logs show MX 432 exceeds the 416 table maximum; review and integrate [patch 0003](patches/0003-drm-msm-a6xx-clamp-mx-dependency-vote.patch), then capture event-aligned evidence. Reset causality is unresolved ([evidence](evidence/2026-11-03-rev21-mx-reset.md)) |
+| GPU reset and MX vote | Rev22 built source contains [patch 0003](patches/0003-drm-msm-a6xx-clamp-mx-dependency-vote.patch) and the MX probe error disappeared; runtime votes and reset cause remain unverified. Run the [rev23 matrix](test-plan.md) and preserve live evidence |
 | Thermal mitigation and device behavior | `power-thermal` establishes equivalent GPU cooling; device tests confirm PAS authentication, rendering and IFPC stability |
 
 ## 6. Open questions
@@ -67,6 +67,11 @@ On the device, with logs in `evidence/`, following [test-plan.md](test-plan.md).
 5. Identified GPU devfreq `available_frequencies` and `max_freq` never exceed 1250000000 Hz; DRM chip ID is `0x43050c01`, fuse is the expected 7 (Q1). Capture any lower thermal cap without overriding it.
 
 ## 8. Requests
+
+- **image / kernel / orchestrator (rev23; supersedes earlier reset capture requests):** implement and verify the exact early boot trace_event list, boot-medium live trace/kmsg, action markers, failure/overrun reporting and pstore recovery/retention preflight in the [rev23 test plan](test-plan.md). Keep BTF, safe default, existing GPU pin and unchanged GMU power control; build matched control and [0004](patches/0004-drm-msm-a6xx-clear-stale-boot-bw-vote.patch) diagnostic kernels with distinct releases and matching modules/initramfs; include no other new behavioral change. Preserve frequency/thermal settings and independent boot-ID evidence, and qualify the actual pstore backend before interpreting absence. Review NULL OPP side effects and expose `nr_gpu_bws`/host ICC votes read-only where feasible; see the matrix.
+- **sources:** pin and catalog the October 24 upstream proposal as a new source input, including patch 3 provenance. Provide a REA CLI or MCP server with forced catalog language and provider attestation; run the precise inventoried GPU, PEP, PMIC and EC comparison and report path/hash/language/function/evidence IDs requested in [rev23 evidence](evidence/2026-11-03-rev23-reset-investigation.md). Active Windows PMIC/EC bindings and power sequence remain unknown.
+- **power-thermal / ec-sam:** identify actual GPU/CAMSS shared power/thermal coupling, safe read-only PMIC/EC reset cause and thermal telemetry; supply collection commands and interpret reset reason, without changing caps. Obtain the power-thermal gate before sustained or short rendering as specified in the test plan.
+- **cameras / orchestrator:** coordinate separately marked headless rear/front runs, verified sensor IDs, stream/frames and LED observation in the rev23 matrix; preserve privacy and the existing safety gates.
 
 - **kernel / orchestrator (rev22):** independently review [GPU patch 0003](patches/0003-drm-msm-a6xx-clamp-mx-dependency-vote.patch) and its table semantics, integrate after the revision-21 RPMh fixes, build with BTF and validate the actual artifact. The caller ignores the original error; the patch is not a proven reset fix.
 - **image / cameras / orchestrator (rev22):** retain safe default and the GPU-only early pin; preserve actual pstore payloads with boot ID and verify retention, and capture durable monotonic GPU, camera stream and action markers until shutdown/reset. The prior GPU-only extract omitted pin lines; full dmesg shows successful early pin. See [evidence](evidence/2026-11-03-rev21-mx-reset.md) and [test plan](test-plan.md). Do not write GMU power/control.
@@ -103,6 +108,10 @@ Historical requests below describe prior milestones and do not authorize the two
 - **orchestrator:** do not repeat the historical two-step; review the GPU-disabled controlled test in [test-plan.md](test-plan.md) section 0 and the reset evidence before any later GPU-enabled test.
 
 ## 9. Log
+
+- 2026-11-03: Audited the Oct-24 GMU BW vote proposal against rev22, prepared and focused-compiled backport 0004, and requested matched instrumented kernel A/B. Reset causality and live BW count remain unverified.
+
+- 2026-11-03: Audited rev22 logs and built GMU runtime path; documented the reset uncertainty, trace-event namespace correction, REA blocker and rev23 GPU/rear/front discriminator.
 
 - 2026-11-03: Reviewed three rev21 boots; backported the triggered upstream MX clamp, corrected pstore and early-pin interpretations, and requested continuous reset evidence for rev22.
 
