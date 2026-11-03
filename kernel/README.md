@@ -816,7 +816,13 @@ Revision 21 integrates camera 0023 and four applicable upstream GPU PM/RPMh fixe
 
 `7.3.0-65.sp11.21.fc44.aarch64` built under the lock in 2734 s; kernel-check PASS, vmlinux BTF and 5935/5935 modules with BTF, all 105 fragment symbols, `CHECK_DTBS=y` zero warnings, and packaged CAMSS register windows correct. All six DTB variants and records were published and each has the specified camera windows. Spectra was rebuilt under the lock against revision 21; its module vermagic matches and it carries BTF. The build log contains bpftool probe and missing cached debug-source path diagnostics; Spectra `rpmlint` reports seven errors and one warning. Details and hashes are in the evidence. No device boot or ISO build.
 
+## Revision 24 camera candidate (2026-11-03)
+
+Revision 24 appends three independent changes: active-trio-only legacy C-PHY programming, CSID-680 RDI drop/crop disable, and VFE-680 RDI MIPI_RAW mode. The first is a source-level front-stream reset candidate; the other two are frame-path candidates and do not establish a reset fix. No device result is claimed. The release passed `kernel-check` with BTF in vmlinux and all 5935 modules, all 105 config symbols, and `CHECK_DTBS=y`; the six DTBs passed their gates and Spectra was rebuilt with matching vermagic and BTF. Build results, review, hashes, limitations, and the image-owner request are recorded in [revision 24 evidence](evidence/2026-11-03-rev24-camera-candidate.md). The rev23 control ISO remains unchanged.
+
 ## Log
+
+- 2026-11-03: built revision 24 camera candidates in 3086 s; kernel-check PASS with BTF in vmlinux/all 5935 modules and CHECK_DTBS=y; six DTB variants published and identical to rev23; Spectra rebuilt for rev24 with BTF. No device test, no ISO and no Git write. See revision 24 evidence.
 
 - 2026-11-03: built revision 21 with camera 0023 and four GPU PM/RPMh upstream fixes; all 88 patches apply with zero fuzz. Kernel-check passed, including vmlinux/all 5935 modules BTF, final config, CHECK_DTBS and camera windows; six DTB variants and the rebuilt Spectra module were verified. GPU path, debug-source and rpmlint limitations are documented in `evidence/2026-11-03-gpu-pm-backports.md`. No device test or ISO.
 

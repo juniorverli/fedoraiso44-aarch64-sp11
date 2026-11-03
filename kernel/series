@@ -160,3 +160,9 @@ hardware/gpu/patches/0003-drm-msm-a6xx-clamp-mx-dependency-vote.patch
 # Revision 23: clear the stale boot GPU bus bandwidth vote when the GMU
 # scales bandwidth (upstream 2026-10-24, Jie Zhang/Akhil P Oommen).
 hardware/gpu/patches/0004-drm-msm-a6xx-clear-stale-boot-bw-vote.patch
+
+# Revision 24: restrict legacy C-PHY writes to enabled trios, then stage
+# independent CSID drop/crop and VFE MIPI RAW frame-path candidates.
+kernel/patches/0008-media-qcom-camss-program-only-active-cphy-trios.patch
+kernel/patches/0009-media-qcom-camss-csid-680-disable-unconfigured-drop-crop.patch
+kernel/patches/0010-media-qcom-camss-vfe-680-select-mipi-raw.patch

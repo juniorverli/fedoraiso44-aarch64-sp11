@@ -1,0 +1,33 @@
+From: Camera investigation <camera-investigation@localhost>
+Subject: [PATCH candidate] media: qcom: camss: Select MIPI RAW mode for VFE 680 RDI
+
+The RDI path writes a MIPI RAW stream. Select the write master RAW
+dump mode rather than leaving the mode field at its reset value.
+VFE 480 already selects MIPI RAW for its RDI write masters.
+
+An independent X1E80100 experiment reports image violations with mode
+zero. Test frame layout, buffer bounds and all supported RDI formats on
+full and lite VFEs before integrating this candidate.
+
+Link: https://github.com/karsies-wq/sp11-imx681-linux/tree/b08f76f40b8d7b715bd4da6aef484f86142cc147
+
+---
+--- a/drivers/media/platform/qcom/camss/camss-vfe-680.c
++++ b/drivers/media/platform/qcom/camss/camss-vfe-680.c
+@@ -38,6 +38,7 @@
+ 
+ #define VFE_BUS_WRITE_CLIENT_CFG(vfe, c)	((vfe_is_lite(vfe) ? 0x400 : 0xe00) + (c) * 0x100)
+ #define		VFE_BUS_WRITE_CLIENT_CFG_EN	BIT(0)
++#define		VFE_BUS_WRITE_CLIENT_CFG_MIPI_RAW	BIT(16)
+ #define VFE_BUS_IMAGE_ADDR(vfe, c)		((vfe_is_lite(vfe) ? 0x404 : 0xe04) + (c) * 0x100)
+ #define VFE_BUS_FRAME_INCR(vfe, c)		((vfe_is_lite(vfe) ? 0x408 : 0xe08) + (c) * 0x100)
+ #define VFE_BUS_IMAGE_CFG0(vfe, c)		((vfe_is_lite(vfe) ? 0x40c : 0xe0c) + (c) * 0x100)
+@@ -186,7 +187,7 @@
+ 	vfe_disable_irq(vfe);
+ 
+ 	/* Enable WM */
+-	writel(VFE_BUS_WRITE_CLIENT_CFG_EN,
++	writel(VFE_BUS_WRITE_CLIENT_CFG_EN | VFE_BUS_WRITE_CLIENT_CFG_MIPI_RAW,
+ 	       vfe->base + VFE_BUS_WRITE_CLIENT_CFG(vfe, wm));
+ 
+ 	dev_dbg(vfe->camss->dev, "RDI%d WM:%d width %d height %d stride %d\n",
