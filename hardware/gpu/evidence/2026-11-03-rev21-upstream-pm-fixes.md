@@ -24,3 +24,7 @@ The Windows KMD reads the platform's GPU feature keys `DisableGmuACD`, `Preempti
 ## Status
 
 Revision 21 integrates the fixes as kernel integration copies and is building `7.3.0-65.sp11.21.fc44.aarch64` with BTF and `CHECK_DTBS`. The rev21 debug entry carries `sp11.gpu_pin=0` so the device test evaluates these kernel fixes rather than the userspace pin. No device result is claimed.
+
+## Path correction after the rev21 source review
+
+Chip `0x43050c01` selects `a7xx_gpu_funcs` (`a6xx_catalog.c:1573-1585`), and that table's PM resume is `a6xx_gmu_pm_resume` (`a6xx_gpu.c:2866-2873`). The OPP use-after-free and the unchecked `pm_runtime_resume_and_get()` are in the separate `a6xx_pm_resume` wrapper (`a6xx_gpu.c:2832-2839`), used by the non-GMU-wrapper A6xx path. They are valid upstream fixes and are included for the tree, but they are **not evidence that they ran on this GPU** and must not be called the primary cause of the observed reset. The RPMH dependency-vote and secondary-rail fixes do affect `a6xx_gmu_rpmh_votes_init()`/the GMU path used here; whether wrong votes cause the silent reset is plausible but unproven until the device test. The single-init change (GPU firmware kept on the rootfs but removed from the initramfs) follows the working reference and removes the early DRM-client initialization; it is part of the same test, not a proven fix.
