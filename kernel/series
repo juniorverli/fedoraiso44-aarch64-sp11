@@ -67,6 +67,7 @@ hardware/dsp-subsystems/patches/0003-remoteproc-qcom_q6v5_pas-add-keep_proxy_pds
 # M13: ec-sam R11, surface_aggregator.shutdown_mode (default behaviour unchanged); touches only aggregator/core.c.
 # hardware/ec-sam/patches/hold/0006 stays out.
 hardware/ec-sam/patches/0007-platform-surface-aggregator-add-a-shutdown_mode-param.patch
+# Revision 20: cameras 0003 has corrected CSIPHY and VFE register windows; order is unchanged.
 # M13: cameras R1, the five checked patches in dependency order. Everything is status = "disabled" in the
 # packaged DT: binding first, then the ov13858 OF/power driver, hamoa camera blocks, Denali LED, Denali rear sensor.
 hardware/cameras/patches/0001-dt-bindings-media-i2c-add-OmniVision-OV13858.patch

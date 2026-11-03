@@ -108,6 +108,9 @@ if int(sys.argv[3]) >= 14:
     # M16 controlled diagnostic kernel: opt-in phase trace and fake-LED KUnit test module.
     want.update({'CONFIG_DRM_MSM_GPU_BOOT_TRACE': 'm', 'CONFIG_KUNIT': 'y',
                  'CONFIG_VIDEO_V4L2_SUBDEV_PRIVACY_LED_KUNIT_TEST': 'm'})
+if int(sys.argv[3]) >= 20:
+    want.update({'CONFIG_IOMMU_DEFAULT_DMA_LAZY': 'y', 'CONFIG_PSTORE': 'y',
+                 'CONFIG_PSTORE_CONSOLE': 'y', 'CONFIG_PSTORE_PMSG': 'y', 'CONFIG_EFI_VARS_PSTORE': 'y'})
 have = {}
 for line in open(sys.argv[1]):
     if line.startswith('CONFIG_') and '=' in line:
@@ -170,7 +173,7 @@ fi
 
 # M8 checks the packaged LCD DT and the actual RPM payloads for the new
 # transport. The full BTF audit above covers every extracted touch module.
-if [[ $KERNEL_SERIES_REV == 5 || $KERNEL_SERIES_REV == 6 || $KERNEL_SERIES_REV == 7 || $KERNEL_SERIES_REV == 8 || $KERNEL_SERIES_REV == 9 || $KERNEL_SERIES_REV == 10 || $KERNEL_SERIES_REV == 11 || $KERNEL_SERIES_REV == 12 || $KERNEL_SERIES_REV == 13 || $KERNEL_SERIES_REV == 14 || $KERNEL_SERIES_REV == 15 || $KERNEL_SERIES_REV == 16 || $KERNEL_SERIES_REV == 17 || $KERNEL_SERIES_REV == 18 || $KERNEL_SERIES_REV == 19 ]]; then
+if [[ $KERNEL_SERIES_REV == 5 || $KERNEL_SERIES_REV == 6 || $KERNEL_SERIES_REV == 7 || $KERNEL_SERIES_REV == 8 || $KERNEL_SERIES_REV == 9 || $KERNEL_SERIES_REV == 10 || $KERNEL_SERIES_REV == 11 || $KERNEL_SERIES_REV == 12 || $KERNEL_SERIES_REV == 13 || $KERNEL_SERIES_REV == 14 || $KERNEL_SERIES_REV == 15 || $KERNEL_SERIES_REV == 16 || $KERNEL_SERIES_REV == 17 || $KERNEL_SERIES_REV == 18 || $KERNEL_SERIES_REV == 19 || $KERNEL_SERIES_REV == 20 ]]; then
   milestone=m8; cma_args=(); usb_args=()
   if [[ $KERNEL_SERIES_REV == 6 ]]; then milestone=m9; cma_args=(--cma-dma32); fi
   if [[ $KERNEL_SERIES_REV == 7 ]]; then milestone=m10; cma_args=(--cma-dma32); fi
@@ -184,14 +187,35 @@ if [[ $KERNEL_SERIES_REV == 5 || $KERNEL_SERIES_REV == 6 || $KERNEL_SERIES_REV =
     # M14 adds only DT-disabled camera nodes (rear refinement, front, IR) and an unused closed-loop dtsi: same M12 comparison.
     milestone=m14; cma_args=(--cma-dma32 --parity-in-base --previous-m12 "$SP11_OUT/dtb-variants/7.3.0-65.sp11.9.fc44.aarch64/qcom/x1p64100-microsoft-denali-m12.dtb")
   fi
-  if [[ $KERNEL_SERIES_REV == 12 || $KERNEL_SERIES_REV == 13 || $KERNEL_SERIES_REV == 14 || $KERNEL_SERIES_REV == 15 || $KERNEL_SERIES_REV == 16 || $KERNEL_SERIES_REV == 17 || $KERNEL_SERIES_REV == 18 || $KERNEL_SERIES_REV == 19 ]]; then
+  if [[ $KERNEL_SERIES_REV == 12 || $KERNEL_SERIES_REV == 13 || $KERNEL_SERIES_REV == 14 || $KERNEL_SERIES_REV == 15 || $KERNEL_SERIES_REV == 16 || $KERNEL_SERIES_REV == 17 || $KERNEL_SERIES_REV == 18 || $KERNEL_SERIES_REV == 19 || $KERNEL_SERIES_REV == 20 ]]; then
     # M15 adds the volume-key nodes (ec-sam 0005) on top of the M14 content; the DP audio links are in /sound only for
     # the sound variants. Same M12 comparison, with the volume-key nodes allowed (kernel-m8-check.py, m15).
     usb_args=(--usb-orientation-dropped)
-    milestone=m15; [[ $KERNEL_SERIES_REV == 14 || $KERNEL_SERIES_REV == 15 || $KERNEL_SERIES_REV == 16 || $KERNEL_SERIES_REV == 17 || $KERNEL_SERIES_REV == 18 || $KERNEL_SERIES_REV == 19 ]] && milestone=m16
+    milestone=m15; [[ $KERNEL_SERIES_REV == 14 || $KERNEL_SERIES_REV == 15 || $KERNEL_SERIES_REV == 16 || $KERNEL_SERIES_REV == 17 || $KERNEL_SERIES_REV == 18 || $KERNEL_SERIES_REV == 19 || $KERNEL_SERIES_REV == 20 ]] && milestone=m16
     cma_args=(--cma-dma32 --parity-in-base --previous-m12 "$SP11_OUT/dtb-variants/7.3.0-65.sp11.9.fc44.aarch64/qcom/x1p64100-microsoft-denali-m12.dtb")
   fi
   packaged="$CK/root/lib/modules/$kver/dtb/$dtb"
+  if [[ $KERNEL_SERIES_REV == 20 ]]; then
+    python3 -I - "$packaged" "$CK/camss-regions.json" <<'PY'
+import json, subprocess, sys
+dtb, out = sys.argv[1:]
+node = '/soc@0/isp@acb7000'
+def get(fmt, prop):
+    return subprocess.check_output(['fdtget', '-t', fmt, dtb, node, prop], text=True).split()
+names = get('s', 'reg-names')
+cells = [int(v, 16) for v in get('x', 'reg')]
+assert len(cells) == 4 * len(names), 'CAMSS reg and reg-names differ'
+regions = {name: {'address': (cells[4*i] << 32) | cells[4*i+1],
+                  'size': (cells[4*i+2] << 32) | cells[4*i+3]} for i, name in enumerate(names)}
+expected = {'csiphy0': (0xace4000, 0x2000), 'csiphy1': (0xace6000, 0x2000),
+            'csiphy2': (0xace8000, 0x2000), 'csiphy4': (0xacec000, 0x2000),
+            'vfe0': (0xac62000, 0xf000), 'vfe1': (0xac71000, 0xf000)}
+for name, (address, size) in expected.items():
+    assert regions[name] == {'address': address, 'size': size}, (name, regions.get(name))
+json.dump({name: regions[name] for name in expected}, open(out, 'w'), indent=2)
+print('Packaged CAMSS CSIPHY and VFE register windows: PASS')
+PY
+  fi
   dt-validate -s "$D/Documentation/devicetree/bindings/processed-schema.json" \
     "$packaged" > "$CK/packaged.dt-validate.log" 2>&1
   [[ ! -s $CK/packaged.dt-validate.log ]] || die "$milestone packaged DTB schema diagnostics"
@@ -259,6 +283,7 @@ rec = {
   'm15': json.load(open("$CK/m15.json")) if os.path.exists("$CK/m15.json") else None,
   'm16': json.load(open("$CK/m16.json")) if os.path.exists("$CK/m16.json") else None,
   'boot_diag_config': json.load(open("$CK/boot-diag-config.json")),
+  'camss_regions': json.load(open("$CK/camss-regions.json")) if os.path.exists("$CK/camss-regions.json") else None,
   'rpms': rpms,
 }
 json.dump(rec, open(sys.argv[1], 'w'), indent=2); print('record', sys.argv[1])
