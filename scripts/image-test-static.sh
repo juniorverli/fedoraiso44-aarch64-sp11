@@ -410,7 +410,7 @@ if [ "$builder" = kiwi ]; then
 		if [ -n "$rsha" ]; then [ "$vsha" = "$rsha" ] && pass 3.11 "variant $v SHA-256 equals the kernel worker's JSON record" || fail 3.11 "variant $v SHA-256 differs from the kernel worker's JSON record ($rsha)"; else fail 3.11 "no JSON record of the kernel worker for variant $v in the build record"; fi
 		vr=$OUT/dtb-variants/$kver/qcom/${vf%.dtb}.json
 		if [ -f "$vr" ] && [ "$vsha" = "$(jq -r .sha256 "$vr")" ] &&
-		   [ "$(jq -r .kver "$vr")" = "$kver" ] && { [ "$(jq -r .series_rev "$vr")" = 12 ] || [ "$(jq -r .series_rev "$vr")" = 13 ] || [ "$(jq -r .series_rev "$vr")" = 14 ] || [ "$(jq -r .series_rev "$vr")" = 15 ] || [ "$(jq -r .series_rev "$vr")" = 16 ] || [ "$(jq -r .series_rev "$vr")" = 17 ] || [ "$(jq -r .series_rev "$vr")" = 18 ] || [ "$(jq -r .series_rev "$vr")" = 19 ] || [ "$(jq -r .series_rev "$vr")" = 20 ]; } &&
+		   [ "$(jq -r .kver "$vr")" = "$kver" ] && { [ "$(jq -r .series_rev "$vr")" = 12 ] || [ "$(jq -r .series_rev "$vr")" = 13 ] || [ "$(jq -r .series_rev "$vr")" = 14 ] || [ "$(jq -r .series_rev "$vr")" = 15 ] || [ "$(jq -r .series_rev "$vr")" = 16 ] || [ "$(jq -r .series_rev "$vr")" = 17 ] || [ "$(jq -r .series_rev "$vr")" = 18 ] || [ "$(jq -r .series_rev "$vr")" = 19 ] || [ "$(jq -r .series_rev "$vr")" = 20 ] || [ "$(jq -r .series_rev "$vr")" = 21 ]; } &&
 		   [ "$(jq -r .series_hash_sha256 "$vr")" = "$(jq_ .kernel_patch_series_sha256)" ] &&
 		   jq -e --arg f "$vf.json" --slurpfile source "$vr" '.dtb_variant_records[$f] == $source[0]' "$rec" >/dev/null; then
 			pass 3.14 "variant $v matches published JSON hash/release/series and embedded record"

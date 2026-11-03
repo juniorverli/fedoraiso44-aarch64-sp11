@@ -1132,6 +1132,8 @@ Rollback: rebuild without `--private`. Q3 of the wifi dossier (is the OTP addres
 
 ## Log
 
+- 2026-11-03: extended the image builder and L0 DTB record revision gates to accept series revision 21; kernel/DTB hashes await the revision-21 build record. No ISO or kernel build.
+
 - 2026-11-02: restored the silent 0.0 sink route default as a fail-safe; the startup helper sets 30% only after muting.
 
 - 2026-11-02: restored the D28 0.251 ACP ceiling and added debug-only early and service-level verified GPU/GMU runtime PM pinning; device validation remains pending.
