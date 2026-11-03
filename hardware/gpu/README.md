@@ -2,7 +2,7 @@
 
 ## 1. Summary
 
-The X1P64100's Adreno X1-85 (chip ID `0x43050c01`, "C512v2") has native Linux 7.3 support, and the captured Windows configuration selects a 1.25 GHz graphics ceiling. Status: `designed`; the latest debug boot displayed fluid GNOME and then reset, with the cause unresolved. Round 3 reported two successful GMU/HFI starts and a reset after GNOME appeared; the raw capture is not available in this workspace. Safe remains the default. The next discriminator pins and monitors both GPU and GMU runtime PM; see [revision-20 evidence](evidence/2026-11-02-rev20-reset-capture.md) and [test plan](test-plan.md).
+The X1P64100's Adreno X1-85 (chip ID `0x43050c01`, "C512v2") has native Linux 7.3 support, and the captured Windows configuration selects a 1.25 GHz graphics ceiling. Status: `designed`; revision 21 reports an MX dependency lookup failure, and the reset cause remains unknown. A targeted upstream clamp backport awaits review and device testing; see [2026-11-03 evidence](evidence/2026-11-03-rev21-mx-reset.md) and the revision-22 [test plan](test-plan.md).
 
 ## 2. Hardware
 
@@ -44,7 +44,7 @@ The X1P64100's Adreno X1-85 (chip ID `0x43050c01`, "C512v2") has native Linux 7.
 | Physical fuse and safe initial GPU enablement | Safe boot measured fuse 7; debug snapshot shows 1.25 GHz ceiling. Independent cross-check and stable GPU initialization remain pending; no behavioral kernel patch justified |
 | Independent cross-check | Orchestrator must reproduce the active config selection, clock table, fuse extraction and OPP arithmetic before using these safety values |
 | Mesa/image pin | Verified available `mesa-{dri,vulkan}-drivers-0:26.2.5-1.fc44.aarch64`; sources/image owners pin the actual compose. No Mesa change indicated |
-| GPU reset | Cause unresolved after repeated GMU starts; verify ramoops memory ownership and retention, then run the debug-only GPU and GMU runtime-PM discriminator with independent durable logging ([test plan](test-plan.md)) |
+| GPU reset and MX vote | Rev21 logs show MX 432 exceeds the 416 table maximum; review and integrate [patch 0003](patches/0003-drm-msm-a6xx-clamp-mx-dependency-vote.patch), then capture event-aligned evidence. Reset causality is unresolved ([evidence](evidence/2026-11-03-rev21-mx-reset.md)) |
 | Thermal mitigation and device behavior | `power-thermal` establishes equivalent GPU cooling; device tests confirm PAS authentication, rendering and IFPC stability |
 
 ## 6. Open questions
@@ -68,7 +68,10 @@ On the device, with logs in `evidence/`, following [test-plan.md](test-plan.md).
 
 ## 8. Requests
 
-- **kernel / image (revision 20; supersedes the earlier GPU-only discriminator):** implement the precise dual-device power-control, readback, per-cycle telemetry, urgent kmsg sync, pstore archival and next-boot durable copy in [revision-20 evidence](evidence/2026-11-02-rev20-reset-capture.md). Build `CONFIG_PSTORE=y`, `CONFIG_PSTORE_RAM=y`, `CONFIG_PSTORE_CONSOLE=y`, `CONFIG_PSTORE_PMSG=y`, retaining BTF. A 2 MiB ramoops node at `0x84000000` is a **candidate only**, gated on full EFI/DT ownership checks, an independent cross-check and warm-reset retention; do not deploy it if any ownership is uncertain. No new kernel patch is supplied. Preserve safe default and thermal limits.
+- **kernel / orchestrator (rev22):** independently review [GPU patch 0003](patches/0003-drm-msm-a6xx-clamp-mx-dependency-vote.patch) and its table semantics, integrate after the revision-21 RPMh fixes, build with BTF and validate the actual artifact. The caller ignores the original error; the patch is not a proven reset fix.
+- **image / cameras / orchestrator (rev22):** retain safe default and the GPU-only early pin; preserve actual pstore payloads with boot ID and verify retention, and capture durable monotonic GPU, camera stream and action markers until shutdown/reset. The prior GPU-only extract omitted pin lines; full dmesg shows successful early pin. See [evidence](evidence/2026-11-03-rev21-mx-reset.md) and [test plan](test-plan.md). Do not write GMU power/control.
+
+- **kernel / image (revision 20; historical, superseded by rev22 above):** implement the precise dual-device power-control, readback, per-cycle telemetry, urgent kmsg sync, pstore archival and next-boot durable copy in [revision-20 evidence](evidence/2026-11-02-rev20-reset-capture.md). Build `CONFIG_PSTORE=y`, `CONFIG_PSTORE_RAM=y`, `CONFIG_PSTORE_CONSOLE=y`, `CONFIG_PSTORE_PMSG=y`, retaining BTF. A 2 MiB ramoops node at `0x84000000` is a **candidate only**, gated on full EFI/DT ownership checks, an independent cross-check and warm-reset retention; do not deploy it if any ownership is uncertain. No new kernel patch is supplied. Preserve safe default and thermal limits.
 - **orchestrator / sources:** provide and hash the round-3 `b1c603b5` raw kmsg and EFI map; check recovery messages and sequence gaps. A Windows programming difference is not yet identified, so REA is not requested for this round.
 
 - **image / orchestrator (historical):** the GPU-only discriminator in [resume evidence](evidence/2026-11-02-resume-comparison.md) is superseded by the dual-device revision-20 request above.
@@ -100,6 +103,8 @@ Historical requests below describe prior milestones and do not authorize the two
 - **orchestrator:** do not repeat the historical two-step; review the GPU-disabled controlled test in [test-plan.md](test-plan.md) section 0 and the reset evidence before any later GPU-enabled test.
 
 ## 9. Log
+
+- 2026-11-03: Reviewed three rev21 boots; backported the triggered upstream MX clamp, corrected pstore and early-pin interpretations, and requested continuous reset evidence for rev22.
 
 - 2026-10-23: dossier created from the static survey.
 - 2026-10-24: established REV 008A's active unsuffixed base file and 1.25 GHz clock table; mapped Linux fuse/OPPs and unsafe unknown-fuse fallback; confirmed Fedora firmware/Mesa availability, checked zap container and documented thermal hand-off plus staged device tests. Status designed; no kernel patch or git write operation.
