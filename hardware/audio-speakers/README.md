@@ -2,7 +2,7 @@
 
 ## 1. Summary
 
-Two WSA8845 smart amplifiers on SoundWire, driven by the ADSP through AudioReach. Safe use requires speaker protection: a thermal and excursion model fed by voltage/current (VI) sense from the amplifiers. A closed-loop topology, calibration loader and fail-closed kernel guard are prepared and parser-checked, but ADSP graph start, live VI feedback and per-unit calibration remain unverified on the device. Status: `testing`; rev19 selected D26 open-loop and installed the caps, but the PA operating point, effective digital gain and post-session microphone capture need the revision-20 retest. S1/D26 still requires a speaker-off fallback; closed-loop protection is not established.
+Two WSA8845 smart amplifiers on SoundWire, driven by the ADSP through AudioReach. Safe use requires speaker protection: a thermal and excursion model fed by voltage/current (VI) sense from the amplifiers. A closed-loop topology, calibration loader and fail-closed kernel guard are prepared and parser-checked, but ADSP graph start, live VI feedback and per-unit calibration remain unverified on the device. Status: `testing`; the 2026-11-03 safe boot installed D26 caps and showed PA 6, but Speaker enable failed and runtime sink level and fault semantics remain unverified. S1/D26 still requires a speaker-off fallback; closed-loop protection is not established.
 
 ## 2. Hardware
 
@@ -82,7 +82,11 @@ Two WSA8845 smart amplifiers on SoundWire, driven by the ADSP through AudioReach
 
 ## 8. Requests
 
-**Revision 20 image policy and request:** The canonical installed UCM source is `image/component-inputs/d28/audio`. Its Speaker enable writes left and right PA and stereo `Speakers Volume` to 6 after DAC/BOOST; disable writes both PAs to 0. The retained [Speaker sequence](userspace/overlay-d28/usr/share/alsa/ucm2/Qualcomm/x1e80100/Surface11-SpeakerSeq.conf) matches the canonical file; both SHA-256: `73526c093294589554cad1326a46e2acaa7b4a83394b66af3048cca614312879`. **Image request:** add an L0 byte-for-byte comparison of these two files while both are retained. Verify on device that left/right PA and stereo alias read 6 after enable, verb re-selection and disable/enable, and 0 on disable; verify WsaInit BootSequence does not overwrite PA after enable.
+**2026-11-03 requests (supersede the conflicting Speaker sequence and L0 assertions below):** image: review the retained [candidate Speaker sequence](userspace/overlay-d28/usr/share/alsa/ucm2/Qualcomm/x1e80100/Surface11-SpeakerSeq.conf), remove only the redundant `Speakers Volume` cset from the canonical image input, retain both physical PA writes of 6 and both disable writes of 0, and change the L0 requirement to reject an alias cset while checking those physical writes. Keep the package's remapped mixer for PipeWire. The original failed cset is a strong source-backed inference, not traced in this boot; perform the muted A/B and capture error and route state as described in the [evidence](evidence/2026-11-03-speaker-enable-and-idle-fault.md). Synchronize the canonical and retained files after review. Keep default mute, caps, first-test policy, D26 and speaker-off fallback.
+
+**Kernel:** retain the latch for unknown 0x0200, including PA-off events. Obtain authoritative bit semantics and safe diagnostics before classifying the event or proposing a filter. Handle register I/O errors fail-closed; capture timing and affected amplifier. No cap increase or latch bypass is requested.
+
+**Historical revision 20 image policy (superseded by the 2026-11-03 request above):** The canonical installed UCM source was `image/component-inputs/d28/audio`. Its Speaker enable writes left and right PA and stereo `Speakers Volume` to 6 after DAC/BOOST; disable writes both PAs to 0. At revision 20 both the retained sequence and canonical file had SHA-256 `73526c093294589554cad1326a46e2acaa7b4a83394b66af3048cca614312879`; the retained candidate now intentionally differs pending image-owner review. Verify on device that left/right PA and stereo alias read 6 after enable, verb re-selection and disable/enable, and 0 on disable; verify WsaInit BootSequence does not overwrite PA after enable.
 
 Global and per-device `device.routes.default-sink-volume = 0.0` provide the fail-safe. The helper mutes first, then sets 100% on normal boots or 5% with `sp11.audio_first_test=1`. Kernel caps are PA <= 6 (0 dB) and WSA RX/MIX <= 81 (-3 dB); UCM initializes digital volume to 72 (-12 dB). WirePlumber 0.5.19 does not implement `api.acp.max-volume`; it is not a ceiling. Measure digital values at 100% and require a real clamp before acceptance if they rise from 72 to 81. Retain cap readiness, open-loop policy and speaker-off fallback. Capture source/route controls and stereo microphone RMS/peak without retaining speech; no microphone UCM change without evidence. The operator must be present for audible tests; follow [test plan](test-plan.md).
 
@@ -107,6 +111,8 @@ Global and per-device `device.routes.default-sink-volume = 0.0` provide the fail
 - **image / audio-mics (M16 playback):** preserve the existing DP route layer when switching the speaker overlay; fix the collector to address the actual card with `amixer -c 0`, capture DP1 mixer switch state at MultiMedia4 open, active UCM devices, connector state and PCM opener with timestamps, plus topology hash and guard state; do not force routes. Preserve the previously requested speaker-off fallback. See [playback evidence](evidence/2026-11-02-m16-safe-playback.md).
 
 ## 9. Log
+
+- 2026-11-03: analysed safe and debug boot audio, identified the raw-control versus remapped alias as the leading UCM failure cause, prepared a retained sequence candidate, and correlated the unknown PA-off latch with reboot; updated muted test and collection requests. No device test or commit.
 
 - 2026-11-02 (D32–D34 sync): synchronized the retained Speaker sequence to the canonical image input, recorded hashes and requested an L0 comparison; updated muted startup, cap, PA alias and BootSequence verification. Device validation remains open.
 
