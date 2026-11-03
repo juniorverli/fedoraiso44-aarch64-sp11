@@ -89,12 +89,13 @@ def check(root, repo, record, release):
         commands = "\n".join(line for line in sequence.splitlines() if not line.lstrip().startswith("#"))
         assert not re.search(r"\bcset\b[^\n]*PA Volume", commands), 'unexpected PA gain in init/default'
     enable, disable = speaker_seq.split('DisableSequence', 1)
-    for control in ('SpkrLeft PA Volume', 'SpkrRight PA Volume', 'Speakers Volume'):
+    for control in ('SpkrLeft PA Volume', 'SpkrRight PA Volume'):
         assert enable.count(f"cset \"name='{control}' 6\"") == 1, control
     for control in ('SpkrLeft PA Volume', 'SpkrRight PA Volume'):
         assert f"cset \"name='{control}' 0\"" in disable, control
     writes = re.findall(r"cset\s+\"name='(?:SpkrLeft PA Volume|SpkrRight PA Volume|Speakers Volume)'\s+(\d+)\"", speaker_seq)
-    assert len(writes) == 5 and all(int(v) <= 6 for v in writes), 'PA gain exceeds kernel cap'
+    assert len(writes) == 4 and all(int(v) <= 6 for v in writes), 'PA gain exceeds kernel cap'
+    assert 'Speakers Volume' not in enable, 'userspace remap alias must not be a UCM cset'
     driver = (ucm / 'x1e80100.conf').read_text()
     assert 'Microsoft Corporation.*Surface.*Microsoft Surface Pro( with 5G)?, 11th Edition' in driver
     assert 'SP11-Audio.conf' not in driver, 'driver still includes the later replacement verb'

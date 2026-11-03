@@ -152,3 +152,7 @@ kernel/patches/0004-drm-msm-a6xx-fix-opp-use-after-free.patch
 kernel/patches/0005-drm-msm-a6xx-fix-rpmh-dependency-votes.patch
 kernel/patches/0006-drm-msm-a6xx-fix-secondary-rail-vote.patch
 kernel/patches/0007-drm-msm-a6xx-check-runtime-resume-errors.patch
+
+# Revision 22: clamp the MX dependency vote when the GPU arc level exceeds
+# the highest RPMh MX corner (X1P64100 reports 432; the table ends at 416).
+hardware/gpu/patches/0003-drm-msm-a6xx-clamp-mx-dependency-vote.patch

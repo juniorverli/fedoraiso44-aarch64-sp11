@@ -11,7 +11,7 @@
   "installed_files": {
     "usr/share/alsa/ucm2/Qualcomm/x1e80100/MICROSOFT-Surface-Pro-11.conf": "3cd05b43f782795d343a6dad0373ef10f95704724e7d57b224172d077f8de38d",
     "usr/share/alsa/ucm2/Qualcomm/x1e80100/Surface11-HiFi.conf": "ba24e854477ce3ed0fc13c9dda6a7bb0bcf2d978f0fff4e672a6f879bdb6a90c",
-    "usr/share/alsa/ucm2/Qualcomm/x1e80100/Surface11-SpeakerSeq.conf": "73526c093294589554cad1326a46e2acaa7b4a83394b66af3048cca614312879",
+    "usr/share/alsa/ucm2/Qualcomm/x1e80100/Surface11-SpeakerSeq.conf": "163cd2d165fb3a0e7003f7ec8b7e7801f5f23737e4274ef9efb1cf091478c179",
     "usr/share/alsa/ucm2/Qualcomm/x1e80100/Surface11-WsaInit.conf": "ca9d2725ed95bf5ade5ab6751b6e66b3e018bb0421535f71ba0626fdb7b97fbd",
     "usr/share/alsa/ucm2/Qualcomm/x1e80100/x1e80100.conf": "95e36c3b62a24abca9673dbf3239f4c17395cf19a6cdc84c95c6f4b7c303d676",
     "usr/share/wireplumber/wireplumber.conf.d/51-sp11-audio-safety.conf": "83c0e8a319bc0102c8856a03780612b3ca7b48228f44182c1b739ea468051594",
