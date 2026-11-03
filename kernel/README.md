@@ -810,7 +810,16 @@ No DT change in revision 19, so these are identical to revision 18. Effective m1
 
 The 83-patch series is pinned at `93966ffa075153a8c59544b73f511ae7e14293bbf31ba37d669f7e216baf7b9a`; the updated camera 0003 has SHA-256 `1575edb32c3665e55f0e4b695371bbe2869258f00478e06da4d4e47d5ad8f861`. It corrects CSIPHY and VFE register window sizes. The configuration retains lazy DMA and adds built-in EFI-vars pstore diagnostics; no `PSTORE_RAM` option or ramoops node was added. The pinned v7.3 Kconfig symbols exist, all 83 patches applied with zero fuzz, and all 105 fragment symbols survived the generated build configuration. The release build and artifact verification are in progress; see `kernel/evidence/2026-11-02-rev20.md`. No device result is claimed.
 
+## Revision 21 release (2026-11-03)
+
+Revision 21 integrates camera 0023 and four applicable upstream GPU PM/RPMh fixes (88 patches, series SHA-256 `8bc12d92dda970a6ab68fc8e0153a13cbb73ff8183cecb281ded5d680456e265`). The OPP UAF is in the GMU-wrapper path, while this GPU uses the separate GMU resume path, so it does not establish the cause of the observed reset. The two RPMh vote fixes affect the actual GMU path, but a causal link is unproven. Autosuspend cleanup is already present, the requested MX-clamp helper context is absent, and the checked July VM fixes are already present. See [GPU PM evidence](evidence/2026-11-03-gpu-pm-backports.md) for upstream IDs, exact source matches, exclusions, and build limitations.
+
+`7.3.0-65.sp11.21.fc44.aarch64` built under the lock in 2734 s; kernel-check PASS, vmlinux BTF and 5935/5935 modules with BTF, all 105 fragment symbols, `CHECK_DTBS=y` zero warnings, and packaged CAMSS register windows correct. All six DTB variants and records were published and each has the specified camera windows. Spectra was rebuilt under the lock against revision 21; its module vermagic matches and it carries BTF. The build log contains bpftool probe and missing cached debug-source path diagnostics; Spectra `rpmlint` reports seven errors and one warning. Details and hashes are in the evidence. No device boot or ISO build.
+
 ## Log
+
+- 2026-11-03: built revision 21 with camera 0023 and four GPU PM/RPMh upstream fixes; all 88 patches apply with zero fuzz. Kernel-check passed, including vmlinux/all 5935 modules BTF, final config, CHECK_DTBS and camera windows; six DTB variants and the rebuilt Spectra module were verified. GPU path, debug-source and rpmlint limitations are documented in `evidence/2026-11-03-gpu-pm-backports.md`. No device test or ISO.
+
 
 - 2026-10-29: built M8 revision 5 (25 patches; RFC 0014 retired; spi-hid/QSPI touch and packaged GPU isolation). Release 3313 s; kernel-check PASS with BTF in vmlinux and all 5934 modules, 73 config symbols, packaged schema/S1/GPU/wiring and eight RPM module payload checks. M8/M8-notouch DTBs and JSON pass (63/14 s; complete run 214.464 s). Final index/syntax/whitespace checks pass; build/source locks are free and no task process remains. Recorded hashes/times and explicit image/owner requests; no device test. Changes remain uncommitted for the orchestrator (D24).
 

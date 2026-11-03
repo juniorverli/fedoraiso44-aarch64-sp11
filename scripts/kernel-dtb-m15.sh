@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Build M15/M16 DTB variants from the release series without git writes.
-# scripts/kernel-dtb-m15.sh [--preflight] [KVER]; publication requires checked revision-12 through revision-20 RPMs.
+# scripts/kernel-dtb-m15.sh [--preflight] [KVER]; publication requires checked revision-12 through revision-21 RPMs.
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/kernel-common.sh"
 preflight=0
 if [[ ${1:-} == --preflight ]]; then preflight=1; shift; fi
 kver=${1:-$KERNEL_KVER}
-[[ ($KERNEL_SERIES_REV == 12 || $KERNEL_SERIES_REV == 13 || $KERNEL_SERIES_REV == 14 || $KERNEL_SERIES_REV == 15 || $KERNEL_SERIES_REV == 16 || $KERNEL_SERIES_REV == 17 || $KERNEL_SERIES_REV == 18 || $KERNEL_SERIES_REV == 19 || $KERNEL_SERIES_REV == 20) && $kver == "$KERNEL_KVER" ]] || die 'M15/M16 requires series_rev 12 through 20 and $KERNEL_KVER'
+[[ ($KERNEL_SERIES_REV == 12 || $KERNEL_SERIES_REV == 13 || $KERNEL_SERIES_REV == 14 || $KERNEL_SERIES_REV == 15 || $KERNEL_SERIES_REV == 16 || $KERNEL_SERIES_REV == 17 || $KERNEL_SERIES_REV == 18 || $KERNEL_SERIES_REV == 19 || $KERNEL_SERIES_REV == 20 || $KERNEL_SERIES_REV == 21) && $kver == "$KERNEL_KVER" ]] || die 'M15/M16 requires series_rev 12 through 21 and $KERNEL_KVER'
 kernel_series_check
 src="$SP11_OUT/linux/m15"
 checks="$SP11_OUT/build/dtb-m15-checks"
@@ -152,7 +152,7 @@ base, kver, release_path = sys.argv[4:7]
 patches = sys.argv[7:]
 sha = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
 release = json.loads(Path(release_path).read_text())
-assert release["series_rev"] in (12, 13, 14, 15, 16, 17, 18, 19, 20) and release['build']['rpmbuild_rc'] == 0
+assert release["series_rev"] in (12, 13, 14, 15, 16, 17, 18, 19, 20, 21) and release['build']['rpmbuild_rc'] == 0
 assert release['btf']['vmlinux'] == 'ok' and release['btf']['modules_without_btf'] == 0
 assert release['btf']['modules_with_btf'] == release['btf']['modules_total'] > 0
 assert release['kver'] == kver and release['base']['commit'] == base
