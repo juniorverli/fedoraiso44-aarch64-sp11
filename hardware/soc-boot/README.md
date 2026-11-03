@@ -2,7 +2,7 @@
 
 ## 1. Summary
 
-Everything the kernel needs before any peripheral works: CPUs, PSCI, cpufreq, idle states, clocks, interconnect, SMMU, GPIO and PMIC pin controllers, QUP serial engines, and the device tree. Status: `designed`; LCD boot parity is now a standalone DT patch, with static validation in [the evidence](evidence/2026-10-30-cpu-topology.md), awaiting independent cross-check and kernel-owner integration.
+Everything the kernel needs before any peripheral works: CPUs, PSCI, cpufreq, idle states, clocks, interconnect, SMMU, GPIO and PMIC pin controllers, QUP serial engines, and the device tree. Status: `designed`; the M16 safe DT has the correct ten-CPU topology, while packaged DT integration and broader runtime acceptance remain open. See [M16 evidence](evidence/2026-11-03-cpu-reset-review.md).
 
 ## 2. Hardware
 
@@ -30,7 +30,7 @@ The inherited `hamoa.dtsi` has `cpu7` at line 161, `cpu11` at 211, their map ref
 
 | Gap | Planned answer |
 |:--|:--|
-| Packaged LCD DTB lacks the variants' CPU/idle parity | [0001](patches/0001-arm64-dts-qcom-denali-lcd-boot-parity.patch) deletes `cpu7`, `cpu11`, `cpu_pd7`, `cpu_pd11`, cluster1/cluster2 `core3`, and the system SS3 reference. LCD board only; all three clusters and CL4/CL5 remain. Integration requested below |
+| Packaged LCD DTB integration of CPU/idle parity remains unconfirmed; M16 safe variant already has ten CPUs | [0001](patches/0001-arm64-dts-qcom-denali-lcd-boot-parity.patch) deletes `cpu7`, `cpu11`, `cpu_pd7`, `cpu_pd11`, cluster1/cluster2 `core3`, and the system SS3 reference. LCD board only; all three clusters and CL4/CL5 remain. Integration requested below |
 | System SS3 safety unknown | Preserve D20's existing exclusion; no evidence establishes SS3 as a reset cause. Re-enable only as a separate controlled experiment |
 | Kernel command line | D20 currently retains `clk_ignore_unused pd_ignore_unused rootdelay=10`; necessity remains unisolated. This patch changes no command line |
 | QUP engines may be unprogrammed | GENI loads `qupv3fw.elf` only for protocol 255 in some paths; check on M2 which engines report protocol 0 (affects touch SPI, I2C) |
@@ -39,13 +39,13 @@ The inherited `hamoa.dtsi` has `cpu7` at line 161, `cpu11` at 211, their map ref
 
 | # | Question | Grade | What answers it |
 |:--|:--|:--|:--|
-| Q1 (answered) | Which CPUs must be omitted? | Verified | MADT disables UID 7 / `0x10300` and UID 11 / `0x20300`; physical fusing remains Inference. Independent Claude cross-check pending |
+| Q1 (closed for tested M16 topology) | Must two more CPUs be disabled or are the absent cores restarting? | Verified / Inference | MADT disables UID 7 / `0x10300` and UID 11 / `0x20300`; the safe live DT omits both and all three boots start ten matching CPUs. No evidence implicates those absent cores in resets. Physical fusing and reset cause remain unproven; independent patch cross-check remains pending. |
 | Q2 | Is system SS3 safe and needed? Do retained idle states work correctly? | TBD | Existing parity excludes SS3; batched read-only idle counters and a later isolated SS3 experiment |
 | Q3 | Can the D20 clock/power-domain workarounds be removed? | TBD | Separate boot comparison after a stable integrated baseline |
 
 ## 7. Acceptance
 
-Ten CPUs online, cpufreq scaling on all three clusters, no PSCI CPU-start errors, and boot to GDM three times in a row. Static DT validation does not establish runtime acceptance. See [test-plan.md](test-plan.md); no device boot or full kernel build was run in this session.
+Ten CPUs online, cpufreq scaling on all three clusters, no PSCI CPU-start errors, and boot to GDM three times in a row. M16 establishes ten-CPU startup and one idle snapshot; it does not establish all-policy scaling or three stable cold boots. See [test-plan.md](test-plan.md).
 
 ## 8. Requests
 
@@ -92,7 +92,7 @@ Ten CPUs online, cpufreq scaling on all three clusters, no PSCI CPU-start errors
 
 - **R-I1, image:** after integration, batch the exact read-only commands in [test-plan.md](test-plan.md) into the next collector. Retain speakers off (S1), GPU off (D22), D23's battery-manager restriction and D20's current command line. No extra reboot is requested solely for this patch. Private raw logs stay in `out/`; only sanitized conclusions enter git.
 
-- **R-I2, image (cpufreq, no kernel build):** `scmi_cpufreq` is `CONFIG_ARM_SCMI_CPUFREQ=m` and never loads, because its SCMI device exists only after the module registers (no autoload alias). Add `image/overlay/etc/modules-load.d/sp11-cpufreq.conf` containing `scmi_cpufreq`, ideally opt-in for the first boot, with governor `schedutil` and `scaling_max_freq` capped to a mid-range level from `scaling_available_frequencies` (never `performance`); extend L0 and the collector (already records cpufreq). See [evidence](evidence/2026-10-31-cpufreq.md).
+- **R-I2, image (historical; superseded by read-only M16 follow-up):** M16 shows SCMI policy0 active but has no captured policy for CPUs 4–9. Collect all policies at multiple times as in the test plan; do not change frequencies for this investigation. Previously: `scmi_cpufreq` is `CONFIG_ARM_SCMI_CPUFREQ=m` and never loads, because its SCMI device exists only after the module registers (no autoload alias). Add `image/overlay/etc/modules-load.d/sp11-cpufreq.conf` containing `scmi_cpufreq`, ideally opt-in for the first boot, with governor `schedutil` and `scaling_max_freq` capped to a mid-range level from `scaling_available_frequencies` (never `performance`); extend L0 and the collector (already records cpufreq). See [evidence](evidence/2026-10-31-cpufreq.md).
 - **R-K2, kernel (optional):** `CONFIG_ARM_SCMI_CPUFREQ=y` in `sp11.config` at the next planned build; not needed for R-I2.
 - **R-T1, power-thermal / orchestrator:** after the first cpufreq boot, soc-boot writes patch 0002 (passive 104000 mC or lower plus cpufreq cooling-maps, criticals only lowered); S6 forbids any raise.
 
@@ -101,3 +101,5 @@ Ten CPUs online, cpufreq scaling on all three clusters, no PSCI CPU-start errors
 - 2026-10-23: dossier created from the static survey.
 - 2026-10-30: resolved Q1 from MADT bytes; wrote LCD-only DT parity patch; checked full-series application, DT schemas, S1 and variant equivalence without a full build; requested independent cross-check and kernel-owner integration (D24, uncommitted).
 - 2026-10-31: root cause of missing cpufreq found (module never autoloaded; DT and config sound); requested image modules-load entry; evidence in `evidence/2026-10-31-cpufreq.md`.
+
+- 2026-11-03: reviewed M16 CPU/DT and reset logs; closed the absent-core question for the tested topology, recorded the incomplete cpufreq coverage and pstore limitation, and updated the read-only test plan.
