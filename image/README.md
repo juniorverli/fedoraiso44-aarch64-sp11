@@ -1132,6 +1132,8 @@ Rollback: rebuild without `--private`. Q3 of the wifi dossier (is the OTP addres
 
 ## Log
 
+- 2026-11-03: disabled the debug GPU runtime-PM pin for the revision-21 OPP/RPMH kernel-fix test; it remains available through a GRUB edit as a fallback.
+
 - 2026-11-03: extended the image builder and L0 DTB record revision gates to accept series revision 21; kernel/DTB hashes await the revision-21 build record. No ISO or kernel build.
 
 - 2026-11-02: restored the silent 0.0 sink route default as a fail-safe; the startup helper sets 30% only after muting.
@@ -1225,7 +1227,7 @@ The unsupported ACP max-volume property is absent; Pro Audio is disabled. Kernel
 
 ### Next ISO diagnostics
 
-The debug entry alone (`sp11.entry=debug`) enables `sp11-gpu-no-runtime-pm.service` before GDM. The udev rule and helper are installed in the initramfs for the early GPU add event. Both helpers write `on` only to `3d00000.gpu/power/control` and verify its readback; they read and log the GMU `power/control` and `runtime_status` without writing them. The GMU add event also records those values. The service waits at most 30 seconds for the GPU alone. The control option `sp11.gpu_pin=0` skips the pin and logs `sp11-gpu-pin: skipped by sp11.gpu_pin=0`. This diagnostic tests whether GPU runtime suspend contributes to the reset; the safe entry is unchanged.
+The debug entry alone (`sp11.entry=debug`) enables `sp11-gpu-no-runtime-pm.service` before GDM. The udev rule and helper are installed in the initramfs for the early GPU add event. Both helpers write `on` only to `3d00000.gpu/power/control` and verify its readback; they read and log the GMU `power/control` and `runtime_status` without writing them. The GMU add event also records those values. The service waits at most 30 seconds for the GPU alone. For the revision-21 kernel-fix test, the debug entry includes `sp11.gpu_pin=0`: both helpers skip the pin and log `sp11-gpu-pin: skipped by sp11.gpu_pin=0`, leaving `power/control` untouched so the upstream OPP/RPMH fixes can be evaluated without the pin confounding the result. If needed as a fallback, edit the debug command line in GRUB to use `sp11.gpu_pin=1` or remove the marker. The safe entry is unchanged.
 
 The safe boot `73bf4801-c630-4098-a8f0-e640c74dd840` recorded only cycle 0 and no COMPLETE marker: the camera drop-in was installed as 0644 and sourced, but the full snapshot had not reached the alphabetic drop-in loop. Its timeout or missing tools cannot explain an absent output file once that loop starts, because redirection creates the file first. Camera capture now runs and publishes a marker immediately after the early snapshot, then publishes its bounded read-only output; the installed drop-in is executable. An early reset may still leave only the marker or incomplete output. No streaming, IR, or flash is used.
 

@@ -6,11 +6,11 @@ Usage: check-m8-menu.py grub.cfg
 M15 policy (image/README.md, "M15 menu"):
   * the file has NO function except load_video, NO load_env/save_env/grubenv, NO variable assignment except the standard header ones,
     NO submenu, NO GRUB variable inside any entry except the template's own ($root); every entry has a fixed DTB (or none for the VM test);
-  * line 1 `SP11 debug` = m15 (microphones + camera nodes + GPU/GMU/zap) without `sp11.gpu_diag`;
+  * line 1 `SP11 debug` = m15 (microphones + camera nodes + GPU/GMU/zap) without `sp11.gpu_diag` and with `sp11.gpu_pin=0`;
     line 2 `safe (no GPU)` = m15-safe (default, cameras on, no gpu_diag); no separate GPU or camera entry;
   * no per-variant SAM/CDSP entries (those are Linux-side rotors);
   * the main-entry diagnostic arguments are the M13 ones with the corrected trace string; nothing variable; the command line never carries
-    rotor, SAM, GPU or firmware_class arguments.
+    rotor, SAM, GPU DTB or firmware_class arguments.
 """
 import re
 import shlex
@@ -26,7 +26,7 @@ USBDSP = set(BASE + USB + PDR + ["trace_event=:mod:qcom_glink", "trace_buf_size=
 
 # ident: (title, DTB variant or None, set of special arguments); order is the menu order
 ENTRIES = {
-    "debug": ("SP11 debug", "m15", DEFAULT | EFI_PSTORE),
+    "debug": ("SP11 debug", "m15", DEFAULT | EFI_PSTORE | {"sp11.gpu_pin=0"}),
     "safe": ("SP11 debug, safe (no GPU)", "m15-safe", DEFAULT),
     "nosnd": ("SP11 debug, no sound", "m15-nosnd", DEFAULT),
     "notouch": ("SP11 debug, touch off", "m15-notouch", DEFAULT),
@@ -41,7 +41,7 @@ ENTRIES = {
 }
 COMMON_KIWI = {"printk.devkmsg=on", "log_buf_len=16M", "console=tty0"}   # kiwi boot options (liveinstall.xml)
 FORBIDDEN_WORDS = {"quiet", "rhgb", "splash"}
-SPECIAL_PREFIX = ("module_blacklist=", "modprobe.blacklist=", "rd.driver.blacklist=", "trace_", "drm.debug=", "sp11.allow_nominal", "sp11.nospk", "sp11.gpu_diag", "sp11.wifi_unblock",
+SPECIAL_PREFIX = ("module_blacklist=", "modprobe.blacklist=", "rd.driver.blacklist=", "trace_", "drm.debug=", "sp11.allow_nominal", "sp11.nospk", "sp11.gpu_diag", "sp11.gpu_pin", "sp11.wifi_unblock",
                   "efi_pstore.", "printk.always_kmsg_dump=", "systemd.unit=", "nomodeset", "rd.break=", "console=")
 NEVER_PREFIX = ("surface_aggregator.", "qcom_q6v5_pas.", "firmware_class.", "sp11.gpu_dtb", "sp11.gpu_retry", "sp11.cdsp_", "sp11.ssam_", "sp11.identity", "sp11.cpufreq")
 DTB_RE = "($root)/boot/dtb/qcom/x1p64100-microsoft-denali-{}.dtb"
@@ -98,9 +98,9 @@ def check(cfg):
         want_title, variant, want = ENTRIES[ident]
         assert title == want_title, f"{ident}: title differs"
         arglists[ident] = check_entry(body, ident, variant, want)
-    # line 1 and line 2 carry exactly the same arguments (only the entry mark differs)
+    # Compare shared arguments after removing debug-only diagnostics and the entry mark.
     strip = lambda ident: [a for a in arglists[ident] if not a.startswith("sp11.entry=")]
-    line1 = [a for a in strip("debug") if a not in EFI_PSTORE]
+    line1 = [a for a in strip("debug") if a not in EFI_PSTORE | {"sp11.gpu_pin=0"}]
     for i in ("safe", "nosnd", "notouch"):
         assert strip(i) == line1, f"{i}: arguments differ from line 1"
     assert [a for a in strip("spk") if a != "sp11.allow_nominal=1"] == line1, "spk: arguments differ beyond allow_nominal"
