@@ -198,3 +198,107 @@ without a sign-off requirement, and DT schema validation where DT changes
 are considered. Candidate validation does not authorize held patches or
 replace the independent protocol §5.1 cross-check. Run `scripts/index.py
 --check`; do not create a commit (D24).
+
+## 6. Rev23: keyboard after safe reboot, debug control and USB parity
+
+Use [rev23 evidence](evidence/2026-11-03-rev23-keyboard-parity.md). Do not
+add `sp11.ssam_shutdown` or `sp11.ssam_rebind`: the DT unbind/rebind path is
+not a proven cleanup. Fix the outgoing SAM policy in **every** test entry with
+`surface_aggregator.shutdown_mode=default`; verify the runtime parameter just
+before each reboot. An explicit argument bypasses the rotor. Do not change the
+parameter or other EC state by hand. Record boot ID, entry/DTB, exact policy,
+physical cover position and model, charger/USB connections, previous boot ID,
+previous entry/policy, and whether the keyboard or touchpad works. Keep the
+cover attached and in laptop posture; identify the tested physical keyboard.
+No camera or other GPU workload is needed for this test.
+
+1. On a safe boot, collect the state below, verify default, type harmless text
+   in a blank field and report keyboard and touchpad separately. Reboot normally
+   to the **same safe entry**, without detaching or changing USB connections.
+   On the successor, repeat captures and physical typing. Do not assume the
+   rotor's probe log reflects the policy in effect at reboot.
+2. Repeat with the same USB devices and posture, using debug → reboot → debug
+   as control. The debug entry has a known unexplained reset near 64 s: collect
+   early, stop this arm if it resets, and report it as **inconclusive**, not a
+   passing or failing keyboard test. Avoid extra workloads. Capture from the
+   current boot before attempting reboot.
+3. USB owner supplies a safe GPU-off variant differing only in the two
+   orientation-switch properties, with byte-level DT diff and identical boot
+   arguments. Compare safe → safe with parity → parity, fixed default SAM
+   policy, same physical USB topology and equivalent predecessor conditions.
+   Record both `-71` and separately observed cover and external USB keyboard
+   behavior. Repeat any apparent effect with the same boot history; no effect
+   from a single pair proves absence.
+4. If cover input fails, capture **before** trying reattachment. Inspect KIP
+   `state` against physical posture; then detach and reattach once and repeat
+   captures, noting if keyboard and touchpad recover independently. No runtime
+   unbind, EC reset or firmware write. If recovery coincides with a changed
+   switch state, that alone does not distinguish posture from EC/cover reset.
+
+For each boot, run the existing read-only component collector and the
+capability collector from section 0. Also record these read-only snapshots on
+private storage; do not commit raw output (some tools may disclose identities).
+The image owner should incorporate them into the early collector so debug has
+a chance to capture them before reset. Never record text, keyboard codes or
+raw HID/SSAM payloads.
+
+```bash
+cat /proc/sys/kernel/random/boot_id /proc/cmdline
+cat /sys/module/surface_aggregator/parameters/shutdown_mode
+cat /run/sp11/sam-mode 2>/dev/null
+for p in /sys/bus/surface_aggregator/devices/*; do
+    [ -e "$p" ] || continue
+    printf '%s driver=' "${p##*/}"
+    readlink "$p/driver" || true
+    [ ! -r "$p/state" ] || { printf 'state='; cat "$p/state"; }
+done
+for p in /sys/class/input/event*; do
+    [ -r "$p/device/name" ] || continue
+    printf '%s ' "${p##*/}"
+    cat "$p/device/name"
+    readlink -f "$p/device"
+done
+for p in /sys/bus/hid/devices/*; do
+    [ -e "$p" ] || continue
+    printf '%s driver=' "${p##*/}"; readlink "$p/driver" || true
+done
+libinput list-devices
+lsusb -t
+lsusb
+sudo dmesg | grep -iE 'ssam|surface_|aggregator|surface_hid|serial1|ttyHS0|045e:09|usb .*error|not accepting address'
+sudo journalctl -b -k --no-pager | grep -iE 'ssam|surface_|aggregator|surface_hid|serial1|ttyHS0|usb .*error|not accepting address'
+```
+
+SSAM notifier enable/disable and errors are represented by available kernel
+messages and existing private trace metadata only; a quiet log does not prove
+notifications were delivered. Ask the image owner to capture SSAM tracepoint
+**metadata/counts** where available without payload bytes or key data, plus
+wake IRQ and UART counters at fixed times, and report trace availability and
+loss. Do not enable an unreviewed trace class: some tracepoints contain data.
+Capture `state` in both laptop and folded positions; an absent sysfs file or a
+failed command is unknown, not an inactive switch. Existing `ssam-ro.py`
+queries may be used only as read-only requests if the cdev is already available;
+no EC state-setting requests. For compositor versus input-layer diagnosis, an
+image-owner reviewed count-only evdev probe may count key press events over a
+short window after the operator presses one non-secret test key; save only the
+count and device ancestry, never event codes or raw reports. Without such a
+probe, GNOME typing failure cannot be attributed to either layer.
+
+At each planned reboot, preserve the current boot's runtime SAM mode and boot
+ID on the removable log medium before shutdown; record the next boot's ID and
+mode separately. Capture live kmsg as long as possible and copy any existing
+pstore on the next boot, without forcing a crash; either may stop before the
+kernel shutdown callback, and an empty pstore does not prove success. A late
+shutdown log or independently persisted marker is needed to establish that
+`device_shutdown()` was reached and which operations failed. Do not mount or
+write the Windows partition.
+
+Interpretation: USB retry fixed but SSAM count/state and cover failure unchanged
+supports separate USB and cover problems. A cover regression with identical
+predecessor and SAM mode that reproducibly follows orientation alone supports
+an indirect interaction, but needs a mechanism. Kernel key counts present but
+GNOME ignores input with a wrong KIP posture supports compositor filtering;
+no key counts despite a bound HID shifts investigation to HID/SSAM/cover, not
+necessarily shutdown. If both parity variants fail, later compare a single
+controlled outgoing SAM policy using the existing diagnostic modes and the
+same reset type; do not infer that `silent` excludes other state or reset causes.
