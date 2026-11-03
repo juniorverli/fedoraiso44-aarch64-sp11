@@ -1,0 +1,28 @@
+From: Camera investigation <camera-investigation@localhost>
+Subject: [PATCH candidate] media: qcom: camss: Do not enable unconfigured CSID 680 drop and crop
+
+The RDI path enables horizontal and vertical drop and crop without
+programming their patterns or windows. Leave those functions disabled
+when forwarding the complete frame, as the gen2 path does.
+
+A separate X1E80100 experiment reports frame drops with the current
+settings. Test on the affected hardware and collect active clocks and
+IRQ evidence before integrating this candidate. The reset cause is not
+established.
+
+Link: https://github.com/karsies-wq/sp11-imx681-linux/tree/b08f76f40b8d7b715bd4da6aef484f86142cc147
+
+---
+--- a/drivers/media/platform/qcom/camss/camss-csid-680.c
++++ b/drivers/media/platform/qcom/camss/camss-csid-680.c
+@@ -271,10 +271,6 @@
+ 	val = RDI_CFG1_TIMESTAMP_STB_FRAME;
+ 	val |= RDI_CFG1_BYTE_CNTR_EN;
+ 	val |= RDI_CFG1_TIMESTAMP_EN;
+-	val |= RDI_CFG1_DROP_H_EN;
+-	val |= RDI_CFG1_DROP_V_EN;
+-	val |= RDI_CFG1_CROP_H_EN;
+-	val |= RDI_CFG1_CROP_V_EN;
+ 	val |= RDI_CFG1_PACKING_MIPI;
+ 
+ 	writel(val, csid->base + CSID_RDI_CFG1(port));

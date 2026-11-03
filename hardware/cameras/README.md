@@ -83,7 +83,7 @@ Why CAMSS cannot do the RGB stage on this SoC (Verified, 2026-10-24):
 
 ## 5. Gaps
 
-The current graded upstream and Windows comparison is in [2026-11-02 upstream gap](evidence/2026-11-02-upstream-windows-gap.md). Proceed with the RGB-only graph first; posted PHY API and VD55G0 work require pinning and review, and are not established prerequisites for this test.
+The current comparison with the independently reported working front camera is in [rev24 reference evidence](evidence/2026-11-03-rev24-reference-comparison.md). The reset cause is unproven. The reference strengthens the legacy C-PHY hypothesis and exposes separate CSID/VFE defects, but it does not establish that a standalone PHY or any candidate patch fixes this reset. First run the matched rev23 control and collect active clocks and IRQs. Keep the RGB-only graph.
 
 | Gap | Planned answer |
 |:--|:--|
@@ -96,6 +96,8 @@ The current graded upstream and Windows comparison is in [2026-11-02 upstream ga
 | VD55G0 has no matching driver | Keep unbound; add support only after model and register map are verified |
 | CCI reset uses an uninitialized master 0 completion when only master 1 is enabled | Patch 0021 initializes every master completion; revision-15 safe boot reaches camera probe, race coverage remains |
 | Unbound IR endpoint must stay outside RGB graph | Patch 0022 excludes IR; rev19 graph has both RGB sensor links. Keep IR excluded in rev20 |
+| CSID-680 enables unconfigured drop/crop; VFE-680 leaves write-master mode zero | Review candidates 0024 and 0025 separately after active clock/IRQ evidence; no claim they fix the reset. The 3844-to-3840 reference crop does not match our 3840-wide front modes; no crop patch justified |
+| Reference standalone PHY depends on a generic-PHY refactor absent from v7.3 | Conditional port skeleton in rev24 evidence; legacy 0009 already programs C-PHY. Do not run both PHY owners on the same resources |
 | IR illuminator safety (risk S2) | Never described in any DT; stays off |
 
 ## 6. Open questions
@@ -116,6 +118,10 @@ The current graded upstream and Windows comparison is in [2026-11-02 upstream ga
 3. No camera oops; IR sensor excluded and IR illuminator and flash remain off (S2)
 
 ## 8. Requests
+
+- **R29 (kernel, rev24):** preserve rev23 as control. Review [0024 CSID](patches/0024-candidate-media-qcom-camss-csid-680-disable-unconfigured-drop-crop.patch) and [0025 VFE](patches/0025-candidate-media-qcom-camss-vfe-680-use-mipi-raw-mode.patch) as separate candidates after active clock/IRQ evidence; validate full/lite RDI, stride and buffers, run integrated BTF build and retain patch provenance. Neither is proven to fix the reset. Follow the conditional generic-PHY port skeleton in [rev24 evidence](evidence/2026-11-03-rev24-reference-comparison.md) if front-only evidence isolates the legacy path. Do not change 0023 rates/header fields speculatively or run overlapping MMIO providers.
+- **R30 (kernel/image, private sensor timing):** retain the rev23 private front blob and its exact hash. Only after stable front reception and observed line loss/overflow, prepare the mode-specific 6752-to-8704 HTS/register experiment with VTS 3554 and all other sensor/PLL values unchanged as specified in [rev24 evidence](evidence/2026-11-03-rev24-reference-comparison.md); keep all Windows-derived mode/tuning data private and make it a separate boot. Gain inversion and digital-gain remapping remain unverified and must be measured, not copied.
+- **R31 (image/userspace, rev24):** record actual Fedora 0.7.2 IPA/helper/tuning/renderer and gain/AE metadata; retain safe-only softpipe A/B and preserve WirePlumber core, service hardening and Mesa/LLVM versions. Compare global AGC target 2.5 versus 3.5 only as a later isolated experiment; calibrate private CCM/black/WB from RAW targets. Do not import the reference polling LED, broad restart watchdog or unverified JIT hardening override. No image changes requested in this worker session.
 
 - **R25 (image, rev23):** include `/usr/libexec/sp11-camera-spectra-guard` and its shell/runtime dependencies in the initramfs whenever its modprobe install configuration is included, or safely defer and explicitly retrigger guarded module loading after switch-root. Test both CAMSS and Spectra DTs and verify the mutually exclusive stacks cannot claim the same resources. Rev22 safe early load failed with 127 but rootfs retry succeeded. Preserve BTF, S2 and LED gate. See [rev23 evidence](evidence/2026-11-03-rev23-final32-camera.md).
 - **R26 (image/userspace and kernel):** diagnose safe WirePlumber SIGSEGV in llvmpipe following front SoftISP configuration, preserve coredump and package provenance; provide sensor-identified stream entry/return instrumentation, completed buffer metadata, active media routes and clocks/IRQ logs for the [rev23 matrix](test-plan.md). Coordinate GPU-only vs camera trials with GPU owner. Headless `cam` can still initialize EGL/llvmpipe. Do not claim the debug reset as camera-caused without the matched A/B.
@@ -176,3 +182,5 @@ The current graded upstream and Windows comparison is in [2026-11-02 upstream ga
 - 2026-11-01: confirmed V4L2 privacy LED arbitration is per-subdevice, added generic shared-classdev refcount patch 0020 and KUnit lifecycle coverage; enabled/disabled ARM64 object builds and module link pass, suite not runtime-executed; GPIO mapping remains unverified.
 - 2026-11-01: identified CCI master-0 completion initialization defect for master-1-only probes; requested a recovery DT gate and a separate driver fix; M16 DIE attribution remains unproven.
 - 2026-11-01: wrote CCI completion patch 0021; requested integration and a camera-enabled m15-safe test, retaining the DT gate as recovery fallback.
+
+- 2026-11-03: compared the pinned rev24 front-camera reference, prepared separate CSID/VFE review candidates, documented conditional standalone PHY port and private timing/quality experiments; reset cause remains unproven.
