@@ -2,8 +2,14 @@
 
 Control: rev22 ISO `out/iso/sp11-fedora44-aarch64-kiwi-20261103T130351Z-private.iso`
 (SHA-256 `0f3e6bacdd2647954a2ea2253e1094eb135457ae629cbcc1f51efb61bf5e6bd9`).
-Candidate: rev23 ISO (GPU stale-BW-vote backport, initramfs guard, safe WirePlumber
-softpipe wrapper); fill the name/hash from its build record before the boot.
+Candidate: rev23 ISO `out/iso/sp11-fedora44-aarch64-kiwi-20261103T185134Z-private.iso`,
+SHA-256 `12b8f05430a721024be7b698b7a17b8b75cba93ce39323704ca915924e749770`
+(GPU stale-BW-vote backport, initramfs guard, safe WirePlumber softpipe wrapper).
+
+Validation: **L0 272 passed, 0 failed, 0 skipped**; **L1 PASS** boot
+`036d66d6-fa16-4159-bf81-5e3132b647d8` (7 allowed stock units). Boot the candidate only
+after this line is true for the ISO hash above.
+
 
 The goal is to **identify the debug reset cause and make the debug boot stable**, then
 make safe camera/keyboard work. Do not declare a fix before the A/B results.
