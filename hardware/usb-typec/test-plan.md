@@ -142,7 +142,6 @@ The command block never rebinds a driver, writes sysfs/debugfs, scans I2C,
 changes PD/charging policy or reads/writes firmware. Preserve the image's
 debugfs allow-list; do not add recursive debugfs capture or DRM test readers.
 
-
 ## G. Next boot (M13): one boot that decides (from the M12 diagnostic, `evidence/2026-10-30-m12-diagnostic.md`)
 
 M12 ran the `debug` entry, so patch `0002` printed nothing. Boot **SP11 debug, USB + DSP trace** (`sp11.entry=usbdbg`) and verify before anything else that the trace is live (read-only):
@@ -191,3 +190,73 @@ Decision table (use the `usbdbg` lines):
 A 10000M root hub is not SS; only a child of the SS bus at 5000M or 10000M counts.
 
 Collector improvements requested of the image owner (R-I1, read-only): add `portli` to the `xhci-ports.txt` loop, add `grep -E 'ps883x|pmic_glink_altmode|phy_qcom_qmp_combo|dwc3' /sys/kernel/debug/dynamic_debug/control` as `usb-typec-dyndbg.txt` (shows whether patch `0002` is active), copy `/proc/cmdline` into `usb-typec-config.txt`, and add `usb-pd-partner.txt` listing `/sys/class/typec/port*-partner/*` including `number_of_alternate_modes`, `/sys/class/typec/port*-cable` when it exists, and `/sys/class/usb_power_delivery/*` names only. Do not read dwc3 `link_state` or any `test_*` debugfs file.
+
+## H. Rev23: keyboard after reboot and isolated QMP parity
+
+Purpose: compare the existing safe DTB (GPU off, both QMP orientation switches
+present) to a **separate**, otherwise identical GPU-off parity DTB (both QMP
+orientation switches deleted), with debug (GPU on, switches deleted) as a
+control. Kernel and image requests are in the dossier. Keep the existing safe
+entry available as recovery; deletion is experimental and may lose reverse USB-C
+DisplayPort. Do not assume that existing safe DP has been demonstrated.
+
+1. Record image/kernel and selected entry/DTB, power source, known boot device,
+   port, connector orientation, external devices and which keyboard is tested.
+   Use the same setup throughout the safe/parity comparison; do not disconnect or
+   flip mounted boot media. Avoid private keypresses during input observation.
+2. Boot safe, then reboot into safe. At each login test the **attached Surface
+   keyboard** and touchpad, preferably with a second input device for recovery.
+   Record whether keys, touchpad, desktop, clock and another input respond and
+   the time of any failure. If an external keyboard is also tested, identify it
+   separately. Capture before and after the failure. Repeat at least three warm
+   reboots per entry when practical; retain every result including failures.
+3. Repeat with GPU-off parity, then debug control, recording any debug reset.
+   Debug changes GPU too and is not the isolated comparison. Balanced ordering
+   (safe, parity, parity, safe) helps expose boot-order effects; note cold versus
+   warm boots and any changed peripheral. A single clean boot cannot rule out
+   an intermittent fault.
+4. A separate DP test, after preserving a usable independent display/recovery
+   route: use a known DP Alt Mode adapter/monitor on the free port in normal and
+   reverse orientations on safe, then parity, recording picture, connector
+   status and kernel link messages. Do not move the boot medium. Stop if recovery
+   is lost. A parity-only DP failure means do not promote the deletion to safe.
+5. With a verified SuperSpeed stick and cable on the free port, check each
+   orientation independently after login. A 10000M root hub alone is not proof
+   of an SS device. USB2 address retry and SS training are separate outcomes.
+
+Capture the existing collector's dmesg, usb-dmesg, lsusb tree, usb devices,
+typec, usb_role, xhci-ports, pinctrl, LEDs, session journals, reset-watchdog and
+live kmsg for **each** boot, including debug after full collection. Also capture
+the following read-only outputs privately (device identifiers may be sensitive):
+
+```sh
+date --iso-8601=seconds
+cat /proc/cmdline
+lsusb -t
+sudo libinput list-devices
+cat /proc/bus/input/devices
+for p in /sys/class/typec/port?; do
+    for a in orientation data_role power_role; do
+        [ -r "$p/$a" ] && printf '%s: %s\n' "$p/$a" "$(cat "$p/$a")"
+    done
+done
+sudo journalctl -b -k -o short-monotonic | grep -Ei 'usb [0-9]-|xhci|ucsi|pmic_glink|ps883|surface|ssam|hid|error -71'
+```
+
+Where available, while deliberately pressing a few non-sensitive test keys,
+run `sudo timeout 10s libinput debug-events` and identify which event node
+produces events; also observe another input device and whether the display
+clock advances. If console or UI is frozen, do not repeatedly type secrets.
+Retain raw event output only in private logs. Log the exact time and physical
+device; timestamps and a working SSAM enumeration do not by themselves prove
+event delivery. Do not write sysfs/debugfs, scan I2C, modify power settings,
+or access retimer/EC firmware.
+
+Pass observations: safe boots and reboots, Surface keyboard sends events and
+remains responsive, USB tree is recorded and no setup -71 occurs. Repeat in
+parity and debug. Compare recurrence rates and event delivery, not merely one
+success. If only parity prevents repeated safe failures, that is evidence for
+a correlation, not proof of the electrical mechanism; retain safe until DP
+both orientations and independent cross-check pass. If the cover fails while
+storage is stable, follow SSAM/input evidence with ec-sam. If all controls
+remain at 480M, the SuperSpeed issue remains open.

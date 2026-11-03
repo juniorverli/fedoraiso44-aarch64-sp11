@@ -2,7 +2,7 @@
 
 ## 1. Summary
 
-Two left-side USB-C ports use DWC3, PS8830 retimers and ADSP pmic-glink UCSI/altmode for USB, DisplayPort and charging; M8 has port 0 reversed at 480M with powered retimer supplies and SS in RxDetect (M5 likewise had port 1 reversed at 480M). Status: `blocked` on REA MCP access for the required Windows comparison; patch `0001` is integrated reset-pinctrl hygiene and new patch `0002` adds M9 diagnostics only, with no functional SuperSpeed fix claimed.
+Two left-side USB-C ports use DWC3, PS8830 retimers and ADSP pmic-glink UCSI/altmode for USB, DisplayPort and charging. Status: `blocked` on REA access for the Windows comparison; rev22 safe has a single USB 2 address retry, while its captured Surface keyboard uses SSAM rather than USB. The cause of the reported keyboard freeze and the SuperSpeed problem remains open; patch `0003` is an unproven orientation experiment.
 
 ## 2. Hardware
 
@@ -57,6 +57,7 @@ Chain and `file:line` for every link, with what depends on the ADSP: `evidence/2
 | `QCOM0D08` multiport controller (right side) not enabled in the DT | Q2; separate DT work after the left ports work |
 | `dr_mode` host only (no gadget; Windows has `RoleSwitchMode = 6`) | Not wanted until asked (Q3) |
 | USB4 / Thunderbolt docks (no tunnels) | Component `usb4` |
+| Rev22 safe USB 2 address retry and reported keyboard freeze | Repeat controlled safe and GPU-off orientation parity boots; identify the physical keyboard and capture input events. Do not claim QMP deletion fixes either; preserve safe DP recovery. See `evidence/2026-11-03-rev22-safe-keyboard-usb.md` |
 | `msm` debugfs oops when `dp_debug` of an unconnected DP controller is read | Collector must skip `test_*` files (request below); awareness for `display-lcd` |
 
 ## 6. Open questions
@@ -72,6 +73,8 @@ Chain and `file:line` for every link, with what depends on the ADSP: `evidence/2
 | Q7 | Which physical port is `port 0`, which is `port 1`? | Inference (DT comments: bottom, top) | First `typec` listing with a partner |
 | Q8 | Which charge source does the unit prefer, and is a PD charger accepted? | TBD | T7 |
 | Q9 | Does PAN mux/orientation agree with UCSI GPIO orientation and request USB3 on M8 hardware? | TBD; UCSI alone does not answer it | M9 trace, decoder in test-plan F |
+| Q10 | Which keyboard froze, and did the whole session stop responding? | TBD; 09AE is the captured SSAM keyboard and 09AF the touchpad | Rev23 test H: identify device, compare input events and session response after reboot; coordinate with ec-sam |
+| Q11 | Does removing QMP orientation switches affect the USB2 retry or DP recovery? | Hypothesis; no direct USB2 lane mechanism or controlled parity data | Safe vs separate GPU-off parity, repeated boots, then DP both orientations; keep safe unchanged |
 
 ## 7. Acceptance
 
@@ -81,6 +84,9 @@ Chain and `file:line` for every link, with what depends on the ADSP: `evidence/2
 
 ## 8. Requests
 
+- **kernel (rev23):** retain existing `m15-safe` and debug DTBs; create an additional clearly labelled GPU-off experimental DTB by including `x1p64100-microsoft-denali-m15-safe.dts` and appending `/delete-property/ orientation-switch;` to both `&usb_1_ss0_qmpphy` and `&usb_1_ss1_qmpphy`. This is a controlled parity experiment, not a claimed fix; no other DT or config changes, BTF remains enabled. Build/validate the DTB and verify decompiled properties against safe and debug. Keep safe recovery unchanged. No new behavior patch is supported yet; any proposed quirk needs independent cross-check under protocol §5.1.
+- **image (rev23):** expose that GPU-off parity DTB as a separate non-default experiment, retain the existing safe recovery entry and debug control, and record the exact DTB, build ID and boot entry. Collect full USB tree, Type-C/role/xHCI and session/input diagnostics per test-plan H for each boot; preserve logs privately. Do not replace safe or change sound, camera, charging or firmware policy.
+- **ec-sam (rev23):** investigate 045E:09AE SSAM keyboard versus 09AF touchpad and capture after-reboot event delivery, tablet mode and SAM errors; determine whether input only or whole session freezes. Correlation with USB2 retry does not establish causation.
 - **kernel (R-K1):** patch `0001` is already in `kernel/series` (its earlier DT build/checkpatch remain recorded in the 2026-10-28 Log). For M9 consider `patches/0002-usb-typec-log-pmic-glink-and-ps8830-state.patch` as a diagnostic patch only; it adds successful-path dynamic debug without register reads or hardware configuration changes. Validation is in the M8 evidence: both changed objects compile and prerequisite vmlinux has BTF, but the standalone `.ko` link lacks dependency exports; integrated module linking/BTF remains required. No DT change in `0002`. Do not label it an SS fix. Rebuild both `ps883x` and `pmic_glink_altmode` and ship matching early modules in the initramfs.
 - **image (R-I1):** existing collector B and `usbdbg` entry are present; the M8 empty extension wrapper is expected and separate files contain the data. For the next M9 device test select `SP11 debug, USB + DSP trace` (`sp11.entry=usbdbg`) with patch `0002` and retain `dmesg.txt`, `usb-dmesg.txt`, `typec.txt`, `usb-speed.txt`, `xhci-ports.txt`, `gpio.txt`, `regulator_summary.txt` and `devices_deferred.txt`. Add the read-only `usb-typec-bindings.txt` command in test-plan F to the image-owned hook. Batch free-port stick orientations in that same boot where practical; exact read-only captures and decoding are in test-plan F. Keep the existing debugfs allow-list and D23 blacklist. No new collector that reads retimer registers or writes dynamic-debug controls is requested.
 - **image (R-I1, M13):** boot `usbdbg` (M12 used `debug`; patch `0002` was silent). Extra read-only captures listed in test-plan section G: `portli`, dynamic-debug control state, partner/cable/PD listing, cmdline.
@@ -89,11 +95,12 @@ Chain and `file:line` for every link, with what depends on the ADSP: `evidence/2
 - **ec-sam:** the single-battery choice is resolved by D23 (SAM only); USB-C charger acceptance remains a read-only T7 test.
 - **display-lcd:** awareness: with `mdss_dp0`/`mdss_dp1` enabled the eDP bind depends on both retimers and `pmic_glink_altmode` (`evidence/2026-10-28-link-map.md` §2); `msm_dp_test_active_show` and `msm_dp_test_data_show` dereference NULL on an unconnected DP controller (`dmesg` 18:16:57).
 - **orchestrator (R-O1):** arrange the independent Claude cross-check of patch `0001`'s GPIO/pinctrl values and of any future behavior patch under protocol §5.1 before `sw-ready`; this corrects the prior dossier's claim that cross-check was optional. Patch `0002` introduces no hardware value. Required Windows comparison is blocked by R-S1; no unsupported power/reset/DT routing fix was substituted. S1/S3/S5/S6 remain respected and all work is uncommitted (D24).
-- **kernel (R-K2, M15, experiment):** append `patches/0003-arm64-dts-qcom-x1p64100-microsoft-denali-drop-the-QMP-.patch` to `kernel/series` after `0002` (DT only; builds clean, `CHECK_DTBS` no new warning). DTB variants (`evidence/2026-10-31-double-flip-verdict.md` section 5): `m15` default gets the fix (`/delete-property/ orientation-switch;` on `&usb_1_ss0_qmpphy` and `&usb_1_ss1_qmpphy`); `m15-safe` keeps the old behaviour (re-add `orientation-switch;` in both nodes), as do `m15-notouch` (includes safe) and, recommended, `m15-nosnd` and `m15-spk`. Do not label the patch an SS fix.
+- **kernel (R-K2, M15, experiment):** append `patches/0003-arm64-dts-qcom-x1p64100-microsoft-denali-drop-the-QMP-.patch` to `kernel/series` after `0002` (DT only; builds clean, `CHECK_DTBS` no new warning). DTB variants (`evidence/2026-10-31-double-flip-verdict.md` section 5): `m15` default gets the experiment (`/delete-property/ orientation-switch;` on `&usb_1_ss0_qmpphy` and `&usb_1_ss1_qmpphy`); `m15-safe` keeps the old behaviour (re-add `orientation-switch;` in both nodes), as do `m15-notouch` (includes safe) and, recommended, `m15-nosnd` and `m15-spk`. Do not label the patch an SS fix.
 - **image (R-I3, M15):** first boot with the stick plugged the OTHER way round on each port (test A, no kernel change), then one boot of `m15` and `m15-safe` with a reverse attach. Capture the same files as M13 plus `typec/port*/orientation`; if a DP dongle is available, attach it reversed on `m15` (DP alt mode risk).
 
 ## 9. Log
 
+- 2026-11-03: rev22 safe/debug comparison: 09AE keyboard is SSAM, 09AF touchpad; safe 3-1 is directly attached Ugreen storage at 480M, not a captured hub; one early address -71 recovered. Timing and different GPU confound the QMP comparison; preserve safe DP fallback, request separate GPU-off parity experiment. REA MCP still rejected by approval policy; no Windows function evidence. Evidence and rev23 test H added; no git writes.
 - 2026-10-23: dossier created from the static survey.
 - 2026-10-28: link map with `file:line` and ADSP dependencies; Windows ACPI/INF/PEP view and charging comparison; M5 device log read (both retimers probe, UCSI up, port 1 HS only, second battery, DP debugfs oops); failure points; patch `0001`; test plan; status `testing`.
 - 2026-10-29: M8 port 0 reverse/480M/SS RxDetect evidence, powered-retimer and cycle analysis; D23 request cleanup; REA MCP access blocker with catalog hashes; diagnostic patch `0002` and M9 capture/decoder requests. Strict checkpatch and index/shell checks pass; both changed objects compile, prerequisite vmlinux has BTF, standalone module linkage blocked on unbuilt dependencies (details in M8 evidence). No behavioral SS fix or device test. Status `blocked` on R-S1. No git writes.

@@ -3,7 +3,7 @@ name = "Two USB-C ports: DWC3, PS8830 retimers, pmic-glink UCSI, DisplayPort Alt
 phase = 2
 status = "blocked"
 depends_on = ["soc-boot", "dsp-subsystems"]
-updated = "2026-10-29"
+updated = "2026-11-03"
 
 [windows]
 hardware_ids = ["ACPI\\VEN_QCOM&DEV_0C8B", "ACPI\\VEN_QCOM&DEV_0C8C", "ACPI\\VEN_QCOM&DEV_0D08 (multiport xHCI)", "ACPI\\VEN_QCOM&DEV_0CA4 (Type-C)", "ACPI\\VEN_USB&DEV_C000 (UCSI)", "UEFI\\RES_{05575d61-...} / {59b50971-...} (retimers)"]
@@ -13,7 +13,7 @@ packages = ["qcusbcucsi8380", "qcpmicglink8380", "surfaceucmucsihidclient", "qcx
 drivers = ["usb/dwc3/dwc3-qcom", "phy-qcom-qmp-combo", "phy-qcom-eusb2 + smb2360 repeater", "typec/mux/ps883x", "soc/qcom/pmic_glink_altmode", "typec/ucsi/ucsi_glink", "drm/msm/dp (DP0/DP1)"]
 dt = ["x1-microsoft-denali.dtsi pmic-glink connectors, &i2c3/&i2c7 typec-mux@8, &usb_1_ss0/1, &mdss_dp0/1"]
 native = "partial"
-gaps = ["M8 port 0 reversed: enclosure at 480M, SS RxDetect; M5 port 1 reversed also HS only; normal orientations and known-good USB3 cable/device comparison pending", "Required Windows ARM64 REA analysis blocked: MCP tool requires approval but policy is never (R-S1); no Windows-derived functional fix", "M8 active retimer supplies enabled; PAN mux/orientation and requested status bytes unknown; diagnostic patch 0002 prepared for usbdbg", "Retimer probe resets inherited state; transient boot interruption and wake settling remain hypotheses, not established causes", "Patch 0001 reset pinctrl integrated; independent cross-check still requested by protocol 5.1", "USB-C DP Alt Mode and PD charging untested; D23 keeps SAM battery and blacklists qcom_battmgr", "multiport controller QCOM0D08 (right side) not enabled; purpose TBD", "dr_mode host only (no gadget)", "GPIO 175 (retimer 1 1.8 V enable) absent from the Windows resource list, TBD"]
+gaps = ["Rev22 safe USB2 address -71 recovered; cause unknown and parity test needed", "Reported keyboard freeze source and event delivery unknown; captured 09AE keyboard uses SSAM and 09AF is touchpad", "Reverse SuperSpeed remains RxDetect in safe; patch 0003 double-flip theory unproven", "Required Windows ARM64 REA analysis blocked: MCP requires approval but policy is never (R-S1); no Windows-derived sequence", "USB-C DP recovery and PD charging untested; preserve safe orientation switches", "Patch 0001 independent cross-check still required under protocol 5.1", "multiport controller QCOM0D08 (right side) not enabled; purpose TBD", "dr_mode host only (no gadget)", "GPIO 175 retimer 1 supply enable absent from Windows resource list, TBD"]
 
 [firmware]
 needs = []
