@@ -2,7 +2,7 @@
 
 ## 1. Summary
 
-The Surface Aggregator Module (SAM) carries the Type Cover, system battery/AC and posture functions over a 4 Mbaud UART. M5 enumerated the keyboard, touchpad, KIP tablet switch and SAM power supplies; proposed registry changes remove two unsupported HID endpoints, while user interaction and plugged-in charging still need device evidence. Status: `designed`, pending independent cross-check and acceptance captures.
+The Surface Aggregator Module (SAM) carries the Type Cover, system battery/AC and posture functions over a 4 Mbaud UART. M5 enumerated the keyboard, touchpad, KIP tablet switch and SAM power supplies; proposed registry changes remove two unsupported HID endpoints, while user interaction and plugged-in charging still need device evidence. Status: `designed`, pending independent cross-check and acceptance captures. The rev22 safe keyboard freeze remains unexplained; see [rev23 evidence](evidence/2026-11-03-rev23-keyboard-parity.md).
 
 D23 selects SAM `BAT1`/`ADP1` and blacklists `qcom_battmgr` now. D24 applies: changes remain uncommitted for the orchestrator. Detailed hashes, locators, grades and limits are in [M5 evidence](evidence/2026-10-28-m5-device-sam.md); build results are in [validation evidence](evidence/2026-10-28-validation.md).
 
@@ -90,6 +90,7 @@ The predecessor's initramfs inventory predates M5, so the exact M5 omission is n
 | Q7 | SAM charging status and ADP1 on each connector: TBD | Test-plan section 3; never re-enable qcom_battmgr as a workaround |
 | Q8 | Real keyboard/touchpad and initramfs operation: TBD | Operator report and capability-only collectors |
 | Q9 | Precise cause of late input enumeration: TBD | Next image module inventory and monotonic boot/module logs |
+| Q10 | Safe keyboard freeze: Hypothesis; identify actual keyboard, prior boot and outgoing SAM policy, KIP posture, key delivery and USB-C parity | Rev23 controlled reboot test in `test-plan.md` §6; debug reset can make the control inconclusive |
 
 ## 7. Acceptance
 
@@ -110,9 +111,13 @@ The predecessor's initramfs inventory predates M5, so the exact M5 omission is n
 - **orchestrator R8:** reproduce/cross-check the held button draft's electrical parameters before release; review upstream POS switch fix against local posture/resume evidence. Sources owner must pin any external patch before adopting it as a new shared input.
 
 - **kernel R9 (helper):** document or add linked-module validation for `kernel-dev.sh module <directory>`: the current directory target produces objects only. A rejected extra-fragment configuration can also leave the prior `.config.sp11-sha` beside a changed `.config`, so retrying the old profile may skip regeneration; invalidate the stamp before changing config. This worker removed only its own generated stamp and used the standard incremental build for final verification.
-- **image R10 (2026-10-30, keyboard dead after reboot):** install `collector/ec-sam.sh` as `/etc/sp11-log-collector.d/ec-sam.sh`; add the units in `evidence/2026-10-30-keyboard-reboot.md` section 5 (shutdown unbind, opt-in `sp11.ssam_rebind` GRUB entry) and run the four-step test there. No kernel patch yet.
-- **kernel R11 (2026-10-30, Windows transition):** add `patches/0007-*` (`surface_aggregator.shutdown_mode`) to `kernel/series` for the next image; no behaviour change by default. **image R12:** GRUB entries `SP11 debug, SAM shutdown quiet|silent|clean` and the test in `evidence/2026-10-30-windows-transition.md` sections 5-6.
+- **image R10 (superseded by R16/R17; do not enable unbind/rebind):** install `collector/ec-sam.sh` as `/etc/sp11-log-collector.d/ec-sam.sh`; add the units in `evidence/2026-10-30-keyboard-reboot.md` section 5 (shutdown unbind, opt-in `sp11.ssam_rebind` GRUB entry) and run the four-step test there. No kernel patch yet.
+- **kernel R11 (diagnostic already integrated; see R17):** add `patches/0007-*` (`surface_aggregator.shutdown_mode`) to `kernel/series` for the next image; no behaviour change by default. **image R12:** GRUB entries `SP11 debug, SAM shutdown quiet|silent|clean` and the test in `evidence/2026-10-30-windows-transition.md` sections 5-6.
 - **kernel R13 (2026-10-31, volume buttons):** add `patches/0005-arm64-dts-qcom-x1p64100-microsoft-denali-Add-the-vol.patch` to `kernel/series` for the next DT build (DT only, LCD board file; applies on the 69-patch series, `CHECK_DTBS` clean); ensure `CONFIG_KEYBOARD_GPIO=m` (R2). **image R14:** stage `tools/collect-volume-buttons.sh` under `/usr/libexec/sp11/ec-sam/` and run the two 10 s phases in `evidence/2026-10-31-volume-buttons.md` (operator presses up, then down). Orchestrator: protocol 5.1 cross-check of the pin mapping (I1) before `sw-ready`.
+
+- **usb-typec R15 (rev23):** safe USB tree identifies Ugreen `0bda:9210` as storage; cover keyboard is SSAM `09AE`, touchpad `09AF`. Please provide an otherwise identical GPU-off orientation-only variant and the DT diff; test with fixed previous boot, `surface_aggregator.shutdown_mode=default`, same USB topology and posture. Compare USB errors and cover key delivery independently; share the results with the orchestrator. Orca runtime was not running, so direct worker delivery was unavailable.
+- **image R16 (rev23):** stage early private SSAM binding, KIP state, HID/libinput/USB ancestry, kernel error and runtime SAM mode snapshots; capture the predecessor boot ID/mode before reboot and successor ID/mode after. Support the read-only/no-payload trace and count-only input approach in `test-plan.md` §6, preserve kmsg/pstore if present, and do not silently rotate shutdown mode in this comparison: use an explicit `surface_aggregator.shutdown_mode=default` on every test entry. Stop debug on unexplained reset. No unbind/rebind.
+- **kernel R17 (rev23):** no new patch requested. Keep 0007 diagnostic only; do not default to clean/silent or merge held 0002 for this symptom without discriminating evidence. **R10/R11/R12 update:** 0007 is already in `kernel/series`; the old DT unbind/rebind proposal is unsafe as a cleanup and must not be enabled for this test. Preserve BTF.
 
 ## 9. Log
 
@@ -122,3 +127,5 @@ The predecessor's initramfs inventory predates M5, so the exact M5 omission is n
 - 2026-10-30: M10 keyboard-after-reboot report investigated; logs show normal enumeration, cause Unknown; collector and image mitigation proposed (evidence `2026-10-30-keyboard-reboot.md`).
 - 2026-10-30: operator reports keyboard freeze at the start of Windows after a Linux session; shutdown source analysis, patch 0007 (`shutdown_mode`) and test plan in `evidence/2026-10-30-windows-transition.md`. Not built.
 - 2026-10-31: volume buttons: MSHW0040 resources decoded from DSDT/SSDT (evidence `2026-10-31-volume-buttons.md`), PM01 to PM8550 GPIO offset derived, patch 0005 (volume only) validated with `CHECK_DTBS`; device test added. Not built into an image.
+
+- 2026-11-03: analyzed rev22 safe/debug cover, USB, power and shutdown logs; identified safe rotor silent and unobserved debug runtime mode; added rev23 controlled test and owner coordination requests. No new kernel patch or REA.
