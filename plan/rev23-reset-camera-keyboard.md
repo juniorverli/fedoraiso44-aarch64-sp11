@@ -105,3 +105,28 @@ or pogo keyboard in a bad state; debug may reset it via the GPU/EC path. Compare
 
 No IR/flash, no cap increase, no GMU `power/control` write, no speculative camera rate/CSID change,
 no private ISO/log sharing. Preserve the D26 speaker path and the LED gate.
+
+## 6. Rev23 evidence update (2026-11-03, after the workers)
+
+- **Safe camera:** the full safe journal proves GNOME Snapshot selected the front IMX681 and
+  configured 1920x1080 XRGB / SoftISP 3840x2160 RGGB10; WirePlumber PID 5829 SIGSEGV in
+  llvmpipe (`llvm_pipeline_generic`) at 60.55 s; Snapshot lost the PipeWire target. No
+  `s_stream`/buffer/frame is proven. The LED stayed off. The primary safe blocker is the
+  WirePlumber/llvmpipe crash, not enumeration.
+- **Debug reset:** the MX error is gone; GMU/HFI start return 0; the pin is on. The reset at
+  ~64 s has no panic/oops/SMMU/watchdog/thermal line. The front camera is the default in
+  safe; the debug app/sensor is not identified, but the front LED report and the safe
+  front selection make the **front C-PHY stream** the top candidate. The **stale boot BW
+  vote** is the second candidate; the 2026-10-24 upstream backport is in rev23 as a
+  diagnostic candidate, with the rev22 ISO as control.
+- **Green/dark:** the rear is mode-dependent (GRBG built-in, BGGR Windows modes); the front
+  is RGGB. No global Bayer fix. The green/dark needs raw frames, exposure/gain metadata and
+  per-channel means; AWB/CCM/AGC/tuning are the likely contributors.
+- **Keyboard:** Type Cover is SSAM `045E:09AE`; safe SAM chose `silent` at runtime; the
+  USB-C `-71` is the Ugreen storage. The keyboard freeze is more likely SAM/EC than the
+  orientation switch. One-variable test needed.
+- **Rev23 candidate:** kernel BW-vote backport, initramfs guard, safe-only WirePlumber
+  softpipe wrapper, coredump metadata, rev23 gates. Control is the rev22 ISO. Tests in
+  `plan/rev23-device-checklist.md`.
+- **Review:** Gemini 3.8 Flash ranked front C-PHY first; Sonnet 5.5 found no proven cause
+  and recommended the debug-idle 150 s and direct-camera A/B before any behavioral fix.
