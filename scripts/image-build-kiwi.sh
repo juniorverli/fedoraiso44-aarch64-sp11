@@ -102,9 +102,9 @@ if [ "$(rpm --eval "%{lua:print(rpm.vercmp('$newest_vr', '$min'))}")" -le 0 ]; t
 fi
 log "kernel $kver_full (newer than $min, the only kernel NEVRA at the top level of out/rpms)"
 
-# M15/M16 accepts revision-12/13/14/15/16/17/18/19/20 RPMs and all six atomically published DTB/JSON pairs (m15, m15-safe, m15-nosnd, m15-notouch, m15-spk, m15-spectra).
-[ "$kver_full" = 7.3.0-65.sp11.19.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.20.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.18.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.17.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.16.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.15.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.14.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.13.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.12.fc44.aarch64 ] || {
-	log "REFUSED: M15/M16 requires kernel revision 12 through 20 (7.3.0-65.sp11.*.fc44.aarch64), found $kver_full"; exit 6;
+# M15/M16 accepts revision-12..21 RPMs and all six atomically published DTB/JSON pairs (m15, m15-safe, m15-nosnd, m15-notouch, m15-spk, m15-spectra).
+[ "$kver_full" = 7.3.0-65.sp11.21.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.20.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.19.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.18.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.17.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.16.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.15.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.14.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.13.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.12.fc44.aarch64 ] || {
+	log "REFUSED: M15/M16 requires kernel revision 12 through 21 (7.3.0-65.sp11.*.fc44.aarch64), found $kver_full"; exit 6;
 }
 patch_series_sha=$( . "$REPO/scripts/kernel-common.sh"; kernel_series_hash )
 for v in m15 m15-safe m15-nosnd m15-notouch m15-spk m15-spectra; do
