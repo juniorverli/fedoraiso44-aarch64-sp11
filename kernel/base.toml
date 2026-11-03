@@ -37,6 +37,7 @@ dist = ".fc44"
 # 21 = Hamoa C-PHY clock/capture fix and applicable upstream GPU PM/RPMh fixes.
 # 22 = MX dependency vote clamp (upstream 86f80884) for the X1P64100 432 > 416 table.
 # 23 = clear the stale boot GPU bandwidth vote when the GMU scales BW (2026-10-24 series).
+# 24 = active C-PHY trios and independent CSID/VFE RDI frame-path candidates.
 # kernel-build.sh and kernel-check fail on a mismatch.
-series_rev = 23
-series_sha256 = "687fc008d7bda25433db098731084f213da6cbc7ee27d017511dcde0d2565f16"
+series_rev = 24
+series_sha256 = "647ec377569c5bf2f06fad1bfcd4c346c7d22104544494f61354c82917698d66"
