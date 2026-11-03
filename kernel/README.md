@@ -120,6 +120,8 @@ Against the packaged DTB (`/lib/modules/<kver>/dtb/qcom/x1p64100-microsoft-denal
 
 ## Requests
 
+- image / GPU (revision 20): Fedora's generated config retains `CONFIG_EFI_VARS_PSTORE_DEFAULT_DISABLE=y`; add `efi_pstore.pstore_disable=0` to the diagnostic boot if EFI pstore is to register. The v7.3 EFI backend supports only dmesg records, so the planned pmsg sentinel and persistent console cannot work through it; choose a non-destructive backend validation and retain the immediate kmsg-sync fallback. Do not add unverified ramoops memory.
+
 - image (M11): consume revision-8 RPMs and the `m11`, `m11-notouch`, `m11-audio` DTBs only after the release/variant checks below pass. Default remains touch on, GPU off, speakers and `/sound` off; microphone entry alone enables the card with no WSA link and `swr0` off. Keep D19–D24, the fixed/touch module chain, D23 blacklist and image L0/L1 gates. Adapt the image S1 check to the same narrow microphone exception; speaker-enabled entries must fail. No `m11-audio-spk` build or boot is authorized by this delivery.
 - dsp-subsystems (M11, R-K1 format follow-up): the retained 0001 diagnostic emits the same three compiler format warnings as M10: two `%#x` arguments are `unsigned long` (lines 407/422), and `size=%u` receives `size_t` (line 754). Correct the diagnostic types in an owner patch or retire 0001 after evidence; no component patch was modified by kernel. Full-size printed intent values must not be inferred from a truncated log field.
 - dsp-subsystems (M11, R-K3 via orchestrator): FIFO diagnostic 0002 is integrated after R-K1. Collect its ratelimited FIFO line with the existing OPEN_ACK log during the next scheduled boot, using the owner's read-only collector requests; remove both temporary diagnostics once sufficient evidence exists. No functional CDSP fix is claimed.
@@ -804,7 +806,20 @@ No DT change in revision 19, so these are identical to revision 18. Effective m1
 - **Spectra:** rebuilt against `kernel-devel-7.3.0-65.sp11.19.fc44.aarch64`: `sp11-camera-spectra-1.0-1.git08171dd.sp11.fc44.aarch64` (SHA-256 `4b43fc70a7e936d83b38e0b1a95fb9fef2a1414b8951cc87f0af79ed40d09a04`), module vermagic `7.3.0-65.sp11.19.fc44.aarch64 SMP preempt mod_unload aarch64`, requires `kernel-uname-r = 7.3.0-65.sp11.19.fc44.aarch64`.
 - `out/rpms` top level holds exactly one kernel NEVRA, `7.3.0-65.sp11.19.fc44.aarch64`; revision 18 was archived. No ISO or QEMU was run.
 
+## Revision 20 preparation (2026-11-02)
+
+The 83-patch series is pinned at `93966ffa075153a8c59544b73f511ae7e14293bbf31ba37d669f7e216baf7b9a`; the updated camera 0003 has SHA-256 `1575edb32c3665e55f0e4b695371bbe2869258f00478e06da4d4e47d5ad8f861`. It corrects CSIPHY and VFE register window sizes. The configuration retains lazy DMA and adds built-in EFI-vars pstore diagnostics; no `PSTORE_RAM` option or ramoops node was added. The pinned v7.3 Kconfig symbols exist, all 83 patches applied with zero fuzz, and all 105 fragment symbols survived the generated build configuration. The release build and artifact verification are in progress; see `kernel/evidence/2026-11-02-rev20.md`. No device result is claimed.
+
+## Revision 21 release (2026-11-03)
+
+Revision 21 integrates camera 0023 and four applicable upstream GPU PM/RPMh fixes (88 patches, series SHA-256 `8bc12d92dda970a6ab68fc8e0153a13cbb73ff8183cecb281ded5d680456e265`). The OPP UAF is in the GMU-wrapper path, while this GPU uses the separate GMU resume path, so it does not establish the cause of the observed reset. The two RPMh vote fixes affect the actual GMU path, but a causal link is unproven. Autosuspend cleanup is already present, the requested MX-clamp helper context is absent, and the checked July VM fixes are already present. See [GPU PM evidence](evidence/2026-11-03-gpu-pm-backports.md) for upstream IDs, exact source matches, exclusions, and build limitations.
+
+`7.3.0-65.sp11.21.fc44.aarch64` built under the lock in 2734 s; kernel-check PASS, vmlinux BTF and 5935/5935 modules with BTF, all 105 fragment symbols, `CHECK_DTBS=y` zero warnings, and packaged CAMSS register windows correct. All six DTB variants and records were published and each has the specified camera windows. Spectra was rebuilt under the lock against revision 21; its module vermagic matches and it carries BTF. The build log contains bpftool probe and missing cached debug-source path diagnostics; Spectra `rpmlint` reports seven errors and one warning. Details and hashes are in the evidence. No device boot or ISO build.
+
 ## Log
+
+- 2026-11-03: built revision 21 with camera 0023 and four GPU PM/RPMh upstream fixes; all 88 patches apply with zero fuzz. Kernel-check passed, including vmlinux/all 5935 modules BTF, final config, CHECK_DTBS and camera windows; six DTB variants and the rebuilt Spectra module were verified. GPU path, debug-source and rpmlint limitations are documented in `evidence/2026-11-03-gpu-pm-backports.md`. No device test or ISO.
+
 
 - 2026-10-29: built M8 revision 5 (25 patches; RFC 0014 retired; spi-hid/QSPI touch and packaged GPU isolation). Release 3313 s; kernel-check PASS with BTF in vmlinux and all 5934 modules, 73 config symbols, packaged schema/S1/GPU/wiring and eight RPM module payload checks. M8/M8-notouch DTBs and JSON pass (63/14 s; complete run 214.464 s). Final index/syntax/whitespace checks pass; build/source locks are free and no task process remains. Recorded hashes/times and explicit image/owner requests; no device test. Changes remain uncommitted for the orchestrator (D24).
 

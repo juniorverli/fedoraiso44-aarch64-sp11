@@ -20,7 +20,7 @@
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/kernel-common.sh"
 kver="${1:-$KERNEL_KVER}"
-if [[ $KERNEL_SERIES_REV == 19 || $KERNEL_SERIES_REV == 18 || $KERNEL_SERIES_REV == 17 || $KERNEL_SERIES_REV == 16 || $KERNEL_SERIES_REV == 15 || $KERNEL_SERIES_REV == 14 || $KERNEL_SERIES_REV == 13 || $KERNEL_SERIES_REV == 12 ]]; then
+if [[ $KERNEL_SERIES_REV == 20 || $KERNEL_SERIES_REV == 21 || $KERNEL_SERIES_REV == 19 || $KERNEL_SERIES_REV == 18 || $KERNEL_SERIES_REV == 17 || $KERNEL_SERIES_REV == 16 || $KERNEL_SERIES_REV == 15 || $KERNEL_SERIES_REV == 14 || $KERNEL_SERIES_REV == 13 || $KERNEL_SERIES_REV == 12 ]]; then
   exec "$KERNEL_REPO/scripts/kernel-dtb-m15.sh" "$kver"
 fi
 if [[ $KERNEL_SERIES_REV == 11 ]]; then

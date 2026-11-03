@@ -1,4 +1,5 @@
 # Integrated patch series, applied in order on top of kernel/base.toml.
+# series_rev = 21
 # Owner: kernel worker. Each line is a path relative to the repository root,
 # pointing into hardware/<component>/patches/ or kernel/patches/ (integration).
 # M3 (D19): display-lcd 0001-0003, in this order (0003 needs 0002's context).
@@ -67,6 +68,7 @@ hardware/dsp-subsystems/patches/0003-remoteproc-qcom_q6v5_pas-add-keep_proxy_pds
 # M13: ec-sam R11, surface_aggregator.shutdown_mode (default behaviour unchanged); touches only aggregator/core.c.
 # hardware/ec-sam/patches/hold/0006 stays out.
 hardware/ec-sam/patches/0007-platform-surface-aggregator-add-a-shutdown_mode-param.patch
+# Revision 20: cameras 0003 has corrected CSIPHY and VFE register windows; order is unchanged.
 # M13: cameras R1, the five checked patches in dependency order. Everything is status = "disabled" in the
 # packaged DT: binding first, then the ov13858 OF/power driver, hamoa camera blocks, Denali LED, Denali rear sensor.
 hardware/cameras/patches/0001-dt-bindings-media-i2c-add-OmniVision-OV13858.patch
@@ -139,7 +141,14 @@ hardware/cameras/patches/0021-i2c-qcom-cci-initialize-every-master-completion.pa
 # M16.4 (rev 18): RGB-only camera graph. Creates x1-microsoft-denali-camera-no-ir.dtsi, which
 # m15-safe includes after its camera enables; m15 and m15-notouch inherit it. Spectra keeps its own stack.
 hardware/cameras/patches/0022-arm64-dts-qcom-denali-exclude-the-unbound-ir-camera.patch
+# Revision 21: Hamoa C-PHY clock votes and CSID capture fields.
+hardware/cameras/patches/0023-media-qcom-camss-use-hamoa-cphy-clock-votes.patch
 hardware/gpu/patches/0001-drm-msm-add-opt-in-gpu-boot-phase-trace.patch
 # M16.4 (rev 18): reserve the gpu-prr and pld-gmu no-map ranges in hamoa.dtsi, as the linux-sp11
 # reference does (68 KiB total); candidate against the GPU reset, no device evidence yet.
 hardware/gpu/patches/0002-arm64-dts-qcom-reserve-gpu-firmware-memory.patch
+# Revision 21: upstream GPU PM and RPMh integration copies.
+kernel/patches/0004-drm-msm-a6xx-fix-opp-use-after-free.patch
+kernel/patches/0005-drm-msm-a6xx-fix-rpmh-dependency-votes.patch
+kernel/patches/0006-drm-msm-a6xx-fix-secondary-rail-vote.patch
+kernel/patches/0007-drm-msm-a6xx-check-runtime-resume-errors.patch
