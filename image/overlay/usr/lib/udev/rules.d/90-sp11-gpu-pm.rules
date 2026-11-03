@@ -1,0 +1,3 @@
+# Debug-only helper checks the kernel command line before touching sysfs.
+ACTION=="add", SUBSYSTEM=="platform", KERNEL=="3d00000.gpu", RUN+="/usr/libexec/sp11-gpu-pm-early %k"
+ACTION=="add", SUBSYSTEM=="platform", KERNEL=="3d6a000.gmu", RUN+="/usr/libexec/sp11-gpu-pm-early %k"

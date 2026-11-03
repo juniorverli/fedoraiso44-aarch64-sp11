@@ -410,7 +410,7 @@ if [ "$builder" = kiwi ]; then
 		if [ -n "$rsha" ]; then [ "$vsha" = "$rsha" ] && pass 3.11 "variant $v SHA-256 equals the kernel worker's JSON record" || fail 3.11 "variant $v SHA-256 differs from the kernel worker's JSON record ($rsha)"; else fail 3.11 "no JSON record of the kernel worker for variant $v in the build record"; fi
 		vr=$OUT/dtb-variants/$kver/qcom/${vf%.dtb}.json
 		if [ -f "$vr" ] && [ "$vsha" = "$(jq -r .sha256 "$vr")" ] &&
-		   [ "$(jq -r .kver "$vr")" = "$kver" ] && { [ "$(jq -r .series_rev "$vr")" = 12 ] || [ "$(jq -r .series_rev "$vr")" = 13 ] || [ "$(jq -r .series_rev "$vr")" = 14 ] || [ "$(jq -r .series_rev "$vr")" = 15 ] || [ "$(jq -r .series_rev "$vr")" = 16 ] || [ "$(jq -r .series_rev "$vr")" = 17 ] || [ "$(jq -r .series_rev "$vr")" = 18 ] || [ "$(jq -r .series_rev "$vr")" = 19 ]; } &&
+		   [ "$(jq -r .kver "$vr")" = "$kver" ] && { [ "$(jq -r .series_rev "$vr")" = 12 ] || [ "$(jq -r .series_rev "$vr")" = 13 ] || [ "$(jq -r .series_rev "$vr")" = 14 ] || [ "$(jq -r .series_rev "$vr")" = 15 ] || [ "$(jq -r .series_rev "$vr")" = 16 ] || [ "$(jq -r .series_rev "$vr")" = 17 ] || [ "$(jq -r .series_rev "$vr")" = 18 ] || [ "$(jq -r .series_rev "$vr")" = 19 ] || [ "$(jq -r .series_rev "$vr")" = 20 ]; } &&
 		   [ "$(jq -r .series_hash_sha256 "$vr")" = "$(jq_ .kernel_patch_series_sha256)" ] &&
 		   jq -e --arg f "$vf.json" --slurpfile source "$vr" '.dtb_variant_records[$f] == $source[0]' "$rec" >/dev/null; then
 			pass 3.14 "variant $v matches published JSON hash/release/series and embedded record"
@@ -445,11 +445,11 @@ if [ "$smoke" = false ]; then
 	ls "$OUT"/rpms/kernel-core-*.rpm >/dev/null 2>&1 && { rpm -qp --qf '%{name}-%{version}-%{release}.%{arch}\n' "$OUT"/rpms/kernel-core-*.rpm | grep -qx "$got_nevra" && pass 4.2 "kernel-core is the RPM of out/rpms" || fail 4.2 "kernel-core is not in out/rpms"; }
 fi
 if [ "$builder" = kiwi ] && [ "$smoke" = false ]; then
-	if { [ "$kver" = 7.3.0-65.sp11.12.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.13.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.14.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.15.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.16.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.17.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.18.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.19.fc44.aarch64 ]; } && \
-	   { [ "$got_nevra" = kernel-core-7.3.0-65.sp11.12.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.13.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.14.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.15.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.16.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.17.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.18.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.19.fc44.aarch64 ]; } && \
+	if { [ "$kver" = 7.3.0-65.sp11.12.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.13.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.14.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.15.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.16.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.17.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.18.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.19.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.20.fc44.aarch64 ]; } && \
+	   { [ "$got_nevra" = kernel-core-7.3.0-65.sp11.12.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.13.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.14.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.15.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.16.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.17.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.18.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.19.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.20.fc44.aarch64 ]; } && \
 	   { [ "$(jq_ .milestone)" = M15 ] || [ "$(jq_ .milestone)" = M16 ]; }; then
 		pass 4.9 "M15/M16: required kernel release ($kver) and milestone"
-	else fail 4.9 "M15/M16 requires the revision-12/13/14/15/16/17/18/19 kernel and milestone (found $kver / $got_nevra)"; fi
+	else fail 4.9 "M15/M16 requires the revision-12/13/14/15/16/17/18/19/20 kernel and milestone (found $kver / $got_nevra)"; fi
 fi
 cmp -s "$kimg" "$ROOT/lib/modules/$kver/vmlinuz" && pass 4.3 "ISO kernel image equals lib/modules/$kver/vmlinuz" || fail 4.3 "ISO kernel image differs from the package"
 kimg_ver=$(python3 -I - "$kimg" <<'PY'
@@ -687,6 +687,15 @@ print(next((b['sha256'] for b in m['blob'] if b.get('linux_path') == sys.argv[2]
 		grep -q -E "/$f(\.(xz|zst|gz))?$" "$W/initrd-list.txt" || miss="$miss $f"
 	done
 	[ -z "$miss" ] && pass 5.8 "initramfs has the GPU zap shader (qcdxkmsuc8380.mbn) and both gen70500 blobs (gen70500_sqe.fw, gen70500_gmu.bin) for the early DRM open" || fail 5.8 "initramfs lacks:$miss"
+	# Check the generated root dracut configuration and the actual initramfs payload.
+	pmconf=$ROOT/etc/dracut.conf.d/90-sp11.conf
+	pm_ok=1
+	for f in usr/lib/udev/rules.d/90-sp11-gpu-pm.rules usr/libexec/sp11-gpu-pm-early; do
+		grep -E '^install_items\+=' "$pmconf" | grep -qF "/$f" || pm_ok=0
+		lsinitrd "$initrd_img" -f "$f" >"$W/initrd-gpu-pm-item" 2>/dev/null && cmp -s "$W/initrd-gpu-pm-item" "$ROOT/$f" || pm_ok=0
+	done
+	[ "$pm_ok" = 1 ] && pass 5.12 "GPU udev rule and helper are in generated dracut config and initramfs" || fail 5.12 "GPU udev rule or helper missing from dracut config or initramfs"
+
 fi
 grep -E '^[-dlcbps][-rwxsStT]{9} .*plymouth' "$W/initrd-list.txt" >/dev/null && fail 5.4 "plymouth files in the initramfs" || pass 5.4 "no plymouth in the initramfs"
 
@@ -873,10 +882,15 @@ if [ -x "$postscript" ] && bash -n "$postscript" &&
    grep -qx 'ConditionUser=!gdm' "$postunit" &&
    grep -q '^collect_session_and_pstore()' "$ROOT/usr/libexec/sp11-log-collector" &&
    grep -q '/sys/fs/pstore' "$ROOT/usr/libexec/sp11-log-collector" &&
+   grep -q '/var/lib/systemd/pstore' "$ROOT/usr/libexec/sp11-log-collector" &&
    grep -q 'is_urgent(data)' "$ROOT/usr/libexec/sp11-kmsg-tail" &&
-   python3 -I "$REPO/image/tools/post-session-selftest.py" "$postscript" >"$W/post-session-fixture.txt" 2>&1; then
-    pass 8.47 "post-session audio and camera collection, bounded pstore copy and urgent kmsg publication installed"
-else fail 8.47 "post-session collection, pstore or urgent kmsg publication missing"; fi
+   python3 -I "$REPO/image/tools/kmsg-urgent-selftest.py" "$ROOT/usr/libexec/sp11-kmsg-tail" >"$W/kmsg-urgent-fixture.txt" 2>&1 &&
+   python3 -I "$REPO/image/tools/gpu-pm-selftest.py" "$ROOT" >"$W/gpu-pm-fixture.txt" 2>&1 &&
+   python3 -I "$REPO/image/tools/collector-regression-test.py" "$ROOT/usr/libexec/sp11-log-collector" >"$W/collector-regression.txt" 2>&1 &&
+   python3 -I "$REPO/image/tools/post-session-selftest.py" "$postscript" >"$W/post-session-fixture.txt" 2>&1 &&
+   python3 -I "$REPO/image/tools/audio-global-safety-selftest.py" "$REPO" >"$W/audio-global-fixture.txt" 2>&1; then
+    pass 8.47 "post-session collection, pstore paths, urgent kmsg and GPU control fixtures passed"
+else fail 8.47 "post-session collection, pstore, urgent kmsg or GPU control fixture failed"; fi
 svc=$ROOT/usr/lib/systemd/system/sp11-log-collector.service
 [ -f "$svc" ] && pass 8.1 "sp11-log-collector.service present" || fail 8.1 "service file missing"
 [ "$(readlink "$ROOT/etc/systemd/system/multi-user.target.wants/sp11-log-collector.service")" = /usr/lib/systemd/system/sp11-log-collector.service ] && pass 8.2 "enabled for multi-user.target" || fail 8.2 "not enabled for multi-user.target"
@@ -909,7 +923,7 @@ for p in /sys/kernel/debug/dri/0/crtc-0/state /sys/kernel/debug/dri/0/crtc-1/sta
 	/sys/kernel/debug/dri/0/DP-1/dp_debug /sys/kernel/debug/dri/0/eDP-1/dp_debug \
 	/sys/kernel/debug/dri/0/DP-1/msm_dp_test_active /sys/kernel/debug/dri/0/DP-1/test_active /sys/kernel/debug/dri/0/DP-1/test_data /sys/kernel/debug/dri/0/DP-1/test_type \
 	/sys/kernel/debug/dri/0/DP-1/dp_debug/msm_dp_test_active /sys/kernel/debug/dri/0/DP-1/dp_debug/test_active /sys/kernel/debug/dri/0/DP-1/dp_debug/test_data /sys/kernel/debug/dri/0/DP-1/dp_debug/test_type /sys/kernel/debug/dri/0/dpu_ctl.1 /sys/kernel/debug/dri/0/crtc-0/crc/data \
-	/sys/kernel/debug/dri/0/gem /sys/kernel/debug/dri/0/state /sys/kernel/debug/dri/1/state /sys/kernel/debug/dri/128/state /sys/kernel/debug/dri/0/../0/crtc-0/state /sys/kernel/debug/dri/0/state/crtc-0 /sys/kernel/debug/msm/foo; do
+	/sys/kernel/debug/dri/0/gpu /sys/kernel/debug/dri/0/gmu_log /sys/kernel/debug/dri/0/gem /sys/kernel/debug/dri/0/state /sys/kernel/debug/dri/1/state /sys/kernel/debug/dri/128/state /sys/kernel/debug/dri/0/../0/crtc-0/state /sys/kernel/debug/dri/0/state/crtc-0 /sys/kernel/debug/msm/foo; do
 	debugfs_allowed "$p" && { echo "WRONGLY ALLOWED: $p"; bad=1; }
 done
 for p in /sys/kernel/debug/dri/0/clients /sys/kernel/debug/dri/0/name /sys/kernel/debug/clk/clk_summary /sys/kernel/debug/devices_deferred \
@@ -1096,7 +1110,7 @@ PY
 		pass 8.32 "S5 fixtures: libinput exports only names; addresses/serial fields masked in new captures"
 	else fail 8.32 "touch userspace privacy fixtures failed"; fi
 fi
-for t in dmesg journalctl lspci lsusb dtc timeout blkid findmnt mount python3 lsmod rfkill iw ethtool qrtr-lookup upower btmgmt bluetoothctl libinput evtest wpctl amixer arecord alsaucm media-ctl; do
+for t in dmesg journalctl lspci lsusb dtc timeout blkid findmnt mount python3 lsmod rfkill iw ethtool qrtr-lookup upower btmgmt bluetoothctl libinput evtest wpctl pw-dump amixer arecord alsaucm media-ctl; do
 	[ -x "$ROOT/usr/bin/$t" ] || [ -x "$ROOT/usr/sbin/$t" ] || fail 8.5 "collector needs $t, not in the image"
 done
 for t in debug loglevel=8 ignore_loglevel; do grep -q "$t" "$ROOT/etc/default/grub" || fail 8.6 "/etc/default/grub lacks $t"; done

@@ -1,18 +1,47 @@
 #!/usr/bin/bash
-# D28: mute built-in sinks before graphical-session.target; timeout/failure is visible in the user journal.
-# Matches sink node names containing the ALSA platform-card prefix alsa_output.platform-sound; runtime name remains to be confirmed.
+# Mute the platform card's sinks before setting their startup volume.
 set -euo pipefail
 for _ in $(seq 1 300); do
-	status=$(wpctl status -n 2>/dev/null || true)
-	ids=$(printf '%s\n' "$status" | awk '/alsa_output\.platform-sound/ { if (match($0, /[0-9]+\./)) print substr($0, RSTART, RLENGTH-1) }' | sort -u)
-	if [ -n "$ids" ]; then
-		for id in $ids; do
-			wpctl set-mute "$id" 1 >/dev/null
-			wpctl set-volume --limit 0.30 "$id" 30% >/dev/null
-		done
-		exit 0
-	fi
-	sleep 0.1
+ ids=$(timeout -k 1 2 pw-dump 2>/dev/null | python3 -c '
+import json, sys
+try:
+    objects = json.load(sys.stdin)
+    devices = {o.get("id"): o.get("info", {}).get("props", {}).get("device.name", "")
+               for o in objects if isinstance(o, dict)}
+    for o in objects:
+        p = o.get("info", {}).get("props", {})
+        if (p.get("media.class") == "Audio/Sink" and
+            any("platform-sound" in str(name) for name in
+                (p.get("node.name", ""), p.get("device.name", ""), devices.get(p.get("device.id"), "")))):
+            if isinstance(o.get("id"), int): print(o["id"])
+except (ValueError, TypeError, AttributeError):
+    pass
+' || true)
+ if [ -z "$ids" ]; then
+  ids=$(timeout -k 1 2 wpctl inspect @DEFAULT_AUDIO_SINK@ 2>/dev/null | python3 -c '
+import re, sys
+text = sys.stdin.read()
+node = re.search(r"(?m)^\s*\*?\s*node\.name\s*=\s*\"([^\"]+)\"", text)
+id = re.search(r"(?m)^\s*id\s+(\d+)\s*,", text)
+if node and id and "platform-sound" in node.group(1): print(id.group(1))
+' || true)
+ fi
+ if [ -n "$ids" ]; then
+  for id in $ids; do
+   timeout -k 1 2 wpctl set-mute "$id" 1 >/dev/null
+   if ! timeout -k 1 2 wpctl get-volume "$id" | grep -Fq '[MUTED]'; then
+    echo "sp11-audio-safety: sink $id did not report muted" >&2
+    exit 1
+   fi
+   if grep -qw 'sp11.audio_first_test=1' /proc/cmdline; then
+    timeout -k 1 2 wpctl set-volume "$id" 5% >/dev/null
+   else
+    timeout -k 1 2 wpctl set-volume "$id" 100% >/dev/null
+   fi
+  done
+  exit 0
+ fi
+ sleep 0.1
 done
 echo 'sp11-audio-safety: no built-in sink appeared before timeout' >&2
 exit 1

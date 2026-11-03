@@ -1,15 +1,36 @@
 #!/bin/bash
-# Debug-only diagnostic: pin the Adreno platform device active for this boot.
+# Debug-only diagnostic: pin Adreno; observe GMU without changing it.
 set -u
+case " $(cat /proc/cmdline) " in
+    *' sp11.entry=debug '*) ;;
+    *) exit 0 ;;
+esac
+case " $(cat /proc/cmdline) " in
+    *' sp11.gpu_pin=0 '*)
+        printf '<6>sp11-gpu-pin: skipped by sp11.gpu_pin=0\n' > /dev/kmsg
+        exit 0 ;;
+esac
+control=/sys/bus/platform/devices/3d00000.gpu/power/control
 for ((attempt=0; attempt<30; attempt++)); do
-    for device in /sys/bus/platform/devices/3d00000.gpu /sys/bus/platform/drivers/adreno/*; do
-        [ -d "$device" ] || continue
-        [ "${device##*/}" = 3d00000.gpu ] || [ "$(basename "$(readlink -f "$device/driver" 2>/dev/null)")" = adreno ] || continue
-        if [ -w "$device/power/control" ]; then
-            printf 'on\n' > "$device/power/control" && { echo "GPU runtime PM disabled for $device"; exit 0; }
-        fi
-    done
+    [ -e "$control" ] && break
     sleep 1
 done
-echo 'Adreno platform device or power/control unavailable after 30 seconds' >&2
-exit 1
+status=0
+if ! printf 'on\n' > "$control"; then
+    printf '<3>sp11-gpu-no-runtime-pm: path=%s written=on readback=WRITE_FAILED\n' "$control" | tee /dev/kmsg >&2
+    status=1
+else
+    readback=$(cat "$control" 2>/dev/null) || readback=READ_FAILED
+    if [ "$readback" = on ]; then
+        printf '<6>sp11-gpu-no-runtime-pm: path=%s written=on readback=%s\n' "$control" "$readback" | tee /dev/kmsg || status=1
+    else
+        printf '<3>sp11-gpu-no-runtime-pm: path=%s written=on readback=%s\n' "$control" "$readback" | tee /dev/kmsg >&2
+        status=1
+    fi
+fi
+for attr in control runtime_status; do
+    path="/sys/bus/platform/devices/3d6a000.gmu/power/$attr"
+    value=$(cat "$path" 2>/dev/null) || value=READ_FAILED
+    printf '<6>sp11-gpu-no-runtime-pm: path=%s read=%s\n' "$path" "$value" | tee /dev/kmsg
+done
+exit "$status"

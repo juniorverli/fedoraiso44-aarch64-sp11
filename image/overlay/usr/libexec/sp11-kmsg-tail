@@ -26,7 +26,7 @@ def is_urgent(data):
     except ValueError:
         severity = 7
     return severity <= 3 or bool(re.search(
-        rb'adreno|msm|gmu|arm-smmu|qcom_scm|panic', message, re.I))
+        rb'adreno|msm|gmu|gpu|arm-smmu|qcom_scm|power/control|runtime|panic', message, re.I))
 
 def add(data, retry=False):
     global size, urgent

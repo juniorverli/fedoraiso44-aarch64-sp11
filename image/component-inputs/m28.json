@@ -17,11 +17,12 @@
     "usr/share/wireplumber/wireplumber.conf.d/51-sp11-audio-safety.conf": "83c0e8a319bc0102c8856a03780612b3ca7b48228f44182c1b739ea468051594",
     "etc/dconf/db/distro.d/90-sp11-audio-safety": "f322831aefd849cbc5f2b03ce28d3897efd4ef01c5050a84321867176a1ebd85",
     "etc/dconf/db/distro.d/locks/90-sp11-audio-safety": "4e7ac5841797af780f9063f94b1c59ec47a804b81033b294a029245e6f8e98c5",
-    "usr/libexec/sp11-audio-safety": "ecb07829769bce0cf897942e1e7bf858a125b0e2cc32c2deb27d3277ab45804e",
+    "usr/libexec/sp11-audio-safety": "b5c2a145c7262b8fac389f323b543f99eb9babbec09764905b291b7ebbf7f355",
     "usr/lib/systemd/user/sp11-audio-safety.service": "a669ab7d4902a7820bcc95f7bf4accbb682b44bfea4c490335da7166951c67a5",
-    "usr/share/wireplumber/wireplumber.conf.d/53-sp11-audio-ceiling.conf": "5fc2ab6c238a459faee34855d0f5026db65da5b59a2d65f79d6f409970e90697",
-    "usr/libexec/sp11-post-session-collect": "32fba866ca6b78aa88b3c86773792ee9d16c62488e4185fe8458df038820ece1",
-    "usr/lib/systemd/user/sp11-post-session-collect.service": "9bf49ff3b0e9ab8f793d2cadd7a51feb115f3d0a5d42fb6130edd89aac72f3fd"
+    "usr/share/wireplumber/wireplumber.conf.d/53-sp11-audio-ceiling.conf": "b4ea6117339102a6772fd94213ce6c224e72bbeb2073684ca0170bd0ec7010f5",
+    "usr/libexec/sp11-post-session-collect": "950567d9507275fa1ca791697fe3f36590c463b477c6d5915715013cc956f53d",
+    "usr/lib/systemd/user/sp11-post-session-collect.service": "9bf49ff3b0e9ab8f793d2cadd7a51feb115f3d0a5d42fb6130edd89aac72f3fd",
+    "usr/share/wireplumber/wireplumber.conf.d/55-sp11-global-safety.conf": "9fe91139187a59ebe43ca66541cdad2a50cc28bd71454d0fce53447a4f73fbc3"
   },
   "selection": {
     "public_sound_model": "X1E80100-Microsoft-Surface-Pro-11",
@@ -31,9 +32,9 @@
     "selector": "kernel request_firmware sound-model contract; no early selector service"
   },
   "software_policy": {
-    "initial_mute": "Per-device PipeWire mute is attempted before graphical-session.target; fresh route default is 0.5. Runtime confirmation is mandatory.",
+    "initial_mute": "The later global sink default is 0.0, overriding the 0.05 hardware fallback. The helper verifies mute before setting 5% for sp11.audio_first_test=1 or 100% normally. Runtime confirmation is mandatory.",
     "volume_ceiling_percent": 100,
-    "enforcement": "WirePlumber api.acp.max-volume=1.0 and api.acp.disable-pro-audio=true; startup helper sets 30% once and initial mute."
+    "enforcement": "Kernel caps PA at 6 (0 dB) and WSA RX/MIX at 81 (-3 dB); UCM sets digital volume to 72 (-12 dB). Pro Audio is disabled; the helper verifies mute before setting the startup level."
   },
   "routes": {
     "Speaker": "hw:${CardId},0",

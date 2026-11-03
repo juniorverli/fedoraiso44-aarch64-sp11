@@ -1,0 +1,31 @@
+#!/bin/bash
+# Udev add-event diagnostic; never alter the safe entry.
+set -u
+case " $(cat /proc/cmdline) " in
+    *' sp11.entry=debug '*) ;;
+    *) exit 0 ;;
+esac
+case " $(cat /proc/cmdline) " in
+    *' sp11.gpu_pin=0 '*)
+        printf '<6>sp11-gpu-pin: skipped by sp11.gpu_pin=0\n' > /dev/kmsg
+        exit 0 ;;
+esac
+# The GMU event is observation only; it never gates the GPU pin.
+case "${1-}" in
+    3d00000.gpu)
+        control=/sys/bus/platform/devices/3d00000.gpu/power/control
+        if ! printf 'on\n' > "$control"; then
+            printf '<3>sp11-gpu-pm-early: path=%s written=on readback=WRITE_FAILED\n' "$control" > /dev/kmsg
+            exit 1
+        fi
+        readback=$(cat "$control" 2>/dev/null) || readback=READ_FAILED
+        printf '<%s>sp11-gpu-pm-early: path=%s written=on readback=%s\n' "$([ "$readback" = on ] && echo 6 || echo 3)" "$control" "$readback" > /dev/kmsg
+        [ "$readback" = on ] || exit 1 ;;
+    3d6a000.gmu) ;;
+    *) exit 1 ;;
+esac
+for attr in control runtime_status; do
+    path="/sys/bus/platform/devices/3d6a000.gmu/power/$attr"
+    value=$(cat "$path" 2>/dev/null) || value=READ_FAILED
+    printf '<6>sp11-gpu-pm-early: path=%s read=%s\n' "$path" "$value" > /dev/kmsg
+done

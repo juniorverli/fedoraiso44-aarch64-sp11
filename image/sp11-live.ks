@@ -125,6 +125,7 @@ drm-utils
 # edid-decode (Fedora ships it inside v4l-utils); qrtr-lookup and qrtr-cfg
 v4l-utils
 alsa-utils
+pipewire-utils
 alsa-ucm-utils
 qrtr
 # Collector and debugging tools (read-only use)

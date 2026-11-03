@@ -4,4 +4,4 @@ phase = 1
 status = "testing"
 depends_on = []
 updated = "2026-11-02"
-gaps = ["Revision 20 audio and post-session diagnostics require an ISO build, L0/L1 and device evidence; Wi-Fi firmware fallback and keyboard reboot mitigation require device evidence"]
+gaps = ["Revision 20 D34 audio fail-safe and per-channel capture, GPU runtime PM pinning and GMU observation and post-session diagnostics require an ISO build, L0/L1 and device evidence; Wi-Fi firmware fallback and keyboard reboot mitigation require device evidence"]

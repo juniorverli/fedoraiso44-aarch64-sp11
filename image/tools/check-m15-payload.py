@@ -168,6 +168,15 @@ def check(root, repo, record):
     assert (root / 'etc/systemd/system/multi-user.target.wants/sp11-gpu-no-runtime-pm.service').is_symlink(), 'GPU diagnostic not enabled'
     assert 'enable sp11-gpu-no-runtime-pm.service' in (root / 'usr/lib/systemd/system-preset/80-sp11.preset').read_text()
     subprocess.run(['bash', '-n', str(gpu_helper)], check=True)
+    early_helper = root / 'usr/libexec/sp11-gpu-pm-early'
+    assert early_helper.stat().st_mode & 0o111, 'early GPU PM helper not executable'
+    assert early_helper.read_bytes() == (repo / 'image/overlay/usr/libexec/sp11-gpu-pm-early').read_bytes()
+    subprocess.run(['bash', '-n', str(early_helper)], check=True)
+    gpu_rule = root / 'usr/lib/udev/rules.d/90-sp11-gpu-pm.rules'
+    assert gpu_rule.read_bytes() == (repo / 'image/overlay/usr/lib/udev/rules.d/90-sp11-gpu-pm.rules').read_bytes()
+    for device in ('3d00000.gpu', '3d6a000.gmu'):
+        assert f'KERNEL=="{device}"' in gpu_rule.read_text(), f'missing early PM rule for {device}'
+        assert device in gpu_helper.read_text() and device in early_helper.read_text(), device
     # collectors: image-owned drop-ins byte-identical to the repository, owner collectors unchanged
     dropins = root / 'etc/sp11-log-collector.d'
     assert (dropins / 'cameras.sh').read_bytes() == (repo / 'hardware/cameras/collector/cameras.sh').read_bytes(), 'cameras.sh is not the owner file'
