@@ -36,3 +36,8 @@ udisks2.service
 # result=timeout) after both session snapshots; boot, GDM and both sessions passed.
 # Boot c037736b-6e92-449b-b0c5-66036b04dffb: session-user-journal.txt.gz 874.601-875.154.
 user@1000.service
+
+# Fedora stock (not SP11-owned) hostname service; under TCG it fails during the harness's forced
+# powerdown after both session snapshots. Boot, GDM and both sessions passed.
+# Boot 821805ef-e679-4f8b-b59e-903ad90621f0: units-failed.txt.gz lists it failed.
+systemd-hostnamed.service
