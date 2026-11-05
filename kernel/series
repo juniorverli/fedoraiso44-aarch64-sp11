@@ -180,3 +180,4 @@ kernel/patches/0028-audio-speakers-consume-vi-calibration-event.patch
 hardware/cameras/patches/0026-candidate-arm64-dts-qcom-denali-rear-camera-rotation.patch
 kernel/patches/0029-audio-speakers-register-events-windows-payload.patch
 kernel/patches/0030-audio-speakers-fix-module-parameter-prefix.patch
+kernel/patches/0031-audio-speakers-bind-measured-calibration-to-vi-graph.patch

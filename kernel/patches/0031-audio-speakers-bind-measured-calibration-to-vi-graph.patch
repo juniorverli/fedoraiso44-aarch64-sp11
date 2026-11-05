@@ -1,0 +1,53 @@
+From: Audio speakers <audio-speakers@localhost>
+Subject: [PATCH candidate] ASoC: qcom: bind a measured VI calibration to the V/I graph
+
+The DSP delivers a module event with the graph that owns the receiving module.
+The calibration events are registered on the speaker protection module of the
+playback graph, while the calibration belongs to the V/I capture graph, so
+sp11_guard_vi_calibration() bound cal_graph to the playback graph. The identity
+check could then never pass, and a measurement arriving during playback would
+replace a valid nominal calibration with one the guard must refuse.
+
+Bind the measurement to the running V/I graph when exactly one is running. No
+running V/I graph or several of them stay refused and fail closed. Caps, the
+SP module, the CPS policy and the fault latch still gate unmute.
+
+Assisted-by: Claude Code
+---
+--- a/sound/soc/qcom/sp11-guard.c
++++ b/sound/soc/qcom/sp11-guard.c
+@@ -293,11 +293,33 @@ EXPORT_SYMBOL_GPL(sp11_guard_stream);
+  */
+ void sp11_guard_vi_calibration(const void *graph, unsigned int ch_mask, bool valid)
+ {
++	const void *target = graph;
++	unsigned long flags;
++	bool ambiguous;
+ 	u64 generation;
+ 
+ 	if (!valid || !graph || !(ch_mask & SP11_CAL_ALL_MASK))
+ 		return;
+-	generation = sp11_guard_calibration_begin(graph);
++	/*
++	 * The DSP delivers a module event with the graph that owns the receiving
++	 * module. These events are registered on the speaker protection module of
++	 * the playback graph while the calibration belongs to the V/I capture
++	 * graph, so taking the event's graph would always fail the identity check
++	 * and would drop a valid measurement. Bind it to the running V/I graph
++	 * when exactly one is running; zero or several stay refused and fail
++	 * closed, as before.
++	 */
++	spin_lock_irqsave(&guard.lock, flags);
++	ambiguous = guard.vi_ambiguous || !guard.vi_graph ||
++		    !guard.streams[SP11_STREAM_VI];
++	if (!ambiguous)
++		target = guard.vi_graph;
++	spin_unlock_irqrestore(&guard.lock, flags);
++	if (ambiguous) {
++		pr_warn("sp11-guard: measured VI calibration ignored, no unique running V/I graph\n");
++		return;
++	}
++	generation = sp11_guard_calibration_begin(target);
+ 	if (!generation || !sp11_guard_calibrated(generation, ch_mask & SP11_CAL_ALL_MASK, false)) {
+ 		pr_warn("sp11-guard: measured VI calibration rejected (graph or generation)\n");
+ 		return;
