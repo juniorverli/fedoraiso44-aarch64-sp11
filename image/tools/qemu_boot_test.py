@@ -46,7 +46,7 @@ ENTRIES = [   # M16: one flat static menu (M13 style); the VM entry is the LAST 
     "SP11 debug, safe, rear rotation test",
     "SP11 debug, safe, muted closed-loop VI",
     "SP11 debug, closed-loop audio (needs calibration)",
-    "SP11 install (keeps Windows; fixes UEFI boot)",
+    "SP11 live, install from the desktop (keeps Windows)",
     "VM test (no devicetree)",
 ]
 # GRUB shows only the first entries of a long menu on a 24-row serial terminal; the rest appears while scrolling.

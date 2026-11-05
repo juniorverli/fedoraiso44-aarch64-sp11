@@ -25,14 +25,39 @@ if [ "${1:-}" != "--installed" ]; then
 	exit 2
 fi
 
-mkdir -p /etc/default/grub.d
-printf 'GRUB_DISABLE_OS_PROBER=false\n' >/etc/default/grub.d/40-sp11-dualboot.cfg
+# grub2-mkconfig sources only /etc/default/grub (not /etc/default/grub.d), so the two
+# settings go into that file; grubby also rewrites the BLS entries directly.
+set_kv() {
+	key=$1 value=$2
+	if grep -q "^$key=" /etc/default/grub 2>/dev/null; then
+		case $key in
+		GRUB_CMDLINE_LINUX) sed -i "s|^$key=.*|$key=\"$value\"|" /etc/default/grub ;;
+		*) sed -i "s|^$key=.*|$key=$value|" /etc/default/grub ;;
+		esac
+	else
+		case $key in
+		GRUB_CMDLINE_LINUX) printf '%s="%s"\n' "$key" "$value" >>/etc/default/grub ;;
+		*) printf '%s=%s\n' "$key" "$value" >>/etc/default/grub ;;
+		esac
+	fi
+}
+set_kv GRUB_DISABLE_OS_PROBER false
 say "os-prober enabled so the Windows entry stays visible"
 
-cat >/etc/default/grub.d/41-sp11-gpu.cfg <<'EOF'
-GRUB_CMDLINE_LINUX="$GRUB_CMDLINE_LINUX msm.skip_gpu=1"
-EOF
-say "msm.skip_gpu=1 appended to the installed kernel command line"
+cmdline=$(sed -n 's/^GRUB_CMDLINE_LINUX="\(.*\)"$/\1/p' /etc/default/grub | head -n1)
+case " $cmdline " in
+*" msm.skip_gpu=1 "*) ;;
+*) set_kv GRUB_CMDLINE_LINUX "$cmdline msm.skip_gpu=1" ;;
+esac
+if command -v grubby >/dev/null 2>&1; then
+	if grubby --update-kernel=ALL --args="msm.skip_gpu=1" >/dev/null 2>&1; then
+		say "msm.skip_gpu=1 written to /etc/default/grub and the BLS entries"
+	else
+		say "msm.skip_gpu=1 written to /etc/default/grub; grubby failed"
+	fi
+else
+	say "msm.skip_gpu=1 written to /etc/default/grub; grubby missing"
+fi
 
 removed=0
 for f in /etc/sp11/bt-address /etc/NetworkManager/conf.d/90-sp11-wifi-mac.conf \
@@ -62,6 +87,8 @@ if command -v grub2-mkconfig >/dev/null 2>&1; then
 		say "boot configuration regenerated"
 	else
 		say "grub2-mkconfig failed; the installed configuration is unchanged"
+		say "done $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+		exit 1
 	fi
 else
 	say "grub2-mkconfig missing; the installed configuration is unchanged"

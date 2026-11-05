@@ -1012,7 +1012,7 @@ One private ISO for the operator's device (D25/S5); never share it. Kernel M14 (
 | 22 | `SP11 debug, safe, rear rotation test` | `safe` + `sp11.test=test-safe-camrot` | `m15-safe-camrot` | safe line. **In the rev25f build this DTB is byte-identical to `m15-safe`**: camera patch `0026-candidate-…-rear-camera-rotation.patch` is in kernel series rev25, so every published variant already carries `rotation = <180>`. The entry is a named duplicate kept only until the next menu build removes it; the real orientation check is on line 2. The simple pipeline does not rotate pixels, so the property is metadata only |
 | 23 | `SP11 debug, safe, muted closed-loop VI` | `safe` + `sp11.test=test-safe-cl` | `m15-safe-cl` | safe line plus `sp11.nospk=1`; the DTB selects the `-CL` sound model. Graph and guard diagnostics only: the kill switch stays on, nothing is played or unmuted (S1/D26) |
 | 24 | `SP11 debug, closed-loop audio (needs calibration)` | `debug` | `m15-cl` (d26 profile, `-CL` sound model, GPU skipped by argument) | line 1 with `msm.skip_gpu=1` and `sp11.allow_nominal=1`: the private topology, `sp11cl` and the nominal `sp11cal` are installed by the private image only; `sp11-closed-loop-sense.service` holds the V/I sense trigger before playback so the guard's sense-stream gate is satisfied, and every other gate (caps, SP module, calibration identity, CPS policy, fault latch) stays. Kill switch `sp11.nospk` or power off. Without the private audio files the topology fails to load and nothing is unmuted |
-| 25 | `SP11 install (keeps Windows; fixes UEFI boot)` | `safe` | `m15-safe` | safe line plus `inst.ks=hd:LABEL=Fedora-WS-Live-44:/ks-sp11.cfg`; boots the live system so Anaconda runs the installer kickstart: storage stays interactive (choose Install alongside), and the %post fixes the UEFI boot for this firmware |
+| 25 | `SP11 live, install from the desktop (keeps Windows)` | `safe` | `m15-safe` | the safe line with no kickstart: Anaconda refuses `inst.ks` on a live install, so the operator installs with "Install to Hard Drive" and "Install alongside". `sp11-first-boot.service` finishes the installed system on its first boot: UEFI entry and fallback, dual-boot menu, `msm.skip_gpu=1`, the closed-loop audio entry and GRUB regeneration, once, then disables itself |
 | 26 | `VM test (no devicetree)` | `vmtest` | none | `console=ttyAMA0,115200` (L1 only) |
 
 There is no separate GPU entry and no camera entry except the Spectra test. The seven rev25 test entries are not separate GPU DTBs: each is line 1 with the same `m15` DTB and the same debug services, plus one isolation variable; `sp11.gpu_pin=0` appears on the pin-off test, the msm-off test (GPU device absent) and the safe-DTB msm-off test. The three rev25b reset-axis entries split the DTB/GPU axis, debug services and EFI pstore; see the table. The two rev25c entries stay on the surviving `m15-safe` base: line 23 adds only the `-CL` sound model, so it isolates the audio candidate while safe services and the GPU-off DTB are unchanged. Line 22 is documented in its row as a duplicate of line 2 in this build; the rotation property it was meant to add is already in the series base, so it is scheduled for removal in the next menu build rather than kept as a permanent entry. `sp11.gpu_diag` is absent from every automatic entry; there is no CDSP, SAM, identity, cpufreq or GPU-DTB argument on any line (L0 2.17 and `check-m8-menu.py` fail otherwise).
@@ -1042,12 +1042,17 @@ Kept unchanged from M14: the microphone UCM fix, private-mode firmware (closed-l
 
 ### Installation and the kernel/post-install split (rev25n)
 
-The menu entry 24 boots the live system with `inst.ks=hd:LABEL=Fedora-WS-Live-44:/ks-sp11.cfg`
-(`image/kiwi/install/ks-sp11.cfg`, copied to the ISO root through `config-cdroot.tar`).
-The kickstart deliberately has no storage commands: Anaconda asks for the disk and the operator
-chooses **Install alongside** (or custom partitioning), so the Windows partitions are kept. Both
-Windows and Fedora remain selectable from the Surface UEFI boot menu; the installed GRUB also gets
-`GRUB_DISABLE_OS_PROBER=false` so the Windows entry stays visible there.
+Anaconda refuses a kickstart on a live install ("kickstart is not supported on live iso
+installs"), so the install entry only boots the live system. The operator installs with
+**Install to Hard Drive** and chooses **Install alongside** (or custom partitioning), so the
+Windows partitions are kept. On the first boot of the installed system
+`sp11-first-boot.service` runs once: it fixes the UEFI entry and the fallback
+`EFI/BOOT/BOOTAA64.EFI`, writes `msm.skip_gpu=1` into `/etc/default/grub` and the BLS entries with
+`grubby`, removes the private identity overrides, installs the closed-loop audio menu entry when
+the private payload is present, and regenerates GRUB with `GRUB_DISABLE_OS_PROBER=false` so the
+Windows entry stays visible. It marks itself done only when every step succeeded, and disables
+itself. Both Windows and Fedora remain selectable from the Surface UEFI boot menu. The kickstart
+file stays on the ISO for reference but is no longer used.
 
 Two `%post` sections configure the installed system; neither touches the Windows partitions:
 

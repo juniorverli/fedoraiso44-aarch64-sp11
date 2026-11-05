@@ -27,8 +27,13 @@ else
 	exit 1
 fi
 
-src=$(findmnt -n -o SOURCE --target "$esp" 2>/dev/null || true)
-[ -n "$src" ] || src=$(awk -v t="$esp" '$2 == t { print $1; exit }' /proc/mounts 2>/dev/null)
+# Only a mounted ESP is a valid target: findmnt --target would otherwise return the
+# root filesystem and the fallback copy would land on it.
+src=
+if mountpoint -q "$esp" 2>/dev/null; then
+	src=$(findmnt -n -o SOURCE --mountpoint "$esp" 2>/dev/null || true)
+fi
+[ -n "$src" ] || { say "$esp is not a mountpoint; fallback not copied"; exit 1; }
 disk= part=
 if [ -b "$src" ]; then
 	disk=/dev/$(lsblk -no PKNAME "$src" 2>/dev/null | head -n1)

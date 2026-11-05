@@ -104,7 +104,7 @@ fi
 log "kernel $kver_full (newer than $min, the only kernel NEVRA at the top level of out/rpms)"
 
 # M15/M16 accepts revision-12..27 RPMs and all nine atomically published DTB/JSON pairs (m15, m15-safe, m15-nosnd, m15-notouch, m15-spk, m15-spectra, m15-safe-camrot, m15-safe-cl).
-[ "$kver_full" = 7.3.0-65.sp11.27.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.26.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.25.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.24.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.23.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.22.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.21.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.20.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.19.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.18.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.17.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.16.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.15.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.14.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.13.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.12.fc44.aarch64 ] || {
+[ "$kver_full" = 7.3.0-65.sp11.29.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.28.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.27.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.26.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.25.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.24.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.23.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.22.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.21.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.20.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.19.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.18.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.17.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.16.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.15.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.14.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.13.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.12.fc44.aarch64 ] || {
 	log "REFUSED: M15/M16 requires kernel revision 12 through 27 (7.3.0-65.sp11.*.fc44.aarch64), found $kver_full"; exit 6;
 }
 patch_series_sha=$( . "$REPO/scripts/kernel-common.sh"; kernel_series_hash )
@@ -115,7 +115,7 @@ for v in m15 m15-safe m15-nosnd m15-notouch m15-spk m15-spectra m15-safe-camrot 
 	}
 	[ "$(sha256sum "$vsrc.dtb" | cut -d' ' -f1)" = "$(jq -r .sha256 "$vsrc.json")" ] &&
 	[ "$(jq -r .kver "$vsrc.json")" = "$kver_full" ] &&
-	{ [ "$(jq -r .series_rev "$vsrc.json")" = 12 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 13 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 14 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 15 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 16 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 17 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 18 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 19 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 20 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 21 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 22 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 23 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 24 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 25 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 26 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 27 ]; } &&
+	{ [ "$(jq -r .series_rev "$vsrc.json")" = 12 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 13 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 14 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 15 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 16 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 17 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 18 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 19 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 20 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 21 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 22 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 23 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 24 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 25 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 26 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 27 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 28 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 29 ]; } &&
 	[ "$(jq -r .series_hash_sha256 "$vsrc.json")" = "$patch_series_sha" ] || {
 		log "REFUSED: $v DTB hash/release/series differs from the kernel worker JSON"; exit 6;
 	}
@@ -273,10 +273,10 @@ mkdir -p "$desc/root/etc/systemd/system/sysinit.target.wants" "$desc/root/etc/sy
 for u in sp11-sam-mode-rotor.service sp11-identity-switch.service sp11-wifi-identity.service; do
 	ln -sf "/usr/lib/systemd/system/$u" "$desc/root/etc/systemd/system/sysinit.target.wants/$u"
 done
-for u in sp11-cdsp-experiment.service sp11-cpufreq-cap.service sp11-cl-validate.service sp11-closed-loop-sense.service; do
+for u in sp11-cdsp-experiment.service sp11-cpufreq-cap.service sp11-cl-validate.service sp11-closed-loop-sense.service sp11-first-boot.service; do
 	ln -sf "/usr/lib/systemd/system/$u" "$desc/root/etc/systemd/system/multi-user.target.wants/$u"
 done
-chmod 0755 "$desc/root/usr/libexec/sp11-touch-conf-select" "$desc/root/usr/libexec/sp11-boot-state" "$desc/root/usr/libexec/sp11/"{operator-notice,sam-mode-rotor,cdsp-experiment,cpufreq-cap,identity-switch,gpu-retry,speaker-supervisor,speaker-first-test,guard-report,post-install,post-install-boot,closed-loop-validate.py,closed-loop-report.sh,closed-loop-sense}
+chmod 0755 "$desc/root/usr/libexec/sp11-touch-conf-select" "$desc/root/usr/libexec/sp11-boot-state" "$desc/root/usr/libexec/sp11/"{operator-notice,sam-mode-rotor,cdsp-experiment,cpufreq-cap,identity-switch,gpu-retry,speaker-supervisor,speaker-first-test,guard-report,post-install,post-install-boot,closed-loop-validate.py,closed-loop-report.sh,closed-loop-sense,first-boot}
 # M15: identity experiment of the wifi and bluetooth workers (hardware/wifi/image-request-identity.md, hardware/bluetooth/image-request.md), installed in every
 # ISO (inert without the private-mode marker /usr/share/sp11/image-mode). The switch sp11.identity=none is the boot-medium marker sp11/identity-none.
 install -m 0644 "$REPO/hardware/wifi/collector/identity.sh" "$desc/root/etc/sp11-log-collector.d/wifi-identity.sh"
@@ -374,6 +374,10 @@ for v in m15 m15-safe m15-nosnd m15-notouch m15-spk m15-spectra m15-safe-camrot 
 	vsrc=$OUT/dtb-variants/$kver/qcom/$vf
 	if [ -s "$vsrc" ]; then
 		cp "$vsrc" "$dtbtmp/boot/dtb/qcom/$vf"
+		# The installed system boots from the image root, not from config-cdroot.tar:
+		# /boot/dtb is a symlink to dtb-$kver, so the variants must exist there too.
+		mkdir -p "$desc/root/boot/dtb-$kver/qcom"
+		cp "$vsrc" "$desc/root/boot/dtb-$kver/qcom/$vf"
 		mkdir -p "$work/dtb-records"
 		for r in "${vsrc%.dtb}.json" "$vsrc.json"; do [ -f "$r" ] && cp "$r" "$work/dtb-records/$vf.json"; done
 	elif [ "$smoke" = 1 ]; then

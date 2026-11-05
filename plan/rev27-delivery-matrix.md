@@ -1,6 +1,6 @@
 # Rev27 / Fedora 45 delivery matrix
 
-Kernel: our 7.3.0-65.sp11.27.fc44 (series rev27, BTF on, CHECK_DTBS 0 warnings).
+Kernel: our 7.3.0-65.sp11.29.fc44 (series rev29, BTF on, CHECK_DTBS 0 warnings).
 Userland: Fedora 45. The kernel did not move to the F45 build; only the image did.
 
 | Item | State | Evidence / gap |
@@ -14,7 +14,7 @@ Userland: Fedora 45. The kernel did not move to the F45 build; only the image di
 | Cameras | Streams work; colour measurement pending | AWB ceiling fix, calibrate tools; green/dark needs the device RAW |
 | GPU | Post-installation | `msm.skip_gpu=1` on the live entries; first-use reset open |
 | NPU | Post-installation | QAIRT staged, not shipped |
-| Installer | Dual-boot first | Kickstart install entry keeps Windows; `%post` fixes the UEFI boot and adds the closed-loop entry |
+| Installer | Dual-boot first; live install + first boot | Anaconda refuses `inst.ks` on a live install, so the install entry boots the live system ("Install to Hard Drive", "Install alongside") and `sp11-first-boot.service` finishes the installed system once: UEFI entry, dual-boot menu, `msm.skip_gpu=1`, closed-loop entry, GRUB regeneration |
 
 ## Closed-loop sound: what is now different
 

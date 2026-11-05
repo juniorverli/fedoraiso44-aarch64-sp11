@@ -55,7 +55,7 @@ ENTRIES = {
     "test-safe-camrot": ("SP11 debug, safe, rear rotation test", "m15-safe-camrot", DEFAULT | {"sp11.test=test-safe-camrot"}),
     "test-safe-cl": ("SP11 debug, safe, muted closed-loop VI", "m15-safe-cl", DEFAULT | {"sp11.nospk=1", "sp11.test=test-safe-cl"}),
     "cldebug": ("SP11 debug, closed-loop audio (needs calibration)", "m15-cl", DEFAULT | EFI_PSTORE | {"msm.skip_gpu=1", "sp11.allow_nominal=1"}),
-    "install": ("SP11 install (keeps Windows; fixes UEFI boot)", "m15-safe", DEFAULT | {f"inst.ks=hd:LABEL=Fedora-WS-Live-{RELEASE}:/ks-sp11.cfg"}),
+    "install": ("SP11 live, install from the desktop (keeps Windows)", "m15-safe", DEFAULT),
     "vmtest": ("VM test (no devicetree)", None, {"console=ttyAMA0,115200"}),
 }
 # Test entries carry a unique sp11.test=<id>; their sp11.entry mark selects the intended service set.

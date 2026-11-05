@@ -81,3 +81,42 @@ sound path.
   but its default boot entry uses the packaged DTB and public topology. A
   closed-loop installed entry needs the same DTB and arguments staged
   post-installation.
+
+## Device result of the first closed-loop boot (2026-11-05)
+
+Boot `94114431-7056-4703-8a14-7f17ff485d3d`, entry `spk`, kernel rev27. The CL
+topology loaded under the `-CL` model, the card came up with MultiMedia1..5, and
+the SP module accepted all 28 calibration records (`SET_CFG ... rc=0`) and
+enabled (`SP module enable succeeded`). One command failed:
+
+    Error (3) Processing 0x0100100e cmd
+    DSP returned error[100100e] 3
+    SP diagnostics unavailable; protection is degraded
+
+`0x0100100e` is `APM_CMD_REGISTER_MODULE_EVENTS`. REA of qcadcm8380.sys
+(`gsl_graph_register_custom_event`, 0x140062100) shows the Windows GSL client
+sending that command with payload size **0x10** and rejecting anything smaller;
+the kernel's `apm_module_register_events` carries two extra fields (24 bytes).
+Kernel patch 0029 (rev28) sends the 16-byte form first and keeps the 24-byte one
+as a fallback. With `diagnostics_degraded` set and a nominal calibration the
+guard refuses by design, which is why that boot could not unmute.
+
+The guard snapshot also shows what the `spk` entry does not do: it does not start
+the V/I sense stream (`vi_streams: 0`), and on that entry the sense holder is not
+enabled (it runs only with `sp11.entry=debug`). The closed-loop audio entry (line
+24) is the one that holds the sense trigger and has `sp11.allow_nominal=1`.
+
+## Boot-parameter defect found in the same boot (fixed in rev29)
+
+The guard module stored its parameters with the prefix `sp11.`, but the module
+loader splits `sp11.allow_nominal=1` at the dot, takes `sp11` as the module name
+and matches the bare name. The boot log proves it:
+
+    sp11: unknown parameter 'allow_nominal' ignored
+    sp11: unknown parameter 'entry' ignored
+
+so `allow_nominal` stayed false and the guard snapshot reported
+`allow_nominal: 0`. The nominal calibration could therefore never unmute, and
+the documented kill switch `sp11.nospk` was silently ineffective for the same
+reason. Patch 0030 (rev29) uses an empty MODULE_PARAM_PREFIX for the module
+build and keeps `sp11.` for built-in builds.

@@ -1,0 +1,16 @@
+[Unit]
+Description=SP11 first boot of an installed system
+Documentation=file:/usr/share/doc/sp11/closed-loop.md
+ConditionKernelCommandLine=!rd.live.image
+ConditionPathExists=!/var/lib/sp11/first-boot-done
+After=local-fs.target
+Wants=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/sp11/first-boot
+RemainAfterExit=yes
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target

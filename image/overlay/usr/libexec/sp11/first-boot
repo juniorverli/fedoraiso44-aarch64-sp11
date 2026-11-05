@@ -1,0 +1,46 @@
+#!/bin/bash
+# First boot of an installed system (Decision: the live ISO cannot run an
+# Anaconda kickstart, so the installed side is finished here once).
+#
+# Runs as root from sp11-first-boot.service only when the kernel command line
+# has no rd.live.image (an installed system, not the live medium) and the marker
+# /var/lib/sp11/first-boot-done does not exist. It:
+#   * fixes the UEFI boot for this firmware (fallback BOOTAA64.EFI, efibootmgr);
+#   * enables the dual-boot menu, appends msm.skip_gpu=1, removes the private
+#     identity overrides copied from the live image, installs the closed-loop
+#     audio entry when the private payload is present, and regenerates GRUB.
+# It never touches the Windows partitions and it is safe to run again.
+set -uo pipefail
+log=/var/log/sp11-first-boot.log
+exec >>"$log" 2>&1
+say() { echo "sp11-first-boot: $*"; }
+
+case " $(cat /proc/cmdline) " in
+*" rd.live.image "*)
+	say "live medium; nothing to do"
+	exit 0 ;;
+esac
+[ -e /var/lib/sp11/first-boot-done ] && exit 0
+
+say "start $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+mkdir -p /var/lib/sp11 /run/sp11
+
+rc=0
+if [ -x /usr/libexec/sp11/post-install-boot ]; then
+	/usr/libexec/sp11/post-install-boot / || { say "post-install-boot reported an error"; rc=1; }
+fi
+if [ -x /usr/libexec/sp11/post-install ]; then
+	/usr/libexec/sp11/post-install --installed || { say "post-install reported an error"; rc=1; }
+fi
+
+if [ "$rc" != 0 ]; then
+	say "errors; not marking done, will retry on the next boot"
+	exit 1
+fi
+if ! touch /var/lib/sp11/first-boot-done; then
+	say "cannot write /var/lib/sp11/first-boot-done; will retry"
+	exit 1
+fi
+systemctl disable sp11-first-boot.service >/dev/null 2>&1 || true
+say "done $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+exit 0

@@ -69,6 +69,20 @@ def check(root, repo, record):
         assert needle in unit_text, f'sense unit lacks {needle}'
     assert (root / 'etc/systemd/system/multi-user.target.wants/sp11-closed-loop-sense.service').readlink() == \
         Path('/usr/lib/systemd/system/sp11-closed-loop-sense.service'), 'closed-loop sense unit not enabled'
+    # Installed-system finishing: the live ISO cannot run a kickstart, so the first boot of
+    # the installed system runs the post-install steps once.
+    fb = root / 'usr/libexec/sp11/first-boot'
+    assert fb.stat().st_mode & 0o111 and fb.read_bytes() == \
+        (repo / 'image/overlay/usr/libexec/sp11/first-boot').read_bytes(), 'first-boot script'
+    assert 'rd.live.image' in fb.read_text() and 'post-install --installed' in fb.read_text(), 'first-boot logic'
+    fb_unit = root / 'usr/lib/systemd/system/sp11-first-boot.service'
+    fb_text = fb_unit.read_text()
+    for needle in ('ConditionKernelCommandLine=!rd.live.image',
+                   'ConditionPathExists=!/var/lib/sp11/first-boot-done',
+                   'ExecStart=/usr/libexec/sp11/first-boot'):
+        assert needle in fb_text, f'first-boot unit lacks {needle}'
+    assert (root / 'etc/systemd/system/multi-user.target.wants/sp11-first-boot.service').readlink() == \
+        Path('/usr/lib/systemd/system/sp11-first-boot.service'), 'first-boot unit not enabled'
     # Installed-system closed-loop entry: the generator ships, the grub.d copy is made by post-install only.
     grubgen = root / 'usr/libexec/sp11/grub-closed-loop'
     assert grubgen.stat().st_mode & 0o111 and grubgen.read_bytes() == \
@@ -77,6 +91,14 @@ def check(root, repo, record):
     assert not (root / 'etc/grub.d/45_sp11_closed_loop').exists(), 'the closed-loop menu entry must be installed post-installation only'
     for u in ('sp11-speaker-first-test.service',):
         assert not (root / 'usr/lib/systemd/system' / u).exists(), 'the first test must never be a unit'
+    # Every published variant must also exist in the image root, next to the packaged
+    # DTBs: the installed system boots from /boot/dtb (a symlink to dtb-$kver), and
+    # sp11-first-boot installs the closed-loop entry only when m15-cl is there.
+    kver = record['kernel_nevra'].removeprefix('kernel-core-')
+    for v in ('m15', 'm15-safe', 'm15-nosnd', 'm15-notouch', 'm15-spk', 'm15-spectra',
+              'm15-safe-camrot', 'm15-safe-cl', 'm15-cl'):
+        f = root / 'boot' / f'dtb-{kver}' / 'qcom' / f'x1p64100-microsoft-denali-{v}.dtb'
+        assert f.is_file(), f'image root lacks the {v} DTB (/boot/dtb-{{kver}})'
     # GPU two-step: owner unit byte for byte, installed script = owner + the three image changes, nothing else
     gpu = pins['gpu_two_step']
     owner = repo / 'hardware/gpu/collector/gpu-two-step.sh'
