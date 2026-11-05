@@ -1,6 +1,6 @@
 # Rev27 / Fedora 45 delivery matrix
 
-Kernel: our 7.3.0-65.sp11.29.fc44 (series rev29, BTF on, CHECK_DTBS 0 warnings).
+Kernel: our 7.3.0-65.sp11.30.fc44 (series rev30, BTF on, CHECK_DTBS 0 warnings).
 Userland: Fedora 45. The kernel did not move to the F45 build; only the image did.
 
 | Item | State | Evidence / gap |

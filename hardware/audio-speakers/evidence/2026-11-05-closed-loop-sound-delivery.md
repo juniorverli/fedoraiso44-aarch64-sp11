@@ -120,3 +120,32 @@ so `allow_nominal` stayed false and the guard snapshot reported
 the documented kill switch `sp11.nospk` was silently ineffective for the same
 reason. Patch 0030 (rev29) uses an empty MODULE_PARAM_PREFIX for the module
 build and keeps `sp11.` for built-in builds.
+
+## Device confirmation of the two rev29 fixes (2026-11-05, 20:17)
+
+Boot `a160e89a-e9fd-42bd-af2e-9510d6491c76`, entry `spk`, kernel
+`7.3.0-65.sp11.29.fc44.aarch64`:
+
+    sp11: selected closed-loop speaker mode
+    closed-loop speaker protection data loaded: 1 links, 28 records
+    SP module enable succeeded
+
+- No `unknown parameter 'allow_nominal'` line; the guard snapshot reports
+  `allow_nominal: 1`.
+- No `Error (3) Processing 0x0100100e`; the 16-byte event registration was
+  accepted and `diagnostics_degraded` stayed clear.
+- The `safe` boot of the same ISO (`3b576987`) has zero failed units and the
+  D26 open-loop mode, so rev29 did not regress the public path.
+
+The `spk` entry still reports `vi_streams: 0`, by design: only the closed-loop
+audio entry (line 24) starts the automatic sense holder.
+
+## Measured-calibration binding (rev30)
+
+The DSP delivers a module event with the graph that owns the receiving module.
+The calibration events are registered on the SP module of the playback graph,
+so `sp11_guard_vi_calibration()` bound `cal_graph` to the playback graph and a
+measurement arriving during playback would have replaced a valid nominal
+calibration with one the identity check rejects. Patch 0031 binds a measurement
+to the unique running V/I graph (zero or several running V/I graphs stay
+refused) so a real measurement can only strengthen the guard.
