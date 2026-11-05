@@ -176,6 +176,17 @@ menuentry 'SP11 debug, safe, muted closed-loop VI' --id sp11-test-safe-cl --clas
 	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m15-safe-cl.dtb
 	initrd ($$root)${bootpath}/${initrd_file}
 }
+menuentry 'SP11 debug, closed-loop audio (needs calibration)' --id sp11-cldebug --class fedora --class gnu-linux --class gnu --class os {
+	# Closed-loop audio delivery entry (private image only): the -CL sound model loads the private
+	# closed-loop topology and its supplements; sp11.allow_nominal=1 accepts the nominal R0/T0 file
+	# here and nowhere else except the speaker first-test entry, and sp11-closed-loop-sense.service
+	# holds the V/I sense trigger so the guard's sense-stream gate is satisfied before playback.
+	# Kill switch: press e and add sp11.nospk, or power off. Without the private audio files the
+	# topology fails to load and the guard stays closed (no sound).
+	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr pmic_glink_altmode.dyndbg=+p ps883x.dyndbg=+p phy_qcom_qmp_combo.dyndbg=+p ucsi_glink.dyndbg=+p typec_ucsi.dyndbg=+p dwc3.dyndbg=+p dwc3_qcom.dyndbg=+p qcom_pd_mapper.dyndbg=+p pdr_interface.dyndbg=+p trace_event=:mod:qcom_glink,:mod:smp2p,:mod:qcom_aoss,rpmh:rpmh_send_msg trace_buf_size=16M efi_pstore.pstore_disable=0 printk.always_kmsg_dump=1 msm.skip_gpu=1 sp11.entry=debug sp11.allow_nominal=1
+	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m15-cl.dtb
+	initrd ($$root)${bootpath}/${initrd_file}
+}
 menuentry 'SP11 install (keeps Windows; fixes UEFI boot)' --id sp11-install --class fedora --class gnu-linux --class gnu --class os {
 	linux ($$root)${bootpath}/${kernel_file} ${boot_options} clk_ignore_unused pd_ignore_unused rootdelay=10 rd.driver.blacklist=qcom_battmgr modprobe.blacklist=qcom_battmgr pmic_glink_altmode.dyndbg=+p ps883x.dyndbg=+p phy_qcom_qmp_combo.dyndbg=+p ucsi_glink.dyndbg=+p typec_ucsi.dyndbg=+p dwc3.dyndbg=+p dwc3_qcom.dyndbg=+p qcom_pd_mapper.dyndbg=+p pdr_interface.dyndbg=+p trace_event=:mod:qcom_glink,:mod:smp2p,:mod:qcom_aoss,rpmh:rpmh_send_msg trace_buf_size=16M inst.ks=hd:LABEL=Fedora-WS-Live-44:/ks-sp11.cfg sp11.entry=safe
 	devicetree ($$root)/boot/dtb/qcom/x1p64100-microsoft-denali-m15-safe.dtb

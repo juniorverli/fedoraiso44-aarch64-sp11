@@ -53,7 +53,7 @@ def main():
                                  'm13', 'm13-nosnd', 'm13-notouch', 'm13-spk', 'm13-gpu', 'm13-cam',
                                  'm14', 'm14-safe', 'm14-nosnd', 'm14-notouch', 'm14-spk',
                                  'm15', 'm15-safe', 'm15-nosnd', 'm15-notouch', 'm15-spk', 'm15-spectra',
-                                 'm15-safe-cl', 'm15-safe-camrot'],
+                                 'm15-safe-cl', 'm15-safe-camrot', 'm15-cl'],
                         required=True)
     parser.add_argument('--baseline', type=Path)
     parser.add_argument('--previous', type=Path, help='M8 DTB: require only the CMA range addition')
@@ -120,7 +120,7 @@ def main():
         return cells(node(label)['phandle'])[0]
 
     # The only enabled-card exceptions are the microphone DTs and, under the d26 profile, speaker DTBs.
-    spk = args.variant in ('m13-spk', 'm14-spk', 'm15-spk', 'm15', 'm15-safe', 'm15-notouch', 'm15-safe-cl', 'm15-safe-camrot')
+    spk = args.variant in ('m13-spk', 'm14-spk', 'm15-spk', 'm15', 'm15-safe', 'm15-notouch', 'm15-safe-cl', 'm15-safe-camrot', 'm15-cl')
     profile = 'd26' if spk else 'default'
     safety_tool = str(Path(__file__).with_name('kernel-dtb-safety.py'))
     safety = subprocess.run(['python3', '-I', safety_tool, '/dev/stdin', '--profile', profile],
@@ -156,7 +156,7 @@ def main():
     # Every other DTB keeps the public model, which selects the public open-loop topology.
     sound_model = nodes.get('/sound', {}).get('model')
     expected_model = ('"X1E80100-Microsoft-Surface-Pro-11-CL"'
-                      if args.variant in ('m15-spk', 'm15-safe-cl') else '"X1E80100-Microsoft-Surface-Pro-11"')
+                      if args.variant in ('m15-spk', 'm15-safe-cl', 'm15-cl') else '"X1E80100-Microsoft-Surface-Pro-11"')
     require(sound_model == expected_model,
             f'{args.variant}: /sound model is {sound_model}, expected {expected_model}')
 
@@ -217,7 +217,7 @@ def main():
         require('domain-idle-states' not in node('system_pd'), 'System SS3 still referenced')
         # Keep both cluster idle states in the DT.
         require('cluster_cl4' in symbols and 'cluster_cl5' in symbols, 'Cluster idle state removed')
-    if args.variant in ('m13-gpu', 'm14', 'm15'):
+    if args.variant in ('m13-gpu', 'm14', 'm15', 'm15-cl'):
         require(enabled(symbols['gpu']), f'{args.variant}: GPU not enabled')
     else:
         require(not enabled(symbols['gpu']), 'GPU enabled in LCD DTB')
@@ -250,7 +250,7 @@ def main():
             require(enabled(symbols[label]), f'{args.variant}: {label} disabled')
         require(enabled('/camera-leds'), f'{args.variant}: indicator LED bank disabled')
         require(not enabled(symbols['cci1_i2c0']), f'{args.variant}: cci1_i2c0 must stay disabled')
-    elif args.variant in ('m15', 'm15-safe', 'm15-notouch', 'm15-safe-cl', 'm15-safe-camrot'):
+    elif args.variant in ('m15', 'm15-safe', 'm15-notouch', 'm15-safe-cl', 'm15-safe-camrot', 'm15-cl'):
         # M16.2 (cameras 0022): the unbound IR sensor is excluded from the CAMSS graph so the async
         # notifier completes for the two RGB sensors. The IR node and its CCI0 bus stay described
         # but disabled; CAMSS must no longer carry the IR endpoint at all (OF graph iteration

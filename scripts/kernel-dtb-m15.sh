@@ -152,7 +152,7 @@ base, kver, release_path = sys.argv[4:7]
 patches = sys.argv[7:]
 sha = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
 release = json.loads(Path(release_path).read_text())
-assert release["series_rev"] in (12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25) and release['build']['rpmbuild_rc'] == 0
+assert release["series_rev"] in (12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27) and release['build']['rpmbuild_rc'] == 0
 assert release['btf']['vmlinux'] == 'ok' and release['btf']['modules_without_btf'] == 0
 assert release['btf']['modules_with_btf'] == release['btf']['modules_total'] > 0
 assert release['kver'] == kver and release['base']['commit'] == base

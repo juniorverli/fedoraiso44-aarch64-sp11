@@ -1,0 +1,14 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * Debug entry with the closed-loop sound model: the m15 graph (GPU node,
+ * cameras, microphones) and the private -CL model, so AudioReach requests the
+ * closed-loop topology and supplements once the installed system carries the
+ * measured calibration. Without that data the guard is fail-closed and the
+ * speakers stay muted; this DTB does not mute a PA by itself and is not a
+ * speaker-off fallback.
+ */
+#include "x1p64100-microsoft-denali-m15.dts"
+
+&{/sound} {
+	model = "X1E80100-Microsoft-Surface-Pro-11-CL";
+};

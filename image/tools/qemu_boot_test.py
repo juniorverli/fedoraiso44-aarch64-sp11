@@ -45,6 +45,7 @@ ENTRIES = [   # M16: one flat static menu (M13 style); the VM entry is the LAST 
     "SP11 debug, test m15 DTB + safe services",
     "SP11 debug, safe, rear rotation test",
     "SP11 debug, safe, muted closed-loop VI",
+    "SP11 debug, closed-loop audio (needs calibration)",
     "SP11 install (keeps Windows; fixes UEFI boot)",
     "VM test (no devicetree)",
 ]

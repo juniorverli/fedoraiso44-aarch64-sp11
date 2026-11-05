@@ -54,7 +54,7 @@ ENTRIES = {
     "test-m15-safe": ("SP11 debug, test m15 DTB + safe services", "m15", DEFAULT | {"sp11.test=test-m15-safe"}),
     "test-safe-camrot": ("SP11 debug, safe, rear rotation test", "m15-safe-camrot", DEFAULT | {"sp11.test=test-safe-camrot"}),
     "test-safe-cl": ("SP11 debug, safe, muted closed-loop VI", "m15-safe-cl", DEFAULT | {"sp11.nospk=1", "sp11.test=test-safe-cl"}),
-    "cldebug": ("SP11 debug, closed-loop audio (needs calibration)", "m15-cl", DEFAULT | EFI_PSTORE | {"msm.skip_gpu=1"}),
+    "cldebug": ("SP11 debug, closed-loop audio (needs calibration)", "m15-cl", DEFAULT | EFI_PSTORE | {"msm.skip_gpu=1", "sp11.allow_nominal=1"}),
     "install": ("SP11 install (keeps Windows; fixes UEFI boot)", "m15-safe", DEFAULT | {f"inst.ks=hd:LABEL=Fedora-WS-Live-{RELEASE}:/ks-sp11.cfg"}),
     "vmtest": ("VM test (no devicetree)", None, {"console=ttyAMA0,115200"}),
 }
@@ -90,7 +90,7 @@ def check_entry(body, ident, variant, want):
     mark = TEST_MARK.get(ident, ident)
     assert args.count("sp11.entry=" + mark) == 1 and sum(a.startswith("sp11.entry=") for a in args) == 1, f"{ident}: wrong entry mark"
     assert not any(a.startswith(NEVER_PREFIX) for a in args), f"{ident}: rotor/GPU/SAM/firmware argument on the command line (Linux side owns it)"
-    assert ("sp11.allow_nominal=1" in args) == (ident == "spk"), f"{ident}: sp11.allow_nominal must be on the speaker first-test entry only"
+    assert ("sp11.allow_nominal=1" in args) == (ident in ("spk", "cldebug")), f"{ident}: sp11.allow_nominal must be on the closed-loop entries only"
     assert ("sp11.nospk=1" in args) == (ident == "test-safe-cl"), f"{ident}: sp11.nospk must be on the muted closed-loop test only"
     dtbs = re.findall(r"^\s*devicetree (.*)$", body, re.M)
     assert dtbs == ([] if variant is None else [DTB_RE.format(variant)]), f"{ident}: wrong DTB {dtbs}"
@@ -143,6 +143,10 @@ def check(cfg):
         for d in re.findall(r"denali-(m[0-9a-z-]+)\.dtb", body):
             used.setdefault(d, []).append(ident)
     assert used["m15-spk"] == ["spk"], f"m15-spk used by {used['m15-spk']}"
+    # m15-cl keeps the GPU node like line 1; its only entry must skip the GPU driver.
+    assert used["m15-cl"] == ["cldebug"], f"m15-cl used by {used['m15-cl']}"
+    assert "msm.skip_gpu=1" in arglists["cldebug"], "cldebug must keep msm.skip_gpu=1 (m15-cl keeps the GPU node)"
+    assert "msm.skip_gpu=1" in arglists["debug"], "line 1 must keep msm.skip_gpu=1 (m15 keeps the GPU node)"
     assert used["m15"] == ["debug", *M15_TEST_IDS], f"m15 (GPU and camera nodes) used by {used['m15']}: line 1 and its test entries only"
     assert used["m15-spectra"] == ["spectra"], f"m15-spectra used by {used['m15-spectra']}"
     assert [i for i, a in arglists.items() if "module_blacklist=camera_x1e80100" in a] == ["spectra"], "module_blacklist=camera_x1e80100 only on the Spectra entry"
