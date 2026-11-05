@@ -41,18 +41,20 @@ if [ -s fedora-query.txt ]; then
 fi
 dnf -y --setopt=install_weak_deps=False install dnf5-plugins
 dnf -y --setopt=install_weak_deps=False builddep SPECS/iptsd.spec
-rpmbuild --define "_topdir $work" --define 'dist .fc44' --define '_smp_mflags -j2' -ba SPECS/iptsd.spec >build.log 2>&1 || {
+rel=${SP11_FEDORA_RELEASE:-44}
+rpmbuild --define "_topdir $work" --define "dist .fc$rel" --define '_smp_mflags -j2' -ba SPECS/iptsd.spec >build.log 2>&1 || {
 	tail -n 60 build.log; exit 1;
 }
-rpmfile=$work/RPMS/aarch64/iptsd-3.1.0-1.fc44.aarch64.rpm
+rpmfile=$work/RPMS/aarch64/iptsd-3.1.0-1.fc${rel}.aarch64.rpm
 test -s "$rpmfile"
 mkdir -p "$SP11_OUT/rpms"
 cp "$rpmfile" "$SP11_OUT/rpms/"
-python3 -I - "$work" "$SP11_OUT/rpms" <<'PY'
+python3 -I - "$work" "$SP11_OUT/rpms" "$rel" <<'PY'
 import hashlib, json, pathlib, subprocess, sys
-work, rpms = map(pathlib.Path, sys.argv[1:])
+work, rpms = map(pathlib.Path, sys.argv[1:3])
+rel = sys.argv[3]
 digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
-rpm = rpms / 'iptsd-3.1.0-1.fc44.aarch64.rpm'
+rpm = rpms / f'iptsd-3.1.0-1.fc{rel}.aarch64.rpm'
 record = {'nevra': rpm.stem, 'rpm_sha256': digest(rpm),
           'source_url': 'https://github.com/linux-surface/iptsd/archive/refs/tags/v3.1.0.tar.gz',
           'source_sha256': digest(work / 'SOURCES/v3.1.0.tar.gz'),
@@ -66,4 +68,4 @@ record = {'nevra': rpm.stem, 'rpm_sha256': digest(rpm),
           'meson_test': 'Completed successfully; upstream defines no tests; see out/image-work/iptsd/build.log'}
 (rpms / (rpm.stem + '.json')).write_text(json.dumps(record, indent=2) + '\n')
 PY
-echo "iptsd RPM and record: $SP11_OUT/rpms/iptsd-3.1.0-1.fc44.aarch64.{rpm,json}"
+echo "iptsd RPM and record: $SP11_OUT/rpms/iptsd-3.1.0-1.fc${rel}.aarch64.{rpm,json}"

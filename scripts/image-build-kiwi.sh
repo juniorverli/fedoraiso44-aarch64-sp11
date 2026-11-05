@@ -68,7 +68,7 @@ scrub_private() {
 [ "$private" = 1 ] && trap scrub_private EXIT
 
 # The local Fedora-native iptsd RPM must be prepared before the single compose.
-iptsd_rpm=$OUT/rpms/iptsd-3.1.0-1.fc44.aarch64.rpm
+iptsd_rpm=$OUT/rpms/iptsd-3.1.0-1.fc${rel}.aarch64.rpm
 iptsd_record=${iptsd_rpm%.rpm}.json
 [ -s "$iptsd_rpm" ] && [ -s "$iptsd_record" ] &&
 [ "$(sha256sum "$iptsd_rpm" | cut -d' ' -f1)" = "$(jq -r .rpm_sha256 "$iptsd_record")" ] &&
@@ -103,9 +103,9 @@ if [ "$(rpm --eval "%{lua:print(rpm.vercmp('$newest_vr', '$min'))}")" -le 0 ]; t
 fi
 log "kernel $kver_full (newer than $min, the only kernel NEVRA at the top level of out/rpms)"
 
-# M15/M16 accepts revision-12..25 RPMs and all eight atomically published DTB/JSON pairs (m15, m15-safe, m15-nosnd, m15-notouch, m15-spk, m15-spectra, m15-safe-camrot, m15-safe-cl).
-[ "$kver_full" = 7.3.0-65.sp11.25.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.24.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.23.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.22.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.21.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.20.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.19.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.18.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.17.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.16.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.15.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.14.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.13.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.12.fc44.aarch64 ] || {
-	log "REFUSED: M15/M16 requires kernel revision 12 through 21 (7.3.0-65.sp11.*.fc44.aarch64), found $kver_full"; exit 6;
+# M15/M16 accepts revision-12..27 RPMs and all nine atomically published DTB/JSON pairs (m15, m15-safe, m15-nosnd, m15-notouch, m15-spk, m15-spectra, m15-safe-camrot, m15-safe-cl).
+[ "$kver_full" = 7.3.0-65.sp11.27.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.26.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.25.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.24.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.23.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.22.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.21.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.20.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.19.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.18.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.17.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.16.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.15.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.14.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.13.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.12.fc44.aarch64 ] || {
+	log "REFUSED: M15/M16 requires kernel revision 12 through 27 (7.3.0-65.sp11.*.fc44.aarch64), found $kver_full"; exit 6;
 }
 patch_series_sha=$( . "$REPO/scripts/kernel-common.sh"; kernel_series_hash )
 for v in m15 m15-safe m15-nosnd m15-notouch m15-spk m15-spectra m15-safe-camrot m15-safe-cl m15-cl; do
@@ -121,7 +121,7 @@ for v in m15 m15-safe m15-nosnd m15-notouch m15-spk m15-spectra m15-safe-camrot 
 	}
 	case $v in
 		m15|m15-safe) expected_model=X1E80100-Microsoft-Surface-Pro-11 ;;
-		m15-spk | m15-safe-cl) expected_model=X1E80100-Microsoft-Surface-Pro-11-CL ;;
+		m15-spk | m15-safe-cl | m15-cl) expected_model=X1E80100-Microsoft-Surface-Pro-11-CL ;;
 		*) expected_model= ;;
 	esac
 	if [ -n "$expected_model" ]; then
@@ -156,13 +156,15 @@ if [ "${SP11_FEDORA_RELEASE:-44}" = 45 ]; then
 		log "patch(f45) $(basename "$p")"
 		patch -p1 --no-backup-if-mismatch -s <"$p"
 	done
-	sed -i "s/Fedora-WS-Live-44/Fedora-WS-Live-45/g" "$desc/grub-arm.cfg.iso-template"
-	sed -i "s/Fedora-WS-Live-44/Fedora-WS-Live-45/g" "$desc/root/etc/sp11-boot-medium"
 fi
 cp -a "$REPO/image/overlay/." "$desc/root/"
 rm -f "$desc/root/etc/sp11-log-collector.conf"   # lmc-only; the kiwi overlay has its own (ESP label BOOT)
 cp -a "$REPO/image/kiwi/overlay/root/." "$desc/root/"
 cp -a "$REPO/image/kiwi/overlay/sp11.xml" "$REPO/image/kiwi/overlay/grub-arm.cfg.iso-template" "$desc/"
+if [ "$rel" = 45 ]; then
+	sed -i "s/Fedora-WS-Live-44/Fedora-WS-Live-45/g" "$desc/grub-arm.cfg.iso-template"
+	sed -i "s/Fedora-WS-Live-44/Fedora-WS-Live-45/g" "$desc/root/etc/sp11-boot-medium"
+fi
 chmod 0755 "$desc/root/usr/libexec/sp11-log-collector" "$desc/root/usr/libexec/sp11-kmsg-tail"
 chmod 0755 "$desc/root/usr/libexec/sp11-touch-userspace-collect"
 # D19 / display-lcd request: the DPCD reader of the display worker, shipped unchanged and run by the
@@ -271,10 +273,10 @@ mkdir -p "$desc/root/etc/systemd/system/sysinit.target.wants" "$desc/root/etc/sy
 for u in sp11-sam-mode-rotor.service sp11-identity-switch.service sp11-wifi-identity.service; do
 	ln -sf "/usr/lib/systemd/system/$u" "$desc/root/etc/systemd/system/sysinit.target.wants/$u"
 done
-for u in sp11-cdsp-experiment.service sp11-cpufreq-cap.service sp11-cl-validate.service; do
+for u in sp11-cdsp-experiment.service sp11-cpufreq-cap.service sp11-cl-validate.service sp11-closed-loop-sense.service; do
 	ln -sf "/usr/lib/systemd/system/$u" "$desc/root/etc/systemd/system/multi-user.target.wants/$u"
 done
-chmod 0755 "$desc/root/usr/libexec/sp11-touch-conf-select" "$desc/root/usr/libexec/sp11-boot-state" "$desc/root/usr/libexec/sp11/"{operator-notice,sam-mode-rotor,cdsp-experiment,cpufreq-cap,identity-switch,gpu-retry,speaker-supervisor,speaker-first-test,guard-report,post-install,post-install-boot,closed-loop-validate.py,closed-loop-report.sh}
+chmod 0755 "$desc/root/usr/libexec/sp11-touch-conf-select" "$desc/root/usr/libexec/sp11-boot-state" "$desc/root/usr/libexec/sp11/"{operator-notice,sam-mode-rotor,cdsp-experiment,cpufreq-cap,identity-switch,gpu-retry,speaker-supervisor,speaker-first-test,guard-report,post-install,post-install-boot,closed-loop-validate.py,closed-loop-report.sh,closed-loop-sense}
 # M15: identity experiment of the wifi and bluetooth workers (hardware/wifi/image-request-identity.md, hardware/bluetooth/image-request.md), installed in every
 # ISO (inert without the private-mode marker /usr/share/sp11/image-mode). The switch sp11.identity=none is the boot-medium marker sp11/identity-none.
 install -m 0644 "$REPO/hardware/wifi/collector/identity.sh" "$desc/root/etc/sp11-log-collector.d/wifi-identity.sh"
@@ -334,11 +336,11 @@ cp "$iptsd_rpm" "$OUT/repo/"
 # M15 integration: the local sensor RPMs, the Spectra module RPM (rebuilt against this kernel-devel) and the local libcamera set (Fedora source + the cameras patches)
 sensors_rpms="hexagonrpcd libssc libssc-tools iio-sensor-proxy sp11-sensors"
 for n in $sensors_rpms; do
-	f=$(ls "$OUT"/rpms-local/$n-[0-9]*.rpm | grep -v -E '\.src\.rpm$|debuginfo|debugsource' | head -n1)
-	[ -f "$f" ] || { log "REFUSED: local sensor RPM $n missing in out/rpms-local (hardware/sensors/userspace/build-sensors-rpms.sh)"; exit 6; }
+	f=$(ls "$OUT"/rpms-local/$n-[0-9]*.fc${rel}.*.rpm 2>/dev/null | grep -v -E '\.src\.rpm$|debuginfo|debugsource' | head -n1 || true)
+	[ -f "$f" ] || { log "REFUSED: local sensor RPM $n for fc$rel missing in out/rpms-local (SP11_FEDORA_RELEASE=$rel hardware/sensors/userspace/build-sensors-rpms.sh)"; exit 6; }
 	cp "$f" "$OUT/repo/"
 done
-spectra_rpm=$(ls "$OUT"/rpms-local/sp11-camera-spectra-1.0-*.aarch64.rpm 2>/dev/null | head -n1)
+spectra_rpm=$(ls "$OUT"/rpms-local/sp11-camera-spectra-1.0-*.aarch64.rpm 2>/dev/null | head -n1 || true)
 [ -f "$spectra_rpm" ] && [ "$(jq -r .kver "${spectra_rpm%.rpm}.json")" = "$kver_full" ] && [ "$(sha256sum "$spectra_rpm" | cut -d' ' -f1)" = "$(jq -r .rpm_sha256 "${spectra_rpm%.rpm}.json")" ] || {
 	log "REFUSED: sp11-camera-spectra RPM missing or not built for $kver_full (hardware/cameras/spectra/rpm/build-spectra-rpm.sh $kver_full)"; exit 6; }
 cp "$spectra_rpm" "$OUT/repo/"
@@ -489,9 +491,9 @@ mv -f "$iso" "$isodir/$name.iso"
 sha=$(cut -d' ' -f1 "$isodir/$name.iso.sha256")
 
 # ---- 9. build record
-python3 - "$isodir/$name.json" "$name" "$sha" "$id" "$elapsed" "$work" "$REPO" "$OUT" "$pin" "$head" "${variants_smoke_copy:-0}" "$kind" "$private" <<'PYEOF'
+python3 - "$isodir/$name.json" "$name" "$sha" "$id" "$elapsed" "$work" "$REPO" "$OUT" "$pin" "$head" "${variants_smoke_copy:-0}" "$kind" "$private" "$rel" <<'PYEOF'
 import hashlib, json, os, re, subprocess, sys
-rec, name, sha, bid, elapsed, work, repo, out, pin, head, variants_smoke_copy, kind, private = sys.argv[1:14]
+rec, name, sha, bid, elapsed, work, repo, out, pin, head, variants_smoke_copy, kind, private, rel = sys.argv[1:15]
 
 def sha256(p):
     h = hashlib.sha256()
@@ -507,7 +509,7 @@ def read(p, default=''):
         return default
 
 pk = []
-for l in read(f"{work}/out-build/Fedora.aarch64-${rel}.packages").splitlines():
+for l in read(f"{work}/out-build/Fedora.aarch64-{rel}.packages").splitlines():
     f = l.split('|')
     if len(f) >= 5:
         pk.append(f"{f[0]}-{0 if f[1] == '(none)' else f[1]}:{f[2]}-{f[3]}.{f[4]}")
@@ -586,7 +588,7 @@ record = {
     "local_rpm_sha256": {os.path.basename(f): sha256(f) for f in sorted(__import__("glob").glob(f"{out}/repo/*.rpm")) if not os.path.basename(f).startswith("kernel")},
     "touch_collector_sha256": sha256(f"{repo}/hardware/touch-pen/collect-read-only.sh"),
     "touch_userspace_collector_sha256": sha256(f"{repo}/image/overlay/usr/libexec/sp11-touch-userspace-collect"),
-    "iptsd": json.load(open(f"{out}/rpms/iptsd-3.1.0-1.fc44.aarch64.json")),
+    "iptsd": json.load(open(f"{out}/rpms/iptsd-3.1.0-1.fc{rel}.aarch64.json")),
     "component_inputs": json.load(open(f"{repo}/image/component-inputs/sources.json")),
     "m11_inputs": json.load(open(f"{repo}/image/component-inputs/m11.json")),
     "kiwi_description": {"url": "https://pagure.io/fedora-kiwi-descriptions.git", "branch": "f44", "pinned_commit": pin,

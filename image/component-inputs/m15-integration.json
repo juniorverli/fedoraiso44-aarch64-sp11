@@ -18,19 +18,19 @@
  },
  "local_rpms": {
   "sensors": [
-   "hexagonrpcd-0.5.0-1.sp11.fc44.aarch64",
-   "libssc-0.4.4-1.sp11.fc44.aarch64",
-   "libssc-tools-0.4.4-1.sp11.fc44.aarch64",
-   "iio-sensor-proxy-3.9-1.sp11.fc44.aarch64",
-   "sp11-sensors-1.0-1.fc44.noarch"
+   "hexagonrpcd-0.5.0-1.sp11.fc45.aarch64",
+   "libssc-0.4.4-1.sp11.fc45.aarch64",
+   "libssc-tools-0.4.4-1.sp11.fc45.aarch64",
+   "iio-sensor-proxy-3.9-1.sp11.fc45.aarch64",
+   "sp11-sensors-1.0-1.fc45.noarch"
   ],
   "spectra": [
    "sp11-camera-spectra-1.0-1.git08171dd.sp11.fc44.aarch64"
   ],
   "libcamera_local": [
-   "libcamera-0.7.2-2.sp11.fc44.aarch64",
-   "libcamera-ipa-0.7.2-2.sp11.fc44.aarch64",
-   "libcamera-tools-0.7.2-2.sp11.fc44.aarch64"
+   "libcamera-0.7.2-3.sp11.fc45.aarch64",
+   "libcamera-ipa-0.7.2-3.sp11.fc45.aarch64",
+   "libcamera-tools-0.7.2-3.sp11.fc45.aarch64"
   ],
   "libcamera_stock": [
    "libcamera",

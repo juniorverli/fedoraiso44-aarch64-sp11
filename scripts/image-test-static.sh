@@ -33,6 +33,7 @@ fi
 [ -f "$iso" ] || { echo "image-test-static: no ISO ($arg)" >&2; exit 2; }
 iso=$(readlink -f "$iso")
 name=$(basename "$iso" .iso)
+SP11_RELEASE=$(printf '%s' "$name" | sed -n 's/^sp11-fedora\([0-9]*\)-.*/\1/p'); export SP11_RELEASE=${SP11_RELEASE:-44}
 rec=${iso%.iso}.json
 [ -f "$rec" ] || { echo "image-test-static: build record $rec missing" >&2; exit 2; }
 W=$OUT/image-work/l0-$name
@@ -233,7 +234,7 @@ vm=$(awk '/^[ \t]*menuentry /{f=0} /^[ \t]*menuentry .VM test/{f=1} f&&/^[[:spac
 [ "$(grep -c -E "^[[:space:]]*menuentry '" "$cfg_esp")" = "$nentries" ] && [ "$(grep '^set default' "$cfg_esp")" = "set default=1" ] && pass 2.9 "VM test entry is not the default"
 if [ "$builder" = kiwi ]; then
 	if python3 -I "$REPO/image/tools/check-m8-menu.py" "$cfg_esp" >"$W/m8-menu.txt" 2>&1; then
-		pass 2.17 "M15 flat static menu: 26 entries, no function except load_video, no load_env/save_env/grubenv/variable/submenu, fixed DTB per entry (line 1 m15 with GPU and cameras and no automatic sp11.gpu_diag, line 2 m15-safe fallback, rev25/rev25b test entries add one axis), exact diagnostic arguments, allow_nominal on spk only, no rotor/GPU/SAM/firmware_class argument on any line"
+		pass 2.17 "M15 flat static menu: 26 entries, no function except load_video, no load_env/save_env/grubenv/variable/submenu, fixed DTB per entry (line 1 m15 with GPU and cameras and no automatic sp11.gpu_diag, line 2 m15-safe fallback, rev25/rev25b test entries add one axis), exact diagnostic arguments, allow_nominal on the closed-loop entries only, no rotor/GPU/SAM/firmware_class argument on any line"
 	else
 		fail 2.17 "M15 menu: $(cat "$W/m8-menu.txt")"
 	fi
@@ -258,7 +259,7 @@ if [ "$builder" = kiwi ]; then
 		nsel=$((nsel + 1))
 		if [ ! -s "$df" ] || ! dtc -I dtb -O dts -o "$df.dts" "$df" 2>/dev/null; then s1ok=0; fail 2.18 "cannot decompile $dp for the sound check"; continue; fi
 		profile=default
-		case $dp in *denali-m15-spk.dtb|*denali-m15.dtb|*denali-m15-safe.dtb|*denali-m15-notouch.dtb|*denali-m15-safe-camrot.dtb|*denali-m15-safe-cl.dtb) profile=d26 ;; esac
+		case $dp in *denali-m15-spk.dtb|*denali-m15.dtb|*denali-m15-safe.dtb|*denali-m15-notouch.dtb|*denali-m15-safe-camrot.dtb|*denali-m15-safe-cl.dtb|*denali-m15-cl.dtb) profile=d26 ;; esac
 		python3 -I "$REPO/scripts/kernel-dtb-safety.py" "$df.dts" --profile "$profile" >"$df.s1.json" 2>&1 && res=OK || res="profile $profile failed: $(tr -d '\n ' <"$df.s1.json" | cut -c1-300)"
 		[ "$res" = OK ] || { s1ok=0; fail 2.18 "S1: $dp ($id): $res"; }
 		if [ "$profile" = d26 ]; then
@@ -298,6 +299,9 @@ if [ "$builder" = kiwi ]; then
 	# erofs only without lzma ("Failed to mount erofs: Operation not supported"), so L0 unpacks it
 	# in user space with fsck.erofs --extract into the work directory (a few minutes, ~7 GiB).
 	layout=erofs
+	# The container wrapper hands /out/image-work back to the invoking user after every run, so a
+	# cached extraction stops being root-owned. Ownership is part of the private-file checks: redo it.
+	[ "$(stat -c %u "$ROOT" 2>/dev/null)" = 0 ] || rm -f "$W/.erofs-extracted"
 	if [ ! -f "$W/.erofs-extracted" ]; then
 		say "...unpacking the erofs root with fsck.erofs (several minutes)"
 		rm -rf "$ROOT"; mkdir -p "$ROOT"
@@ -369,8 +373,11 @@ if [ "$builder" = kiwi ]; then
 			[ "$actual_audio_model" = "$expected_audio_model" ] && pass 3.17 "$v sound model selects $expected_audio_model firmware" || fail 3.17 "$v sound model '$actual_audio_model', expected $expected_audio_model (kernel patch 0022)"
 		fi
 		gpu_status=$(fdtget "$vd" /soc@0/gpu@3d00000 status 2>/dev/null)
-		if [ "$v" = m15 ]; then
-			[ "$gpu_status" = okay ] && pass 3.12 "M15: m15 enables the GPU node (line 1 only; the only variant with the GPU)" || fail 3.12 "M15: m15 GPU status '$gpu_status' (expected okay)"
+		if [ "$v" = m15 ] || [ "$v" = m15-cl ]; then
+			# m15-cl mirrors line 1 for the closed-loop debug entry: the GPU node stays, the driver is
+			# skipped by msm.skip_gpu=1, which check-m8-menu.py requires on that entry and on line 1.
+			# m15-safe-cl stays the GPU-off closed-loop variant.
+			[ "$gpu_status" = okay ] && pass 3.12 "M15: $v enables the GPU node (driver skipped by the entry's msm.skip_gpu=1)" || fail 3.12 "M15: $v GPU status '$gpu_status' (expected okay)"
 		else
 			[ "$gpu_status" = disabled ] && pass 3.12 "M15: $v GPU node disabled" || fail 3.12 "M15: $v GPU status '$gpu_status' (expected disabled)"
 		fi
@@ -453,8 +460,8 @@ if [ "$smoke" = false ]; then
 	ls "$OUT"/rpms/kernel-core-*.rpm >/dev/null 2>&1 && { rpm -qp --qf '%{name}-%{version}-%{release}.%{arch}\n' "$OUT"/rpms/kernel-core-*.rpm | grep -qx "$got_nevra" && pass 4.2 "kernel-core is the RPM of out/rpms" || fail 4.2 "kernel-core is not in out/rpms"; }
 fi
 if [ "$builder" = kiwi ] && [ "$smoke" = false ]; then
-	if { [ "$kver" = 7.3.0-65.sp11.12.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.13.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.14.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.15.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.16.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.17.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.18.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.19.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.25.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.24.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.23.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.22.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.21.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.20.fc44.aarch64 ]; } && \
-	   { [ "$got_nevra" = kernel-core-7.3.0-65.sp11.12.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.13.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.14.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.15.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.16.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.17.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.18.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.19.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.25.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.24.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.23.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.22.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.21.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.20.fc44.aarch64 ]; } && \
+	if { [ "$kver" = 7.3.0-65.sp11.12.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.27.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.26.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.13.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.14.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.15.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.16.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.17.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.18.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.19.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.25.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.24.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.23.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.22.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.21.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.20.fc44.aarch64 ]; } && \
+	   { [ "$got_nevra" = kernel-core-7.3.0-65.sp11.12.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.27.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.26.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.13.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.14.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.15.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.16.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.17.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.18.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.19.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.25.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.24.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.23.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.22.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.21.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.20.fc44.aarch64 ]; } && \
 	   { [ "$(jq_ .milestone)" = M15 ] || [ "$(jq_ .milestone)" = M16 ]; }; then
 		pass 4.9 "M15/M16: required kernel release ($kver) and milestone"
 	else fail 4.9 "M15/M16 requires the revision-12/13/14/15/16/17/18/19/20 kernel and milestone (found $kver / $got_nevra)"; fi
@@ -1068,17 +1075,18 @@ if [ "$builder" = kiwi ]; then
 	   grep -qxF "$(printf '\t')shsnap touch-pen.txt 'bash /usr/libexec/sp11-touch-pen-collect'" "$ROOT/usr/libexec/sp11-log-collector"; then
 		pass 8.27 "touch helper installed unchanged at mode 0755, recorded hash and exact shsnap invocation"
 	else fail 8.27 "touch helper, permissions, record or collector invocation differs"; fi
-	if [ "$(rpm --root "$ROOT" -q iptsd --qf '%{name}-%{version}-%{release}.%{arch}' 2>/dev/null)" = iptsd-3.1.0-1.fc44.aarch64 ] &&
+	if [ "$(rpm --root "$ROOT" -q iptsd --qf '%{name}-%{version}-%{release}.%{arch}' 2>/dev/null)" = iptsd-3.1.0-1.fc${SP11_RELEASE:-44}.aarch64 ] &&
 	   python3 -I - "$ROOT" "$rec" "$OUT" "$REPO" <<'PY'
-import hashlib, json, pathlib, sys, tomllib
+import hashlib, json, os, pathlib, sys, tomllib
 root, rec, out, repo = map(pathlib.Path, sys.argv[1:])
+rel = os.environ.get('SP11_RELEASE', '44')
 record = json.loads(rec.read_text())['iptsd']
-source = json.loads((out / 'rpms/iptsd-3.1.0-1.fc44.aarch64.json').read_text())
+source = json.loads((out / f'rpms/iptsd-3.1.0-1.fc{rel}.aarch64.json').read_text())
 digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
 pins_path = repo / 'sources/sources.toml'
 pins = tomllib.loads(pins_path.read_text())['iptsd']
 assert record == source
-assert digest(out / 'rpms/iptsd-3.1.0-1.fc44.aarch64.rpm') == record['rpm_sha256']
+assert digest(out / f'rpms/iptsd-3.1.0-1.fc{rel}.aarch64.rpm') == record['rpm_sha256']
 assert digest(repo / 'image/iptsd/iptsd.spec') == record['local_spec_sha256']
 assert digest(pins_path) == record['central_pins_sha256']
 assert record['source_url'] == pins['archive_url']

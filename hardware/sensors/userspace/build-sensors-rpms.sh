@@ -11,6 +11,7 @@ step=${1:-build}
 if [ -z "${SP11_OUT:-}" ] || [ ! -d /sp11 ]; then
 	exec env SP11_DOCKER_MEMORY=4g "$here/scripts/image-container.sh" run /sp11/hardware/sensors/userspace/build-sensors-rpms.sh "$step"
 fi
+rel=${SP11_FEDORA_RELEASE:-44}
 ud=/sp11/hardware/sensors/userspace
 work=$SP11_OUT/image-work/sensors-rpms
 rpms=$SP11_OUT/rpms-local
@@ -36,7 +37,7 @@ install_step() {
 	rm -rf "$root"; mkdir -p "$root"
 	# Real transaction with dependency resolution, scriptlets and sysusers, in a scratch root. The RPMs are
 	# unsigned local builds, so gpg checks are off for them only.
-	dnf -y --installroot="$root" --releasever=44 --use-host-config --setopt=install_weak_deps=False --nogpgcheck \
+	dnf -y --installroot="$root" --releasever="$rel" --use-host-config --setopt=install_weak_deps=False --nogpgcheck \
 		install $(pick 'hexagonrpcd-0.5.0-*.rpm') $(pick 'libssc-0.4.4-*.rpm') $(pick 'libssc-tools-*.rpm') \
 		$(pick 'iio-sensor-proxy-3.9-*.rpm') $(pick 'sp11-sensors-*.rpm') 2>&1 | tail -n 25
 	echo "--- files by package"
@@ -105,7 +106,7 @@ cat fedora-query.txt
 
 dnf -y --setopt=install_weak_deps=False install dnf5-plugins rpm-build >/dev/null
 rb() { # spec
-	rpmbuild --define "_topdir $work" --define 'dist .fc44' --define '_smp_mflags -j2' -ba "SPECS/$1" >"build-${1%.spec}.log" 2>&1 || {
+	rpmbuild --define "_topdir $work" --define "dist .fc$rel" --define '_smp_mflags -j2' -ba "SPECS/$1" >"build-${1%.spec}.log" 2>&1 || {
 		tail -n 60 "build-${1%.spec}.log"; exit 1; }
 	echo "built $1"
 }
@@ -122,7 +123,9 @@ rb hexagonrpcd.spec
 rb iio-sensor-proxy.spec
 rb sp11-sensors.spec
 
-rm -f "$rpms"/*.rpm "$rpms"/*.json
+# Only this component's outputs: out/rpms-local is shared with the Spectra module and others,
+# and wiping the whole directory silently removed them.
+rm -f "$rpms"/{libssc,libssc-tools,libssc-devel,hexagonrpcd,iio-sensor-proxy,sp11-sensors}-[0-9]*.rpm "$rpms"/sensors-rpms.json
 cp RPMS/aarch64/*.rpm RPMS/noarch/*.rpm "$rpms"/
 cp SRPMS/*.src.rpm "$rpms"/
 python3 -I - "$work" "$rpms" "$ud" <<'PY'
