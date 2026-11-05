@@ -1,3 +1,9 @@
+# Current reset plan: revision 25 menu
+
+The current plan is the [matched restored-orientation and safe-DTB debug matrix](rev25-test-plan.md), based on the [ten-boot evidence](evidence/2026-11-04-rev25-menu-reset.md). It supersedes all older instructions below, including their GPU pin, ACD, preemption, workload and additional kernel-test proposals. No GPU or GMU power-control writes, thermal/frequency changes or speaker-output test are authorized in the current matrix. No device test or new kernel build was performed in this session.
+
+---
+
 # Revision 23: controlled reset discriminator — 2026-11-03
 
 This section supersedes the revision-22 and earlier reset capture instructions below. **No test was run.** Safe remains default; debug retains the existing early GPU-only `on` pin, GMU is read-only. Keep the same DTB, AC/battery, peripherals, desktop, login, ambient conditions and logging across the matched control and patched debug boots. No camera app or automatic camera capture in the GPU-only boot. No IR/flash, thermal/frequency change, GMU `power/control` write, ACD/preemption change, or speaker-policy change. First check recovery, thermal gate and free space. Stop after the first reset, collect evidence on safe, and only resume the remaining matrix after the operator has the logs and recovery is confirmed. Report every failed/missing event or collector. These short diagnostic actions are not the 30-minute acceptance load.

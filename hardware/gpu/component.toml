@@ -3,7 +3,7 @@ name = "Adreno X1-85 GPU (chip 0x43050c01), 3D/compute acceleration"
 phase = 1
 status = "testing"
 depends_on = ["soc-boot", "display-lcd"]
-updated = "2026-11-03"
+updated = "2026-11-04"
 
 [windows]
 hardware_ids = ["ACPI\\VEN_QCOM&DEV_0C36&SUBSYS_IDP08380&REV_008A", "ACPI\\VEN_QCOM&DEV_0CF7&REV_008A (GPU limits policy)"]
@@ -13,7 +13,7 @@ packages = ["qcdx8380", "surface_dxext_8380"]
 drivers = ["drm/msm/adreno (a6xx_catalog.c, ADRENO_7XX_GEN2)", "clk/qcom/gpucc-x1e80100", "Mesa freedreno (GL) and Turnip (Vulkan)"]
 dt = ["hamoa.dtsi gpu (qcom,adreno-43050c01)", "x1-microsoft-denali.dtsi &gpu, &gpu_zap_shader"]
 native = "full"
-gaps = ["Physical fuse 7 and 1.25 GHz ceiling observed; independent cross-check pending", "Microsoft zap shipped; explicit PAS result and GPU stability not established", "Pin confirmed Fedora qcom-firmware 20261019-1.fc44 and Mesa 26.2.5-1.fc44 in the compose", "GPU cooling policy and rendering/IFPC device acceptance pending", "Latest boot includes lazy DMA and GPU reservations; reset persists, cause unresolved", "Revision 22 MX clamp removes probe error; stale boot BW vote backport 0004 needs owner review, BTF integration and matched device A/B", "Runtime GMU BW table count and reset cause remain unverified", "GPU-only versus marked rear and front stream discriminator, live runtime trace and verified pstore retention pending", "Windows GPU power/collapse/ACD and PMIC/EC sequence comparison requires compliant REA provider"]
+gaps = ["Physical fuse 7 and 1.25 GHz ceiling observed; independent cross-check pending", "Microsoft zap shipped; explicit PAS result and GPU stability not established", "Pin Fedora qcom-firmware and Mesa versions in the compose", "GPU cooling policy and rendering/IFPC device acceptance pending", "All eight rev25 debug variants reset including MSM-blacklisted; reset reason unknown", "Matched restored-QMP-orientation MSM-off and m15-safe plus debug-services/EFI DTB tests pending", "Continuous reset-aligned trace and journal, read-only reset reason, and verified pstore retention pending", "Windows QMP/PS8830/PEP/PMIC/EC reset and power comparison blocked by unavailable forced-language REA"]
 
 [firmware]
 needs = ["qcom/x1e80100/microsoft/qcdxkmsuc8380.mbn", "qcom/gen70500_sqe.fw", "qcom/gen70500_gmu.bin"]

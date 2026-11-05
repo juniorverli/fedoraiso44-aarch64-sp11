@@ -2,7 +2,7 @@
 
 ## 1. Summary
 
-The X1P64100's Adreno X1-85 (chip ID `0x43050c01`, "C512v2") has native Linux 7.3 support, and the captured Windows configuration selects a 1.25 GHz graphics ceiling. Status: `testing`; revision 22 removes the MX lookup error, but the debug reset remains unexplained. H1 (camera stream) is weakly favored for test ordering; H2 includes an applicable stale boot bandwidth-vote candidate; see [revision-23 evidence](evidence/2026-11-03-rev23-reset-investigation.md) and [test matrix](test-plan.md).
+The X1P64100's Adreno X1-85 (chip ID `0x43050c01`, "C512v2") has native Linux 7.3 support, and the captured Windows configuration selects a 1.25 GHz graphics ceiling. Status: `testing`; all eight rev25 debug variants reset, including MSM-blacklisted, while both safe boots completed. The original m15 DTB additionally lacks both QMP PHY orientation switches: DT topology, GPU-node-dependent behavior, shared power and debug services remain competing possibilities. See [ten-boot evidence](evidence/2026-11-04-rev25-menu-reset.md) and the [matched test plan](rev25-test-plan.md).
 
 ## 2. Hardware
 
@@ -26,7 +26,7 @@ The X1P64100's Adreno X1-85 (chip ID `0x43050c01`, "C512v2") has native Linux 7.
 
 **Verified:** active driver version `31.0.148.0`, install section `QCDX_Inst_Base.NT`, matching ID REV `008A`, and `AcpiBaseFile = qcdxkmbase8380.bin` are recorded in `live-inventory/panel/gpu-class-key.txt` (SHA-256 and lines in [speed-bin evidence](evidence/2026-10-24-speedbin.md)). The INF independently maps this revision to the same unsuffixed file. REA function `0x140431488` corroborates the lookup/file-load path and the blob header checks; addresses, limitations and evidence IDs are in the evidence file. Its graphics core-clock table tops out at 1250000000; `_68`, `_110`, `_150` and `_pa*` are not this installation's selected base file. A bounded, hash-checking [data decoder](tools/read-clock-table.py) reproduces all eight tables without disassembly.
 
-**Verified / Inference:** `QCOM0CF7` is a separate GPU thermal policy device bound by the available PEP INFs, rather than another GPU rendering function. See the [thermal policy evidence and hand-off](evidence/2026-10-24-thermal-policy-request.md); the active qcpep version and policy semantics remain TBD.
+**Verified:** `QCOM0CF7` is a separate GPU limits policy device bound to qcpep version `1.0.4458.2600`, rather than another GPU rendering function (`sources/windows/live-inventory/thermal/thermal-query.txt:431-440,2178-2179`). Its policy semantics and the Windows GPU/PMIC/EC collapse sequence remain TBD; see the [thermal hand-off](evidence/2026-10-24-thermal-policy-request.md) and [final34 REA limitation](evidence/2026-11-03-rev24-final34-gpu-reset.md).
 
 ## 4. Linux 7.3
 
@@ -44,7 +44,7 @@ The X1P64100's Adreno X1-85 (chip ID `0x43050c01`, "C512v2") has native Linux 7.
 | Physical fuse and safe initial GPU enablement | Safe boot measured fuse 7; debug snapshot shows 1.25 GHz ceiling. Independent cross-check and stable GPU initialization remain pending; no frequency change requested |
 | Independent cross-check | Orchestrator must reproduce the active config selection, clock table, fuse extraction and OPP arithmetic before using these safety values |
 | Mesa/image pin | Verified available `mesa-{dri,vulkan}-drivers-0:26.2.5-1.fc44.aarch64`; sources/image owners pin the actual compose. No Mesa change indicated |
-| GPU reset and MX vote | Rev22 built source contains [patch 0003](patches/0003-drm-msm-a6xx-clamp-mx-dependency-vote.patch) and the MX probe error disappeared; runtime votes and reset cause remain unverified. Run the [rev23 matrix](test-plan.md) and preserve live evidence |
+| Reset and power | Eight debug variants reset, including MSM-off with the GPU DT node enabled; safe differs in DT and debug services/arguments. Restored QMP orientation and safe-DTB debug tests are pending; reset reason and actual rails remain unverified. Run the [matched DTB matrix](rev25-test-plan.md), without GPU/GMU power-control writes |
 | Thermal mitigation and device behavior | `power-thermal` establishes equivalent GPU cooling; device tests confirm PAS authentication, rendering and IFPC stability |
 
 ## 6. Open questions
@@ -68,12 +68,13 @@ On the device, with logs in `evidence/`, following [test-plan.md](test-plan.md).
 
 ## 8. Requests
 
-- **image / kernel / orchestrator (rev23; supersedes earlier reset capture requests):** implement and verify the exact early boot trace_event list, boot-medium live trace/kmsg, action markers, failure/overrun reporting and pstore recovery/retention preflight in the [rev23 test plan](test-plan.md). Keep BTF, safe default, existing GPU pin and unchanged GMU power control; build matched control and [0004](patches/0004-drm-msm-a6xx-clear-stale-boot-bw-vote.patch) diagnostic kernels with distinct releases and matching modules/initramfs; include no other new behavioral change. Preserve frequency/thermal settings and independent boot-ID evidence, and qualify the actual pstore backend before interpreting absence. Review NULL OPP side effects and expose `nr_gpu_bws`/host ICC votes read-only where feasible; see the matrix.
-- **sources:** pin and catalog the October 24 upstream proposal as a new source input, including patch 3 provenance. Provide a REA CLI or MCP server with forced catalog language and provider attestation; run the precise inventoried GPU, PEP, PMIC and EC comparison and report path/hash/language/function/evidence IDs requested in [rev23 evidence](evidence/2026-11-03-rev23-reset-investigation.md). Active Windows PMIC/EC bindings and power sequence remain unknown.
-- **power-thermal / ec-sam:** identify actual GPU/CAMSS shared power/thermal coupling, safe read-only PMIC/EC reset cause and thermal telemetry; supply collection commands and interpret reset reason, without changing caps. Obtain the power-thermal gate before sustained or short rendering as specified in the test plan.
-- **cameras / orchestrator:** coordinate separately marked headless rear/front runs, verified sensor IDs, stream/frames and LED observation in the rev23 matrix; preserve privacy and the existing safety gates.
+- **image / kernel / orchestrator (rev25 menu):** preserve safe recovery and package or select original m15, restored m15 and m15-safe as distinct DTBs under the *identical* `test-msm-off` linux/initrd lines. Hash payloads and compare effective DTBs; verify both GPU pin helpers skip and two-step is inactive. Capture boot IDs, monotonic kmsg, pstore, real service state, reset observations and losses. See the [one-variable plan](rev25-test-plan.md). A newer `test-safe-debug` line is not equivalent: it omits EFI-pstore and MSM blacklist, changes the test marker and invokes a WirePlumber special case.
+- **kernel:** the owner's m15 orientation restoration is an unproven test candidate, not a fix. Verify the compiled FDT differs from old m15 only by the two QMP properties, and from m15-safe only by GPU status; retain BTF if building a kernel. No new GPU behavioral patch is requested. Supply only owner-reviewed read-only PM/ICC and reset-reason diagnostics.
+- **sources:** provide a usable, forced-catalog-language REA server/CLI and inspect catalogued Type-C, PEP, PMIC and EC handlers for the QMP/PS8830/shared-power and reset sequence. The read-only REA session call is unavailable under the current never-approval policy; no new address or evidence ID was obtained. See [ten-boot evidence](evidence/2026-11-04-rev25-menu-reset.md).
+- **power-thermal / ec-sam:** provide owner-reviewed read-only shared-rail, GPUCC and reset-reason telemetry; the current isolation matrix requests no GPU/GMU power-control, voltage, frequency or thermal-limit writes. GPU rendering acceptance remains gated.
+- **cameras / orchestrator:** keep RGB sensor identity and frame evidence with the marked later preview, and preserve the LED/IR/flash gates. Safe final34 demonstrates frame processing without an initialized Adreno, with per-sensor attribution supplied by the operator.
 
-- **kernel / orchestrator (rev22):** independently review [GPU patch 0003](patches/0003-drm-msm-a6xx-clamp-mx-dependency-vote.patch) and its table semantics, integrate after the revision-21 RPMh fixes, build with BTF and validate the actual artifact. The caller ignores the original error; the patch is not a proven reset fix.
+- **kernel / orchestrator (rev22, historical):** [GPU patch 0003](patches/0003-drm-msm-a6xx-clamp-mx-dependency-vote.patch) was requested after the revision-21 RPMh fixes and is present in the rev24 build. The caller ignored the original error; the patch is not a proven reset fix.
 - **image / cameras / orchestrator (rev22):** retain safe default and the GPU-only early pin; preserve actual pstore payloads with boot ID and verify retention, and capture durable monotonic GPU, camera stream and action markers until shutdown/reset. The prior GPU-only extract omitted pin lines; full dmesg shows successful early pin. See [evidence](evidence/2026-11-03-rev21-mx-reset.md) and [test plan](test-plan.md). Do not write GMU power/control.
 
 - **kernel / image (revision 20; historical, superseded by rev22 above):** implement the precise dual-device power-control, readback, per-cycle telemetry, urgent kmsg sync, pstore archival and next-boot durable copy in [revision-20 evidence](evidence/2026-11-02-rev20-reset-capture.md). Build `CONFIG_PSTORE=y`, `CONFIG_PSTORE_RAM=y`, `CONFIG_PSTORE_CONSOLE=y`, `CONFIG_PSTORE_PMSG=y`, retaining BTF. A 2 MiB ramoops node at `0x84000000` is a **candidate only**, gated on full EFI/DT ownership checks, an independent cross-check and warm-reset retention; do not deploy it if any ownership is uncertain. No new kernel patch is supplied. Preserve safe default and thermal limits.
@@ -109,6 +110,10 @@ Historical requests below describe prior milestones and do not authorize the two
 
 ## 9. Log
 
+- 2026-11-04: Audited all ten rev25 menu boots and the actual embedded DTBs; MSM-off still reset, both QMP orientation switches differ from safe, and both Type-C PHYs share a DT PLL supply with the NVMe PHY. Prepared matched orientation and safe-DTB debug tests; reset cause remains unknown.
+
+- 2026-11-03: Re-audited final34 and the rev24 source; safe processed camera frames with GPU absent, debug reset with one captured GMU start. Prepared a matched no-build preemption-first GRUB matrix; no new kernel patch or device fix.
+
 - 2026-11-03: Audited the Oct-24 GMU BW vote proposal against rev22, prepared and focused-compiled backport 0004, and requested matched instrumented kernel A/B. Reset causality and live BW count remain unverified.
 
 - 2026-11-03: Audited rev22 logs and built GMU runtime path; documented the reset uncertainty, trace-event namespace correction, REA blocker and rev23 GPU/rear/front discriminator.
@@ -131,3 +136,5 @@ Historical requests below describe prior milestones and do not authorize the two
 - 2026-11-02: latest kmsg contains four GMU firmware/HFI starts, all reporting success; last at 49.85 s shortly before log ends. Full requested-file comparison identifies no proven resume defect. Defined runtime-PM discriminator and REA hand-off; no behavioral patch or build.
 
 - 2026-11-02: revision 20: traced GMU-start markers through GPU runtime resume and recovery; designed gated ramoops candidate and dual-device telemetry/persistent capture; no new kernel patch or REA.
+
+- 2026-11-04 (device isolation): logs `sp11-logs-4-2` show GPU bring-up succeeding (GMU v4.3.17, HFI start, hw init, `msmdrmfb`) and a hard reset when the graphical session starts; with `msm` blacklisted (m15 or m15-safe) the machine survives, and safe/safe-pstore survive. Services, EFI pstore and the safe DTB are exonerated; the trigger is Mesa's first GPU use. Operator-confirmed workaround: line 1 now carries `msm.skip_gpu=1`; the Adreno driver does not register, the DPU keeps the display, and the machine stays up. For a GPU experiment, boot with `msm.skip_gpu=0` plus the manual `sp11.gpu_diag=1`. The software-GL service was removed because KMS does not use Mesa. The msm first-use bug remains to be diagnosed.
