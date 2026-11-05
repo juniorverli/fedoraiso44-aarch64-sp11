@@ -1,0 +1,20 @@
+[Unit]
+Description=SP11 closed-loop V/I sense trigger (closed-loop boot entries only)
+Documentation=file:/usr/share/doc/sp11/closed-loop.md
+# The closed-loop audio entry only: nominal R0/T0 accepted and the debug service set.
+# The public D26 entries never satisfy this condition, and the kill switch wins.
+ConditionKernelCommandLine=sp11.allow_nominal=1
+ConditionKernelCommandLine=sp11.entry=debug
+ConditionKernelCommandLine=!sp11.nospk
+After=local-fs.target sound.target
+Before=graphical.target
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/sp11/closed-loop-sense
+Restart=always
+RestartSec=3
+TimeoutStopSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -45,6 +45,18 @@ for f in /etc/sp11/bt-address /etc/NetworkManager/conf.d/90-sp11-wifi-mac.conf \
 done
 [ "$removed" = 0 ] && say "no private identity override present"
 
+# Closed-loop audio entry: only when this (private) image carried the CL topology
+# and the m15-cl DTB. The generator is a grub.d script, so it follows kernel
+# upgrades; it is never the default entry.
+if [ -r /usr/lib/firmware/qcom/x1e80100/X1E80100-Microsoft-Surface-Pro-11-CL-tplg.bin ] &&
+	[ -r /boot/dtb/qcom/x1p64100-microsoft-denali-m15-cl.dtb ] &&
+	[ -x /usr/libexec/sp11/grub-closed-loop ]; then
+	install -m 0755 /usr/libexec/sp11/grub-closed-loop /etc/grub.d/45_sp11_closed_loop
+	say "closed-loop audio entry installed (m15-cl DTB, sp11.allow_nominal=1; not the default)"
+else
+	rm -f /etc/grub.d/45_sp11_closed_loop
+fi
+
 if command -v grub2-mkconfig >/dev/null 2>&1; then
 	if grub2-mkconfig -o /boot/grub2/grub.cfg >>"$log" 2>&1; then
 		say "boot configuration regenerated"

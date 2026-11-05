@@ -45,18 +45,36 @@ def check(root, repo, record):
         assert not cl_topology.exists() and not legacy_topology.exists(), 'public ISO contains a closed-loop topology'
         assert not any(f.exists() for f in cl_supplements + unsuffixed), 'public ISO contains a closed-loop supplement'
     # speaker first-test tooling: present everywhere, manual, gated by the entry and its arguments, with the policy limits
-    for name in ('speaker-supervisor', 'speaker-first-test'):
+    for name in ('speaker-supervisor', 'speaker-first-test', 'closed-loop-sense'):
         f = root / 'usr/libexec/sp11' / name
         assert f.stat().st_mode & 0o111 and f.read_bytes() == (repo / 'image/overlay/usr/libexec/sp11' / name).read_bytes(), name
     ft = (root / 'usr/libexec/sp11/speaker-first-test').read_text()
     for needle in ('sp11.entry=spk', 'sp11.allow_nominal=1', 'sp11.nospk', 'at most 10', 'sleep 180', 'speaker-supervisor hw:0,4', 'latched'):
         assert needle in ft, f'first-test script lacks {needle}'
     subprocess.run(['bash', '-n', str(root / 'usr/libexec/sp11/speaker-first-test')], check=True)
-    sup = (root / 'usr/libexec/sp11/speaker-supervisor').read_text()
-    # Any PCM sample read is refused; Path.read_text() and friends are not sample reads.
-    assert ('snd_pcm_start' in sup and 'snd_pcm_forward' in sup
-            and not any(token in sup for token in ('snd_pcm_readi', 'snd_pcm_readn', 'snd_pcm_mmap_read',
-                                                   'snd_pcm_mmap_begin'))), 'supervisor reads the capture or never starts it'
+    for name in ('speaker-supervisor', 'closed-loop-sense'):
+        sup = (root / 'usr/libexec/sp11' / name).read_text()
+        # Any PCM sample read is refused; Path.read_text() and friends are not sample reads.
+        assert ('snd_pcm_start' in sup and 'snd_pcm_forward' in sup
+                and not any(token in sup for token in ('snd_pcm_readi', 'snd_pcm_readn', 'snd_pcm_mmap_read',
+                                                       'snd_pcm_mmap_begin'))), f'{name} reads the capture or never starts it'
+    # The closed-loop sense holder runs only on the closed-loop entry and never on the D26 entries.
+    sense = (root / 'usr/libexec/sp11/closed-loop-sense').read_text()
+    assert 'sp11.allow_nominal=1' in sense and 'sp11.entry=debug' in sense and 'sp11.nospk' in sense, 'sense holder gates'
+    sense_unit = root / 'usr/lib/systemd/system/sp11-closed-loop-sense.service'
+    assert sense_unit.is_file(), 'closed-loop sense unit missing'
+    unit_text = sense_unit.read_text()
+    for needle in ('ConditionKernelCommandLine=sp11.allow_nominal=1', 'ConditionKernelCommandLine=sp11.entry=debug',
+                   'ConditionKernelCommandLine=!sp11.nospk', 'ExecStart=/usr/libexec/sp11/closed-loop-sense'):
+        assert needle in unit_text, f'sense unit lacks {needle}'
+    assert (root / 'etc/systemd/system/multi-user.target.wants/sp11-closed-loop-sense.service').readlink() == \
+        Path('/usr/lib/systemd/system/sp11-closed-loop-sense.service'), 'closed-loop sense unit not enabled'
+    # Installed-system closed-loop entry: the generator ships, the grub.d copy is made by post-install only.
+    grubgen = root / 'usr/libexec/sp11/grub-closed-loop'
+    assert grubgen.stat().st_mode & 0o111 and grubgen.read_bytes() == \
+        (repo / 'image/overlay/usr/libexec/sp11/grub-closed-loop').read_bytes(), 'closed-loop GRUB generator'
+    assert 'sp11.allow_nominal=1' in grubgen.read_text() and 'devicetree' in grubgen.read_text(), 'GRUB generator arguments'
+    assert not (root / 'etc/grub.d/45_sp11_closed_loop').exists(), 'the closed-loop menu entry must be installed post-installation only'
     for u in ('sp11-speaker-first-test.service',):
         assert not (root / 'usr/lib/systemd/system' / u).exists(), 'the first test must never be a unit'
     # GPU two-step: owner unit byte for byte, installed script = owner + the three image changes, nothing else
@@ -99,9 +117,10 @@ def check(root, repo, record):
     assert not any('sp11.gpu_dtb' in (e['linux_args'] or '') for e in record['grub_entries']), 'GPU DTB argument in the M15 menu'
     assert 'RESET THE MACHINE' in hooks.read_text() and 'line 2' in hooks.read_text(), 'GPU hooks lack the plain reset warning'
     assert 'sp11-boot-state' in hooks.read_text() and 'grubenv' not in hooks.read_text().replace('no grubenv', ''), 'GPU hooks must use the boot-state helper only'
-    assert not any('denali-m1' in str(e) for e in record['grub_entries']) and len(record['grub_entries']) == 25, 'M15 menu is 25 flat entries'
+    assert not any('denali-m1' in str(e) for e in record['grub_entries']) and len(record['grub_entries']) == 26, 'M15 menu is 26 flat entries'
     assert not any(re.search(r'cdsp_variant|firmware_class|keep_proxy_pds|surface_aggregator|sp11\.identity|cpufreq', e['linux_args'] or '') for e in record['grub_entries']), 'experiment argument on a static line'
-    assert all('sp11.allow_nominal' not in e['linux_args'] for e in record['grub_entries'] if 'speakers' not in e['title']), 'allow_nominal outside the speaker entry'
+    assert all('sp11.allow_nominal' not in (e['linux_args'] or '') for e in record['grub_entries']
+               if 'speakers' not in e['title'] and 'needs calibration' not in e['title']), 'allow_nominal outside the closed-loop entries'
     # rotors, notices, helper
     for name in ('sam-mode-rotor', 'cdsp-experiment', 'cpufreq-cap', 'identity-switch', 'operator-notice', 'gpu-retry'):
         f = root / 'usr/libexec/sp11' / name

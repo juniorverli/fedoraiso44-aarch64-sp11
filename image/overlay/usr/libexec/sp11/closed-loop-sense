@@ -1,0 +1,165 @@
+#!/usr/bin/python3
+"""Hold the MultiMedia5 V/I trigger open on the closed-loop boot entries.
+
+Started only by sp11-closed-loop-sense.service, whose conditions require
+`sp11.allow_nominal=1 sp11.entry=debug` on the kernel command line and the
+absence of the kill switch `sp11.nospk`. The unit opens the WSA sense capture
+PCM (MultiMedia5, the trigger of the WSA_CODEC_DMA_TX_0 back end), starts its
+DSP graph and advances the application pointer without ever reading a sample:
+no V/I data reaches userspace.
+
+The guard's "V/I sense stream is running" gate is then satisfied before the
+first playback. Every other gate stays: volume caps, the SP module, a
+calibration that matches the running VI graph, the CPS policy and the fault
+latch. If the sense back end stops or the PCM leaves RUNNING, the holder exits
+and systemd restarts it, which re-prepares the VI graph and re-applies R0/T0.
+
+No playback, no tone, no control change, no sample read.
+"""
+
+import ctypes
+import errno
+import re
+import signal
+import sys
+import time
+from pathlib import Path
+
+PCM_RUNNING = 3
+PCM_CAPTURE = 1
+PCM_NONBLOCK = 1
+PCM_S16_LE = 2
+PCM_RW_INTERLEAVED = 3
+CHANNELS = 2
+RATE = 48000
+MAX_FRAMES = 2048
+DISCOVERY_SECONDS = 60.0
+RESTART_GRACE = 3
+
+
+def log(msg):
+    print(f"closed-loop-sense: {msg}", file=sys.stderr, flush=True)
+
+
+def cmdline():
+    try:
+        return " " + Path("/proc/cmdline").read_text().strip() + " "
+    except OSError:
+        return " "
+
+
+def find_sense_pcm():
+    """hw:CARD,DEVICE of the PCM whose info names MultiMedia5."""
+    for info in sorted(Path("/proc/asound").glob("card*/pcm*c/info")):
+        try:
+            text = info.read_text()
+        except OSError:
+            continue
+        values = [line.partition(":")[2].strip() for line in text.splitlines()]
+        if not any(re.search(r"\bMultiMedia5\b", value) for value in values):
+            continue
+        match = re.search(r"(?:^|/)card(\d+)/pcm(\d+)c/", str(info))
+        if match:
+            return f"hw:{match.group(1)},{match.group(2)}"
+    return None
+
+
+def bind(lib, name, restype, *argtypes):
+    fn = getattr(lib, name)
+    fn.restype = restype
+    fn.argtypes = list(argtypes)
+    return fn
+
+
+def hold(device):
+    lib = ctypes.CDLL("libasound.so.2")
+    voidp = ctypes.c_void_p
+    open_pcm = bind(lib, "snd_pcm_open", ctypes.c_int, ctypes.POINTER(voidp), ctypes.c_char_p,
+                    ctypes.c_int, ctypes.c_int)
+    set_params = bind(lib, "snd_pcm_set_params", ctypes.c_int, voidp, ctypes.c_int, ctypes.c_int,
+                      ctypes.c_uint, ctypes.c_uint, ctypes.c_int, ctypes.c_uint)
+    prepare = bind(lib, "snd_pcm_prepare", ctypes.c_int, voidp)
+    start = bind(lib, "snd_pcm_start", ctypes.c_int, voidp)
+    state = bind(lib, "snd_pcm_state", ctypes.c_int, voidp)
+    avail_update = bind(lib, "snd_pcm_avail_update", ctypes.c_long, voidp)
+    forward = bind(lib, "snd_pcm_forward", ctypes.c_long, voidp, ctypes.c_ulong)
+    close_pcm = bind(lib, "snd_pcm_close", ctypes.c_int, voidp)
+
+    pcm = voidp()
+    rc = open_pcm(ctypes.byref(pcm), device.encode(), PCM_CAPTURE, PCM_NONBLOCK)
+    if rc < 0:
+        raise RuntimeError(f"cannot open {device}: ALSA error {rc}")
+    stop = False
+
+    def request_stop(_signum, _frame):
+        nonlocal stop
+        stop = True
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(sig, request_stop)
+    try:
+        rc = set_params(pcm, PCM_S16_LE, PCM_RW_INTERLEAVED, CHANNELS, RATE, 0, 500000)
+        if rc < 0:
+            raise RuntimeError(f"set_params failed: ALSA error {rc}")
+        for stage, call in (("prepare", lambda: prepare(pcm)), ("start", lambda: start(pcm))):
+            rc = call()
+            if rc < 0:
+                raise RuntimeError(f"{stage} failed: ALSA error {rc}")
+        if state(pcm) != PCM_RUNNING:
+            raise RuntimeError(f"PCM did not enter RUNNING (ALSA state {state(pcm)})")
+        log(f"holding {device} MultiMedia5 S16_LE/{RATE}/{CHANNELS}; no sample is read")
+        advanced = 0
+        while not stop:
+            current = state(pcm)
+            if current != PCM_RUNNING:
+                raise RuntimeError(f"sense PCM left RUNNING (ALSA state {current})")
+            available = avail_update(pcm)
+            if available < 0 and available != -errno.EAGAIN:
+                raise RuntimeError(f"availability failed: ALSA error {available}")
+            if available > 0:
+                rc = forward(pcm, min(available, MAX_FRAMES))
+                if rc < 0 and rc != -errno.EAGAIN:
+                    raise RuntimeError(f"forward failed: ALSA error {rc}")
+                if rc > 0:
+                    advanced += rc
+                    continue
+            # A trigger with no frames is expected before the first playback: keep
+            # the PCM open and the back end started, never fail on silence.
+            time.sleep(0.05)
+        log(f"stopping sense trigger; advanced_frames={advanced}")
+    finally:
+        close_pcm(pcm)
+
+
+def main():
+    if len(sys.argv) > 2:
+        sys.exit("usage: closed-loop-sense [hw:CARD,DEVICE]")
+    line = cmdline()
+    if " sp11.allow_nominal=1 " not in line or " sp11.entry=debug " not in line:
+        log("not a closed-loop entry (needs sp11.allow_nominal=1 sp11.entry=debug)")
+        return 0
+    if " sp11.nospk" in line:
+        log("kill switch sp11.nospk is set; not holding the sense trigger")
+        return 0
+    device = sys.argv[1] if len(sys.argv) == 2 else None
+    deadline = time.monotonic() + DISCOVERY_SECONDS
+    while device is None and time.monotonic() < deadline:
+        device = find_sense_pcm()
+        if device is None:
+            time.sleep(1)
+    if device is None:
+        log("no MultiMedia5 capture PCM; the closed-loop topology or DTB is not loaded")
+        return 0
+    for attempt in range(RESTART_GRACE):
+        try:
+            hold(device)
+            return 0
+        except RuntimeError as exc:
+            log(str(exc))
+            if attempt + 1 < RESTART_GRACE:
+                time.sleep(1)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
