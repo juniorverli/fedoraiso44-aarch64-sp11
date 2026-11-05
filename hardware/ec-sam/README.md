@@ -2,7 +2,7 @@
 
 ## 1. Summary
 
-The Surface Aggregator Module (SAM) carries the Type Cover, system battery/AC and posture functions over a 4 Mbaud UART. M5 enumerated the keyboard, touchpad, KIP tablet switch and SAM power supplies; proposed registry changes remove two unsupported HID endpoints, while user interaction and plugged-in charging still need device evidence. Status: `designed`, pending independent cross-check and acceptance captures. The rev22 safe keyboard freeze remains unexplained; see [rev23 evidence](evidence/2026-11-03-rev23-keyboard-parity.md).
+The Surface Aggregator Module (SAM) carries the Type Cover, system battery/AC and posture functions over a 4 Mbaud UART. M5 enumerated the keyboard, touchpad, KIP tablet switch and SAM power supplies; proposed registry changes remove two unsupported HID endpoints, while user interaction and plugged-in charging still need device evidence. Status: `designed`, pending independent cross-check and acceptance captures. The earlier safe keyboard freeze remains unexplained: [final34](evidence/2026-11-03-rev24-final34-keyboard.md) contains no observed cover keystrokes or keyboard outcome, so it neither reproduces nor clears the report.
 
 D23 selects SAM `BAT1`/`ADP1` and blacklists `qcom_battmgr` now. D24 applies: changes remain uncommitted for the orchestrator. Detailed hashes, locators, grades and limits are in [M5 evidence](evidence/2026-10-28-m5-device-sam.md); build results are in [validation evidence](evidence/2026-10-28-validation.md).
 
@@ -71,7 +71,7 @@ The predecessor's initramfs inventory predates M5, so the exact M5 omission is n
 | Keyboard may be unavailable before switch-root | R3: force/include the complete keyboard chain in dracut and assert it with `lsinitrd`; verify at `rd.break=pre-mount` |
 | Duplicate ADSP system battery | D23 is settled: R4 blacklists `qcom_battmgr` and excludes it from initramfs; UCSI stays. Do not gate this on charger captures |
 | Plugged-in UPower behavior not captured | Test each USB-C port and available Surface Connect; verify status, percentage, energy, online and UPower state with SAM only |
-| KIP posture may be wrong, particularly after resume | Keep 0002 held; upstream reports the same concern. Compare fixed posture snapshots and read-only POS queries before release |
+| KIP posture may be wrong, particularly after resume | Held 0002 matches the upstream KIP-to-POS fix for a reported resume issue. First measure keyboard delivery and KIP state in the rev25 safe reboot test; a POS build is an optional later comparison, not a demonstrated reboot fix |
 | Fan RPM not registered | Active candidate 0003 adds existing read-only fan client; valid RPM and cross-check required |
 | Volume DT mapping | Active candidate 0005 (volume only, from ACPI plus Linux sources); run `tools/collect-volume-buttons.sh` for orientation/polarity. Power button stays with hold 0004 / existing pmic_pwrkey until the device capture |
 | Keyboard backlight, wake alarm | Deferred; outside this delivery |
@@ -90,7 +90,7 @@ The predecessor's initramfs inventory predates M5, so the exact M5 omission is n
 | Q7 | SAM charging status and ADP1 on each connector: TBD | Test-plan section 3; never re-enable qcom_battmgr as a workaround |
 | Q8 | Real keyboard/touchpad and initramfs operation: TBD | Operator report and capability-only collectors |
 | Q9 | Precise cause of late input enumeration: TBD | Next image module inventory and monotonic boot/module logs |
-| Q10 | Safe keyboard freeze: Hypothesis; identify actual keyboard, prior boot and outgoing SAM policy, KIP posture, key delivery and USB-C parity | Rev23 controlled reboot test in `test-plan.md` §6; debug reset can make the control inconclusive |
+| Q10 | Earlier safe keyboard freeze: reported, cause unknown; final34 keyboard function and reproducibility are unobserved | Rev25 safe-to-safe default/silent comparison in `test-plan.md` §8; measure the identified cover, KIP posture and predecessor policy. Debug reset is not a controlled reboot |
 
 ## 7. Acceptance
 
@@ -115,9 +115,12 @@ The predecessor's initramfs inventory predates M5, so the exact M5 omission is n
 - **kernel R11 (diagnostic already integrated; see R17):** add `patches/0007-*` (`surface_aggregator.shutdown_mode`) to `kernel/series` for the next image; no behaviour change by default. **image R12:** GRUB entries `SP11 debug, SAM shutdown quiet|silent|clean` and the test in `evidence/2026-10-30-windows-transition.md` sections 5-6.
 - **kernel R13 (2026-10-31, volume buttons):** add `patches/0005-arm64-dts-qcom-x1p64100-microsoft-denali-Add-the-vol.patch` to `kernel/series` for the next DT build (DT only, LCD board file; applies on the 69-patch series, `CHECK_DTBS` clean); ensure `CONFIG_KEYBOARD_GPIO=m` (R2). **image R14:** stage `tools/collect-volume-buttons.sh` under `/usr/libexec/sp11/ec-sam/` and run the two 10 s phases in `evidence/2026-10-31-volume-buttons.md` (operator presses up, then down). Orchestrator: protocol 5.1 cross-check of the pin mapping (I1) before `sw-ready`.
 
-- **usb-typec R15 (rev23):** safe USB tree identifies Ugreen `0bda:9210` as storage; cover keyboard is SSAM `09AE`, touchpad `09AF`. Please provide an otherwise identical GPU-off orientation-only variant and the DT diff; test with fixed previous boot, `surface_aggregator.shutdown_mode=default`, same USB topology and posture. Compare USB errors and cover key delivery independently; share the results with the orchestrator. Orca runtime was not running, so direct worker delivery was unavailable.
+- **usb-typec R15 (updated rev25):** safe USB tree identifies Ugreen `0bda:9210` as storage; the cover keyboard is SSAM `09AE`, touchpad `09AF`. Keep the present orientation switches for the first keyboard test. Defer an orientation-only variant until the cover failure is observed and a separate USB/DP recovery comparison is justified; a storage `-71` change alone says nothing about cover keys. If later tested, provide the exact DT diff and a DP recovery check. Orca runtime was unavailable, so direct worker delivery was not established.
 - **image R16 (rev23):** stage early private SSAM binding, KIP state, HID/libinput/USB ancestry, kernel error and runtime SAM mode snapshots; capture the predecessor boot ID/mode before reboot and successor ID/mode after. Support the read-only/no-payload trace and count-only input approach in `test-plan.md` §6, preserve kmsg/pstore if present, and do not silently rotate shutdown mode in this comparison: use an explicit `surface_aggregator.shutdown_mode=default` on every test entry. Stop debug on unexplained reset. No unbind/rebind.
-- **kernel R17 (rev23):** no new patch requested. Keep 0007 diagnostic only; do not default to clean/silent or merge held 0002 for this symptom without discriminating evidence. **R10/R11/R12 update:** 0007 is already in `kernel/series`; the old DT unbind/rebind proposal is unsafe as a cleanup and must not be enabled for this test. Preserve BTF.
+- **kernel R17 (updated rev25):** keep 0007 diagnostic only; do not default to clean/silent. Retain held 0002 as an opt-in POS candidate with matched KIP control for a later indicated test; do not promote it as a proven reboot fix without discriminating evidence. **R10/R11/R12 update:** 0007 is already in `kernel/series`; the old DT unbind/rebind proposal is unsafe as a cleanup and must not be enabled for this test. Preserve BTF.
+
+- **kernel/image R18 (updated rev25):** the first safe `default`/`silent` comparison in `test-plan.md` §8 uses the existing kernel and explicit boot arguments; no new build is needed. The matched, opt-in POS candidate in [the request](patches/rev24-pos-test-request.md) is deferred until the baseline observations make it useful. If built, pin/review the upstream input, preserve BTF, keep the performance-profile hunk out and record actual artifacts. Do not change the default or introduce EC writes.
+- **gpu R19 / usb-typec R20 (rev25):** GPU owns the final34 debug-reset investigation; no captured keyboard/SAM failure establishes its cause. USB owns the storage/orientation investigation; keep it separate from the SSAM keyboard outcome and retain a DP recovery path. Please carry these boundaries and the final34 mode discrepancy to the orchestrator. `orca-ide open --json` returned `runtime_open_timeout` while waiting for a desktop window; direct worker delivery was unavailable.
 
 ## 9. Log
 
@@ -129,3 +132,7 @@ The predecessor's initramfs inventory predates M5, so the exact M5 omission is n
 - 2026-10-31: volume buttons: MSHW0040 resources decoded from DSDT/SSDT (evidence `2026-10-31-volume-buttons.md`), PM01 to PM8550 GPIO offset derived, patch 0005 (volume only) validated with `CHECK_DTBS`; device test added. Not built into an image.
 
 - 2026-11-03: analyzed rev22 safe/debug cover, USB, power and shutdown logs; identified safe rotor silent and unobserved debug runtime mode; added rev23 controlled test and owner coordination requests. No new kernel patch or REA.
+
+- 2026-11-03: reviewed public POS series and pinned hub, tablet and shutdown paths; held 0002 matches the upstream switch hunk and applies after 0001/0003. Requested opt-in matched tests; reboot cause and device behavior remain unproven.
+
+- 2026-11-03: reviewed final34 sessions, SSAM and input data; safe keyboard outcome remains unknown, touchpad reports reached libinput, and the safe rotor/sysfs snapshot records `clean` rather than `silent`. Added the rev25 same-image outgoing-mode comparison; no device claim or new patch.

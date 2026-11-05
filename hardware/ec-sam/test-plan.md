@@ -302,3 +302,252 @@ no key counts despite a bound HID shifts investigation to HID/SSAM/cover, not
 necessarily shutdown. If both parity variants fail, later compare a single
 controlled outgoing SAM policy using the existing diagnostic modes and the
 same reset type; do not infer that `silent` excludes other state or reset causes.
+
+## 7. Rev24: controlled reboot and posture comparisons
+
+The prioritized rev25 procedure in §8 supersedes the order of tests here.
+This refines §6; debug's unobserved reset is not the control. Use the same
+safe GPU-off kernel/image configuration, cover in laptop position, charger,
+USB topology, desktop session and ordinary reboot method throughout. Record
+physical keyboard identity and independent keyboard/touchpad behavior. Disable
+SAM rotor changes through explicit boot arguments and read back the outgoing
+parameter immediately before reboot. Label each boot with boot ID, predecessor
+ID, entry, kernel and DT hashes, cmdline, actual loaded modules, runtime SAM
+mode, and observed outcome. Preserve the outgoing record before reboot and
+associate it with the successor. If reboot completion, predecessor identity,
+shutdown policy, or variable isolation cannot be established, mark the pair
+inconclusive. Record any independently persisted late shutdown evidence;
+live kmsg and pstore may miss the callback. Do not induce a crash.
+
+Use a known, repeatable setup boot and fixed posture for each arm; alternate
+and repeat arms rather than interpreting a single success. Stabilize and
+capture the predecessor, then reboot once to the specified successor. For the
+first and third comparisons, choose an identical KIP/default predecessor
+(including DT, kernel, args, connections and reset method) for each arm;
+the *successor* variable changes. For the second, predecessors have identical
+KIP kernel/DT and connections and differ only in their explicit outgoing SAM
+argument; both reboot to the same KIP/default successor. A setup boot that
+itself has uncontrolled history is a limitation: repeat with matched prior
+history, document it, and do not assert isolation if it affects the result.
+
+| Pair | Arm A | Arm B | What the comparison can test |
+|:--|:--|:--|:--|
+| Posture | KIP/default predecessor → KIP/default successor | Same predecessor → POS/default successor (held 0002 only) | Whether switch client choice changes successor posture and input behavior. Verify loaded build; POS also changes SSAM notifier/query, so an outcome alone does not prove compositor filtering. |
+| SAM policy | KIP/default predecessor → KIP/default successor | KIP/silent predecessor → same KIP/default successor | Effect of the outgoing policy bundle on the next boot. Default sends event-disable, display-off and D0-exit; silent skips all three in the handler. This cannot isolate an individual operation or prove EC persistence. |
+| USB-C | KIP/default predecessor → original safe orientation DT successor | Same predecessor → otherwise identical safe DT with the two orientation-switch properties removed | Effect of the orientation properties on USB retry and cover behavior separately. Confirm byte-level DT diff and identical arguments, kernel and loaded modules. |
+
+The kernel/image request for the POS and policy entries is
+`patches/rev24-pos-test-request.md`. The existing §6 observations remain
+applicable. In every successor collect before any detach, with no key payloads:
+
+1. Capture SSAM and HID ancestry/bindings, switch driver's sysfs `state`, its
+   input-device identity and actual `SW_TABLET_MODE` bit using an image-owner
+   reviewed, read-only `EVIOCGSW` capability/state probe. Also collect POS
+   source list and posture with §2's existing read-only helper if already
+   available; distinguish unsupported/error from an inactive state. KIP and
+   POS states come from different clients and must be labeled. Capture USB tree,
+   errors and runtime mode as in §6.
+2. Ask the operator to press one harmless, non-secret key over a short interval
+   while an image-owner reviewed count-only probe reads **only the identified
+   cover evdev node**, saving the number of key press events and device ancestry,
+   never key codes or raw reports. Separately record whether the same key
+   appears in a blank desktop field and whether touchpad works. If the probe
+   is unavailable or loses events, mark input-layer distinction unknown.
+3. Record the switch state in physical laptop posture before any other
+   intervention. If incorrect, compare it with the POS query and actual input
+   switch bit; repeat after a deliberate fold/return only after the initial
+   outcome is preserved. Any disappearance, changed state or recovery following
+   reattachment can involve both posture and cover reinitialization. Do not
+   unbind/rebind, use clean mode, change firmware, or issue state-setting EC
+   commands.
+
+**Readout:** Reproducible KIP wrong-tablet plus cover key counts with failed
+desktop typing, followed in matched POS successors by correct laptop bit and
+working typing, supports posture filtering; verify the desktop input mapping
+and repeat. A correct switch bit with zero cover key counts points below the
+desktop, but cannot by itself separate HID transport, event delivery, cover
+or SAM state. A repeatable policy effect with identical successor supports an
+outgoing-shutdown association, not a named EC command or physical reset domain.
+An orientation-only effect with repeatable matched history supports an indirect
+interaction; storage `-71` improving alone says nothing about cover recovery.
+Multiple variables can coexist. A missing POS probe, unsupported source,
+unstable boot, reset, event loss or unverified history is inconclusive; no
+negative result proves all other hypotheses false. Suspend/resume remains a
+separately scheduled test and is not inferred from this reboot experiment.
+
+## 8. Rev25: safe keyboard and outgoing SAM policy
+
+**Purpose:** first determine whether the *physical Type Cover* fails after an
+ordinary safe-to-safe reboot; then compare the existing `default` and `silent`
+outgoing SAM modes as one variable. Final34 captured no keyboard outcome and
+its safe rotor/readback said `clean`, not `silent`. No new kernel, DT, image or
+EC request is required for this first comparison. Do not select `clean`, use
+`sp11.ssam_shutdown`/`sp11.ssam_rebind`, unbind drivers, change firmware, or
+write EC state. Keep the current USB-C orientation switches and DP recovery
+path unchanged; the Ugreen `-71` concerns storage. Stop at an unexpected reset
+and preserve the logs; do not treat the debug reset as a keyboard result.
+
+### Setup and boot sequence
+
+Use one recorded ISO/kernel and its **same safe GPU-off entry and DT** for all
+boots, normal laptop posture, the same charger, USB topology, session and
+reboot method. Do not run camera or extra stress workloads. If another input is
+needed to edit GRUB or run commands when the cover is frozen, have a touchscreen
+or the same external keyboard connected throughout all arms; distinguish its
+input from the `09AE` cover. Record the physical cover and each boot ID; retain
+the ISO hash, kernel release, DT selection, cmdline and private logs. Recheck
+input before detaching anything.
+
+At GRUB, edit the safe entry's `linux` line for **that boot only**, appending
+exactly one of the existing parameters below. Boot with the key shown by GRUB.
+An explicit parameter makes the shipped rotor leave the choice alone; confirm
+the runtime value anyway. Do not save a permanent GRUB change.
+
+```text
+surface_aggregator.shutdown_mode=default
+surface_aggregator.shutdown_mode=silent
+```
+
+Perform these arms, recording the immediate predecessor and its mode every
+time. The setup boot of each arm must itself use the same safe entry, `default`
+and the same physical conditions. All arrows are ordinary reboots; the
+successor is always booted with `default`.
+
+| Arm | Known setup boot | Predecessor, before reboot | Successor to observe |
+|:--|:--|:--|:--|
+| A | safe / `default` | safe / `default` | safe / `default` |
+| B | safe / `default` | safe / `silent` | safe / `default` |
+
+Observe the cover, touchpad and KIP state on each predecessor and successor as
+below, especially immediately after each successor starts. Immediately before
+reboot, record the predecessor boot ID and actual module parameter on private
+storage; after reboot, record the successor boot ID and actual parameter. The
+predecessor's choice is the test variable: `default` attempts event-disable,
+display-off and D0-exit in the SAM handler; `silent` skips those three there.
+The argument has no claimed effect on the next boot's initial policy. Other
+shutdown and firmware operations still occur, and actual callback execution is
+unknown without independently persisted late-shutdown evidence.
+
+Alternate and repeat A/B if a difference appears. A matched immediate setup is
+not proof that all longer-lived EC or firmware history was reset; record longer
+history and any deviations. An unexpected reset, unknown predecessor, mode
+mismatch, changed connections/entry, missing observation or incomplete reboot
+makes that pair inconclusive. If neither successor reproduces the failure,
+report both observations and stop: they do not prove the issue is fixed.
+
+### Observations on each boot
+
+Run these in a terminal using the touchscreen or a consistent external input
+if necessary. Save only the printed summaries in private logs; never save
+typed text, key codes, raw evdev reports or SSAM payloads. Record a separate
+operator yes/no/unknown for whether the Type Cover can type in a blank desktop
+field and whether its touchpad moves the pointer. A registered device or an
+active desktop alone is not a pass. The input probes below are read-only and
+use Fedora's `evtest` and Python, both present in final34's package inventory.
+
+```bash
+printf 'boot_id='; cat /proc/sys/kernel/random/boot_id
+printf 'kernel='; uname -r
+printf 'cmdline='; cat /proc/cmdline
+printf 'runtime_shutdown_mode='; cat /sys/module/surface_aggregator/parameters/shutdown_mode
+cat /run/sp11/sam-mode 2>/dev/null || true
+printf 'KIP_state='; cat /sys/bus/surface_aggregator/devices/01:0e:01:00:01/state 2>/dev/null || echo unknown
+
+for e in /sys/class/input/event*; do
+    [ -r "$e/device/name" ] || continue
+    name=$(cat "$e/device/name")
+    case "$name" in
+        'Microsoft Surface 045E:09AE Keyboard'|'Microsoft Surface KIP Tablet Mode Switch')
+            printf '/dev/input/%s  %s  %s\n' "${e##*/}" "$name" "$(readlink -f "$e/device")" ;;
+    esac
+done
+```
+
+Pick the *current boot's* keyboard node only if its ancestry includes
+`surface_aggregator_platform_hub` and `01:15:02:01:00`; pick the KIP node by
+its exact switch name. Event numbers can change at every boot. Replace `N` and
+`M` below with those numbers; if either node is absent or ambiguous, report it
+as unknown and do not guess. Check the KIP bit with `evtest --query`, which
+returns 0 for off, 10 for on and another status for error:
+
+```bash
+cover=/dev/input/eventN
+kip=/dev/input/eventM
+sudo evtest --query "$kip" EV_SW SW_TABLET_MODE
+rc=$?
+case "$rc" in
+    0)  echo 'SW_TABLET_MODE=0 (not tablet)' ;;
+    10) echo 'SW_TABLET_MODE=1 (tablet)' ;;
+    *)  printf 'SW_TABLET_MODE=unknown (evtest exit %s)\n' "$rc" ;;
+esac
+```
+
+In physical laptop posture, `KIP_state=laptop` and switch bit 0 are expected
+from the driver's mapping. An absent or failed query is unknown, not bit 0.
+Capture these initial values before deliberately folding or reattaching the
+cover.
+
+To count input without saving key codes, open a blank desktop field, start the
+following read-only probe from a terminal, then after its prompt tap the blank
+field and press the same harmless **non-Enter** key on the Type Cover five
+times. Record how many characters appeared, without recording the characters.
+The probe reads only the selected cover evdev node and prints only a count and
+loss status. It never grabs the device or prints or saves raw events.
+
+```bash
+sudo python3 - "$cover" <<'PY'
+import os
+import select
+import struct
+import sys
+import time
+
+event = struct.Struct('@llHHi')  # 64-bit Linux input_event
+if event.size != 24:
+    sys.exit('unsupported input_event ABI')
+try:
+    fd = os.open(sys.argv[1], os.O_RDONLY | os.O_NONBLOCK)
+except OSError as error:
+    sys.exit(f'probe open failed: {error}')
+
+presses = dropped = 0
+deadline = time.monotonic() + 25.0
+print('Tap the blank field and press the cover key five times now.', flush=True)
+try:
+    while (remaining := deadline - time.monotonic()) > 0:
+        readable, _, _ = select.select([fd], [], [], remaining)
+        if not readable:
+            continue
+        data = os.read(fd, event.size * 64)
+        if not data or len(data) % event.size:
+            raise RuntimeError('input device closed or incomplete event')
+        for _, _, kind, code, value in event.iter_unpack(data):
+            if kind == 0 and code == 3:  # EV_SYN / SYN_DROPPED
+                dropped = 1
+            elif kind == 1 and value == 1:  # EV_KEY / press
+                presses += 1
+except (OSError, RuntimeError) as error:
+    sys.exit(f'probe incomplete: {error}')
+finally:
+    os.close(fd)
+print(f'cover_presses={presses} dropped={dropped}')
+PY
+printf 'probe_exit=%s\n' "$?"
+```
+
+Expected completion is `probe_exit=0` and `dropped=0`. Any other result,
+inability to confirm the five physical presses, or an incomplete test is
+**inconclusive**. A zero count records that this probe saw no evdev presses;
+the probe cannot rule out an exclusive grab by another process, or distinguish
+cover, HID or SSAM causes. A positive count with no desktop characters and an
+incorrect tablet bit supports investigating posture/compositor filtering; it
+is not proof. Repeat outcomes before drawing a causal conclusion.
+
+If A/B shows a repeatable difference, it is an association with the outgoing
+policy bundle, not proof of a particular EC command. If keyboard counts and
+incorrect KIP posture support a switch hypothesis, ask the kernel/image owners
+for the held, matched **opt-in POS** candidate in
+`patches/rev24-pos-test-request.md`; the public evidence covers resume, not
+this reboot symptom. Do not combine that later comparison with a mode or USB-C
+orientation change. USB-C orientation testing and DP recovery are the USB
+owner's separate decision.
