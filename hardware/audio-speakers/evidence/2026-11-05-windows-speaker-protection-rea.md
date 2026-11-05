@@ -71,3 +71,25 @@ side already uses.
   the log-field names are observed, the structure layout is not.
 - Static evidence only: no Windows audio session, no Linux device run and no
   claim that the Linux event path works.
+
+## Correction from the parser (same day)
+
+The first pass read the registration site and mislabelled the constants.
+`FUN_140083d00` (cbGslGraphfunc) is the authoritative dispatcher:
+
+- `0x0800119f` = **EVENT_ID_VI_CALIBRATION**: payload `[num_ch][state][R0_ch0]…`,
+  state 4 = success, 5 = failure
+  (`ParseAndSendSpeakerProtectionCalibPayload`).
+- `0x08001511` = **EVENT_ID_VI_PER_SPKR_CALIBRATION**: payload
+  `[num_ch][state_0][R0_0][state_1][R0_1]…`
+  (`ParseAndSendSpeakerProtectionPerSpkrCalibPayload`).
+- `0x0800138c` = SPv5 diagnostics (unchanged).
+
+Both carry R0 in Q24, the same scale as the registry `R0CalQ24`. Kernel
+patch 0028 (rev27) registers both, parses these layouts and accepts a
+successful event as measured, non-nominal calibration through the guard's
+generation path; malformed events change nothing and the guard stays
+fail-closed. CPS is still absent from the topology: the ACDB subgraph
+`0xb0000001` provides instance `0x4028` / module `0x070010e4` and the link to
+SP, but the m4 container is not implemented, so the private supplement keeps
+flags 0 (CPS not required) until that container exists and opens on the DSP.
