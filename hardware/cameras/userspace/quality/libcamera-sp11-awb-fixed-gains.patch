@@ -1,0 +1,179 @@
+From: SP11 camera <camera@localhost>
+Subject: [PATCH] ipa: simple: per-sensor AWB gain limits and measured fixed gains
+
+The Software ISP white-balance estimator clamps its red and blue gains at
+4.0. That ceiling is too low for modules whose own calibration needs more:
+the SP11 front IMX681 module's Windows white-balance calibration reaches
+8.93x red and 4.28x blue, so the estimator saturates and leaves a green
+cast that it cannot remove; the rear module sits just below the same limit.
+
+Add two optional tuning keys:
+
+  Awb:
+    maxGains: [red, green, blue]   # estimator ceiling, default 4.0/4.0
+    gains:    [red, green, blue]   # fixed measured gains (grey card)
+
+maxGains only raises a ceiling the tuning file states; without the key the
+stock 4.0 behaviour is unchanged. gains latches a measured grey-card
+correction for every frame and still reports the equivalent colour
+temperature so CCM selection keeps working. Both reject non-finite or
+out-of-range values so a malformed file fails the IPA instead of silently
+distorting colours.
+
+Assisted-by: deepseek-v4.1-flash
+---
+--- a/src/ipa/simple/algorithms/awb.h
++++ b/src/ipa/simple/algorithms/awb.h
+@@ -19,6 +19,7 @@
+ 	Awb() = default;
+ 	~Awb() = default;
+ 
++	int init(IPAContext &context, const ValueNode &tuningData) override;
+ 	int configure(IPAContext &context, const IPAConfigInfo &configInfo) override;
+ 	void prepare(IPAContext &context,
+ 		     const uint32_t frame,
+@@ -29,6 +30,14 @@
+ 		     IPAFrameContext &frameContext,
+ 		     const SwIspStats *stats,
+ 		     ControlList &metadata) override;
++
++private:
++	bool fixedGains_ = false;
++	float fixedRed_ = 1.0f;
++	float fixedGreen_ = 1.0f;
++	float fixedBlue_ = 1.0f;
++	float maxRed_ = 4.0f;
++	float maxBlue_ = 4.0f;
+ };
+ 
+ } /* namespace ipa::soft::algorithms */
+--- a/src/ipa/simple/algorithms/awb.cpp
++++ b/src/ipa/simple/algorithms/awb.cpp
+@@ -7,6 +7,7 @@
+ 
+ #include "awb.h"
+ 
++#include <cmath>
+ #include <numeric>
+ #include <stdint.h>
+ 
+@@ -23,11 +24,87 @@
+ 
+ namespace ipa::soft::algorithms {
+ 
++/*
++ * Optional white-balance gains for the Software ISP.
++ *
++ * "Awb: gains: [red, green, blue]" holds the channel multipliers instead of
++ * adapting them from the scene: the measured-grey-card correction path. The
++ * same neutral target then stays neutral on every frame, independent of the
++ * AWB estimate.
++ *
++ * "Awb: maxGains: [red, green, blue]" changes the per-channel ceiling of the
++ * automatic estimator. The stock 4.0 ceiling silently clips modules whose
++ * calibrated white balance needs more (for the SP11 front module the vendor
++ * calibration reaches 8.93x red and 4.28x blue), which leaves a colour cast
++ * that the estimator cannot remove. Values above 4.0 are accepted only when
++ * the tuning file states them; the default stays 4.0.
++ *
++ * Both keys use the automatic gains' scale (green is normally 1.0). Without
++ * them, behaviour is unchanged.
++ */
++static int readGains(const ValueNode &node, const char *key, float low,
++		     float high, float values[3])
++{
++	const ValueNode &gainsNode = node[key];
++
++	if (gainsNode.isEmpty())
++		return 0;
++
++	if (gainsNode.size() != 3) {
++		LOG(IPASoftAwb, Error) << "Invalid " << key << ": expected three values";
++		return -EINVAL;
++	}
++
++	for (unsigned int i = 0; i < 3; i++) {
++		auto value = gainsNode[i].get<float>();
++		if (!value || !std::isfinite(*value) || *value < low || *value > high) {
++			LOG(IPASoftAwb, Error) << "Invalid " << key << " value " << i;
++			return -EINVAL;
++		}
++		values[i] = *value;
++	}
++
++	return 1;
++}
++
++int Awb::init([[maybe_unused]] IPAContext &context, const ValueNode &tuningData)
++{
++	float values[3];
++	int ret;
++
++	ret = readGains(tuningData, "gains", 0.25f, 16.0f, values);
++	if (ret < 0)
++		return ret;
++	if (ret > 0) {
++		fixedRed_ = values[0];
++		fixedGreen_ = values[1];
++		fixedBlue_ = values[2];
++		fixedGains_ = true;
++		LOG(IPASoftAwb, Info) << "Fixed gains " << fixedRed_ << " "
++				      << fixedGreen_ << " " << fixedBlue_;
++	}
++
++	ret = readGains(tuningData, "maxGains", 1.0f, 16.0f, values);
++	if (ret < 0)
++		return ret;
++	if (ret > 0) {
++		maxRed_ = values[0];
++		maxBlue_ = values[2];
++		LOG(IPASoftAwb, Info) << "Maximum gains " << maxRed_ << " 1 "
++				      << maxBlue_;
++	}
++
++	return 0;
++}
++
+ int Awb::configure(IPAContext &context,
+ 		   [[maybe_unused]] const IPAConfigInfo &configInfo)
+ {
+ 	auto &gains = context.activeState.awb.gains;
+-	gains = { { 1.0, 1.0, 1.0 } };
++	if (fixedGains_)
++		gains = { { fixedRed_, fixedGreen_, fixedBlue_ } };
++	else
++		gains = { { 1.0, 1.0, 1.0 } };
+ 
+ 	return 0;
+ }
+@@ -55,6 +132,18 @@
+ 	metadata.set(controls::ColourGains, { frameContext.gains.r(),
+ 					      frameContext.gains.b() });
+ 
++	/*
++	 * Measured fixed gains have no scene estimate to update; still report
++	 * the equivalent CCT so the CCM table interpolation stays sensible.
++	 */
++	if (fixedGains_) {
++		RGB<double> inverse{ { 1.0 / fixedRed_, 1.0 / fixedGreen_,
++				       1.0 / fixedBlue_ } };
++		context.activeState.awb.temperatureK = estimateCCT(inverse);
++		metadata.set(controls::ColourTemperature, context.activeState.awb.temperatureK);
++		return;
++	}
++
+ 	if (!stats->valid)
+ 		return;
+ 
+@@ -79,9 +168,9 @@
+ 	 */
+ 	auto &gains = context.activeState.awb.gains;
+ 	gains = { {
+-		sum.r() <= sum.g() / 4 ? 4.0f : static_cast<float>(sum.g()) / sum.r(),
++		sum.r() <= sum.g() / maxRed_ ? maxRed_ : static_cast<float>(sum.g()) / sum.r(),
+ 		1.0,
+-		sum.b() <= sum.g() / 4 ? 4.0f : static_cast<float>(sum.g()) / sum.b(),
++		sum.b() <= sum.g() / maxBlue_ ? maxBlue_ : static_cast<float>(sum.g()) / sum.b(),
+ 	} };
+ 
+ 	RGB<double> rgbGains{ { 1 / gains.r(), 1 / gains.g(), 1 / gains.b() } };

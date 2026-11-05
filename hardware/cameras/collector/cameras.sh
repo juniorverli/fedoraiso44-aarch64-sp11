@@ -67,8 +67,37 @@ sh_ "for sd in /dev/v4l-subdev*; do echo \"-- \$sd: \$(v4l2-ctl -d \$sd --info 2
 sh_ "for sd in /dev/v4l-subdev*; do n=\$(v4l2-ctl -d \$sd --info 2>&1 | grep 'Card type'); case \"\$n\" in *ov13858*|*imx681*) echo \"-- controls of \$sd\"; v4l2-ctl -d \$sd -l 2>&1 | head -25;; esac; done"
 
 echo "== 6 libcamera (enumeration only, no capture)"
-run cam -l
-sh_ "LIBCAMERA_LOG_LEVELS='*:INFO' cam -l 2>&1 | grep -i -E 'camera|sensor|pipeline|simple|softisp|helper|tuning|ipa' | head -40"
+# This lock serializes cooperating collectors only. WirePlumber and other
+# applications do not take it; busy-link diagnostics remain authoritative.
+(
+	if ! flock -w 3 9; then
+		echo "INCOMPLETE: another cooperating camera enumerator holds the lock"
+		exit 0
+	fi
+	camera_complete=0
+	camera_safe_env=()
+	case " $(cat /proc/cmdline) " in
+		*' sp11.entry=safe '*) camera_safe_env=(LIBCAMERA_SOFTISP_MODE=cpu GALLIUM_DRIVER=softpipe LIBGL_ALWAYS_SOFTWARE=1) ;;
+	esac
+	for camera_try in 1 2 3; do
+		echo "### cam -l attempt $camera_try at uptime $(cut -d' ' -f1 /proc/uptime) s"
+		camera_listing=$(timeout -k 1 6 env "${camera_safe_env[@]}" LIBCAMERA_LOG_LEVELS='*:INFO' cam -l 2>&1)
+		camera_rc=$?
+		printf '%s\n' "$camera_listing"
+		echo "### cam -l exit=$camera_rc"
+		if [ "$camera_rc" -eq 0 ] &&
+		   ! printf '%s\n' "$camera_listing" | grep -Eiq 'resource busy|\bEBUSY\b|unable to setup link' &&
+		   printf '%s\n' "$camera_listing" | grep -Eq '^[[:digit:]]+:.*\(/base/soc@0/cci@ac15000/i2c-bus@1/camera@10\)' &&
+		   printf '%s\n' "$camera_listing" | grep -Eq '^[[:digit:]]+:.*\(/base/soc@0/cci@ac16000/i2c-bus@1/camera@10\)'; then
+			camera_complete=1
+			echo "COMPLETE: both expected IDs listed without a busy-link diagnostic"
+			break
+		fi
+		echo "INCOMPLETE: nonzero exit, busy link, or missing expected camera ID"
+		[ "$camera_try" -eq 3 ] || sleep 2
+	done
+	[ "$camera_complete" -eq 1 ] || echo "INCOMPLETE: bounded camera enumeration retries exhausted"
+) 9>/run/lock/sp11-camera-enumeration.lock || echo "INCOMPLETE: could not open enumeration lock"
 sh_ "rpm -q libcamera libcamera-ipa libcamera-tools pipewire-plugin-libcamera snapshot v4l-utils 2>&1"
 
 echo "== 7 privacy indicators (read the LED class state only)"

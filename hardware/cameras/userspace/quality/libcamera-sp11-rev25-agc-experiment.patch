@@ -1,0 +1,84 @@
+Subject: [PATCH EXPERIMENT] ipa: simple: allow a per-sensor AGC MSV target
+
+For a private rev25 IMX681 A/B only, allow the simple IPA Agc tuning
+node to specify exposureTarget in histogram mean-sample-value units.
+The default remains 2.5. The separately generated front tuning selects
+3.5; the rear and untuned sensors retain the default. This adapts the
+public reference's global 2.5-to-3.5 comparison to per-sensor tuning on
+libcamera v0.7.2, without carrying its Windows-derived CCM or sensor data.
+
+Reject non-finite or out-of-range values. Existing sensor exposure and
+gain limits and the update policy are unchanged. A higher target can clip
+highlights or increase noise and is not a production recommendation.
+Record the selected target in the IPA log and compare settled RAW,
+metadata and clipping before deciding whether it helps.
+
+Reference: out/ref/sp11-imx681-linux/userspace/libcamera/0001-soft-ipa-agc-target-and-tunable-adjust.patch (v0.7.0)
+Evidence: hardware/cameras/evidence/2026-11-03-rev24-quality-orientation.md
+---
+--- a/src/ipa/simple/algorithms/agc.cpp
++++ b/src/ipa/simple/algorithms/agc.cpp
+@@ -9,6 +9,7 @@
+ 
+ #include <algorithm>
+ #include <cmath>
++#include <errno.h>
+ #include <stdint.h>
+ 
+ #include <libcamera/base/log.h>
+@@ -62,7 +63,25 @@
+ static constexpr float kExpMaxStep = 0.15;
+ 
+ Agc::Agc()
+-{
++	: exposureTarget_(kExposureOptimal)
++{
++}
++
++int Agc::init([[maybe_unused]] IPAContext &context, const ValueNode &tuningData)
++{
++	const ValueNode &targetNode = tuningData["exposureTarget"];
++
++	if (!targetNode.isEmpty()) {
++		const auto target = targetNode.get<float>();
++		if (!target || !std::isfinite(*target) || *target < 1.0f || *target > 5.0f) {
++			LOG(IPASoftExposure, Error) << "Invalid exposure MSV target";
++			return -EINVAL;
++		}
++		exposureTarget_ = *target;
++	}
++
++	LOG(IPASoftExposure, Info) << "Exposure MSV target " << exposureTarget_;
++	return 0;
+ }
+ 
+ void Agc::updateExposure(IPAContext &context, IPAFrameContext &frameContext, double exposureMSV)
+@@ -70,7 +89,7 @@
+ 	int32_t &exposure = frameContext.sensor.exposure;
+ 	double &again = frameContext.sensor.gain;
+ 
+-	double error = kExposureOptimal - exposureMSV;
++	double error = exposureTarget_ - exposureMSV;
+ 
+ 	if (std::abs(error) <= kExposureSatisfactory)
+ 		return;
+--- a/src/ipa/simple/algorithms/agc.h
++++ b/src/ipa/simple/algorithms/agc.h
+@@ -19,6 +19,8 @@
+ 	Agc();
+ 	~Agc() = default;
+ 
++	int init(IPAContext &context, const ValueNode &tuningData) override;
++
+ 	void process(IPAContext &context, const uint32_t frame,
+ 		     IPAFrameContext &frameContext,
+ 		     const SwIspStats *stats,
+@@ -26,6 +28,8 @@
+ 
+ private:
+ 	void updateExposure(IPAContext &context, IPAFrameContext &frameContext, double exposureMSV);
++
++	float exposureTarget_;
+ };
+ 
+ } /* namespace ipa::soft::algorithms */

@@ -1,0 +1,28 @@
+From: Camera investigation <camera-investigation@localhost>
+Subject: [PATCH candidate] arm64: dts: qcom: denali: describe rear camera rotation
+
+The rear OV13858 image on the revision-24 safe ISO was reported upside
+down with no sensor-rotation control. Describe the 180-degree correction
+as a candidate derived from that report. Verify it with an asymmetric
+physical target before promotion.
+
+The existing orientation property specifies the camera location, not the
+rotation. The v4l2 fwnode control path exposes this property as
+V4L2_CID_CAMERA_SENSOR_ROTATION. The v0.7.2 simple pipeline cannot rotate
+pixels on this sensor without writable flip controls; userspace must
+honour the reported orientation or supply a separate conversion step.
+This patch does not change either sensor stream or its privacy LED.
+
+Evidence: hardware/cameras/evidence/2026-11-03-rev24-quality-orientation.md
+Reference: the video-interface-devices.yaml media DT binding
+---
+--- a/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi
++++ b/arch/arm64/boot/dts/qcom/x1-microsoft-denali.dtsi
+@@ -945,6 +945,7 @@
+ 		avdd-supply = <&vreg_l5m_2p8>;
+ 
+ 		orientation = <1>;
++		rotation = <180>;
+ 
+ 		/*
+ 		 * The rear sensor lights its own indicator, GPIO105. GPIO225 is

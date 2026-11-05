@@ -1,12 +1,359 @@
-# Cameras test plan: rev24 matched controls and RGB cameras
+# Cameras test plan: rev25 quality and rev24 matched controls
 
-Revision 19 reached both RGB sensor links and oopsed at CSIPHY stream-on. Revision 20 corrected the mapping; revision 21 added patch 0023 for the previously observed C-PHY clock error. Later active C-PHY behavior remains unproven. See [mapping evidence](evidence/2026-11-02-csiphy-mapping-oops.md) and [C-PHY clock evidence](evidence/2026-11-02-cphy-clock-fix.md). This is a plan, not a device result. Keep the IR sensor/endpoint excluded and the IR illuminator, flash and sensor strobe off (S2). Do not scan CCI buses with `i2cdetect`; retain raw logs and frames privately under `out/`.
+Revision 19 reached both RGB sensor links and oopsed at CSIPHY stream-on. Revision 20 corrected the mapping; revision 21 added patch 0023 for the previously observed C-PHY clock error. Rev24 safe now delivers both RGB streams; debug reset causality remains unproven. See [mapping evidence](evidence/2026-11-02-csiphy-mapping-oops.md) and [C-PHY clock evidence](evidence/2026-11-02-cphy-clock-fix.md). This is a plan, not a device result. Keep the IR sensor/endpoint excluded and the IR illuminator, flash and sensor strobe off (S2). Do not scan CCI buses with `i2cdetect`; retain raw logs and frames privately under `out/`.
 
-The 2026-11-03 rev21 bundles show rear-only enumeration and incomplete debug snapshots, not a recorded stream or selected app mode. Follow the reset-resilient procedure below before treating any live preview, idle graph or GPU message as a stream result. See [evidence](evidence/2026-11-03-m16-camera-stream-quality.md). Stop testing on reset, camera fault or unlit physical privacy LED; preserve the data before another attempt. Do not change patch 0023 clock rates or CSID fields without observed active clock and IRQ data.
+The earlier rev21 bundles showed only rear enumeration; rev24 safe now supplies two streams, while debug still resets. See the [rev24 evidence](evidence/2026-11-03-rev24-quality-orientation.md). Stop testing on reset, camera fault or unlit physical privacy LED; preserve the data before another attempt. Do not change patch 0023 clock rates or CSID fields without observed active clock and IRQ data.
 
-## Rev24 one-variable matrix (2026-11-03)
+## Rev25-menu: prioritized green, dark and orientation measurements (2026-11-04)
 
-The control is the exact rev23 image, kernel, DTB, private blob and tuning, with their full hashes and build IDs recorded. Rev23 includes the BW-vote backport and safe softpipe candidate; rev22 has neither, so it is a historical control, not a one-variable rev24 comparison. Each row below is a separate boot where stated; close camera clients, identify the sensor by `cam -l` rather than its index, verify observer/physical LED and all prerequisites below, and persist markers/live logs externally. Do not stream without the observed LED gate. An operator must stop immediately on an unlit LED, fault, stall or reset; no automatic retry. Never test IR or flash. See [reference and candidates](evidence/2026-11-03-rev24-reference-comparison.md).
+This section supersedes the front-only wording in the historical rev25 plan
+below. Both previews are now reported green and dark, but the displayed lenses
+are not proven; [rev25 evidence](evidence/2026-11-04-rev25-green-dark.md)
+records the two inferred configurations and the transient `cam -l` link-busy
+failure. Keep the exact safe camera stack, private tuning and kernel/DTB as the
+control. The following is a plan, not an observed fix.
+
+### 1. Establish identity and preserve the baseline
+
+Complete **Before any stream** below, including the independent LED wiring
+cross-check. A person observes the appropriate physical privacy indicator during
+every attempt and stops immediately if it is dark, on a fault, stall or reset.
+Keep the IR sensor excluded, IR illuminator, flash and strobe off; never obscure
+the indicator while covering a lens. Do not use `i2cdetect`, direct register
+writes, or an LED override. Retain private frames and logs on a non-Windows
+filesystem with sufficient free space. Record the ISO, effective DTB, kernel,
+libcamera/IPA/helper and each installed YAML/blob **full SHA-256**, plus
+package versions and actual loaded YAML path. A name or 16-digit hash prefix is
+not sufficient. Keep the baseline packages and tuning for rollback.
+
+With Snapshot and other camera clients closed and the collector finished,
+run `cam -l` once and retain all stdout/stderr; if the rear link is busy or a
+camera is missing, mark enumeration incomplete, release the competing client
+and repeat **before** streaming. Note the full libcamera camera IDs, not just
+indices. The sensor identity is the ID's CCI path and graph entity: front
+`imx681 5-0010` at `ac16000`, rear `ov13858 4-0010` at `ac15000`. Record the
+current `/dev/v4l-subdevN` from `media-ctl -p`; it can change. Observe active
+route and formats in each run. During identified direct capture, separately
+cover and uncover **only each lens**, without covering an indicator, and record
+which marked target darkens. Then use the same occlusion test in Snapshot for
+each menu selection, recording label, portal/PipeWire node and timestamp if
+available. Compare saved output as well as preview. An enumeration or menu
+label alone cannot prove the physical source.
+
+### 2. Green on each sensor: one RAW data set, two offline CCM arms
+
+Use an evenly illuminated, unsaturated neutral target with separately visible
+red and blue patches; record light source, geometry, and a lux reading if a
+meter is available, otherwise mark it unknown. Fix the scene and avoid flicker.
+For each identified sensor capture in its logged mode: front 3840x2160
+RGGB-10-CSI2P, rear 2112x1188 GRBG-10-CSI2P. Save, privately, a capped-lens
+dark, neutral flat, red and blue target with centre and corner ROIs. Capture a
+processed 1920x1080 view and RAW from the same requests if the installed simple
+pipeline accepts both streams. Keep the same sensor mode and settings for all
+four targets; record if that is not possible. The log's formats are negotiated
+claims, not proof of CFA, sample values or stride integrity.
+
+For a concrete attempt, set `CAMERA_ID` to the full observed ID, `RAW_WIDTH`
+and `RAW_HEIGHT` to that sensor's dimensions above, and `CAPDIR` to a **new**
+private directory on a writable non-Windows filesystem (or under `out/` on the
+host); select one target for this invocation. Run
+`cam --help` first and confirm the installed syntax. This finite example writes
+all 60 frames of both streams and can use several gigabytes over the full test;
+check capacity and stop the foreground command if the observer sees a problem.
+Repeat for each target and sensor, preserving separate directories:
+
+```sh
+umask 077
+if [ -z "$CAPDIR" ] || [ -e "$CAPDIR" ] || ! mkdir -m 700 -- "$CAPDIR"; then
+  printf '%s\n' 'Set CAPDIR to a new private directory on a non-Windows filesystem.' >&2
+else
+  set -o pipefail
+  stdbuf -oL -eL cam --info --camera "$CAMERA_ID" \
+    --stream "role=raw,width=$RAW_WIDTH,height=$RAW_HEIGHT" \
+    --stream 'role=viewfinder,width=1920,height=1080' \
+    --capture=60 --metadata --file="$CAPDIR/frame-#.bin" 2>&1 | \
+    stdbuf -oL tee "$CAPDIR/capture.log"
+fi
+```
+
+Check the accepted configuration, adjustment, mode, pixel format, row stride,
+plane size, sequence, timestamps, bytes used and actual saved files: role and
+requested size alone are not proof. If the paired request is rejected or
+adjusted to a different mode, do not call the resulting frames matched; request
+a diagnostic capture tool, or capture separately with stable light and proven
+settings while explicitly marking the limitation. If 60 frames have not
+converged, extend the capture only while safe and with enough private storage.
+A RAW-only capture may not run the same SoftISP/3A path. `--capture` without
+`--file` saves no frames.
+
+Decode CSI-2 packed RAW10 with the **reported** row stride and check buffer
+length, row boundaries, crop parity and all four pixel parities. Measure the
+capped frame's per-parity pedestal/noise and each target's centre/corner means,
+noise and clipped fraction. Red and blue targets identify physical R and B;
+the neutral flat alone does not. Record per-frame ExposureTime, AnalogueGain,
+SensorBlackLevels, ColourGains, ColourTemperature, ColourCorrectionMatrix,
+Gamma, sequence and timestamp when exposed. `SensorBlackLevels` can be the
+IPA's model, not a measured pedestal; the same-frame CCT can be newly estimated
+while the reported CCM was latched earlier. Record the actual frame CCM and
+missing fields; metadata can be delayed and is not independent readback.
+
+For **the same** neutral/colour RAW, subtract the measured dark, demosaic and
+apply one fixed WB derived from the neutral ROI. In two offline arms change
+only the matrix: identity versus the CCM latched for that frame. Use the private
+frame metadata, or reconstruct it from the identified tuning and the actual
+latched interpolation state. The current frame's newly estimated CCT alone is
+insufficient because of CCM hysteresis and pipeline delay. Hold black, WB,
+demosaic, crop, gamma and display transform fixed; retain parameters privately.
+Compare neutral-channel error, red/blue behaviour, clipping and centre/corner
+differences against the target. If the CCM or applied fixed WB is unavailable,
+mark that arm blocked and request a private diagnostic build; do not substitute
+a Windows matrix or claim identity is colour accurate. A green cast already
+present after the same measured WB and identity points upstream of the CCM;
+a cast introduced only by the CCM supports a matrix/selection investigation.
+Use a calibrated chart/reference before treating either arm as colour correct.
+
+### 3. Dark on each sensor: separate capture from rendering
+
+With a large neutral target and stable light, record first-to-converged frames
+and compare each camera's RAW signal above measured black, processed luminance,
+noise and clipping, plus exposure time/lines, analogue/digital gain if
+observable, HBLANK, VBLANK, pixel rate, frame cadence and mode. Account for
+field of view, binning and unknown optics; this is not a lens or quantum
+sensitivity calibration. If manual controls are not exposed, request an
+isolated diagnostic libcamera/IPA path that suspends its AGC loop and records
+requested values, sensor readback **and frame delay**, without bypassing the
+kernel LED gate. Do not race direct V4L2 controls against active AGC. Once
+supported, use safe driver-supported common exposure times and gains, validate
+actual response with a small stable-light sweep, and hold all other settings
+fixed. Front line time and gain law remain unverified.
+
+Only after these measurements consider the existing private, per-sensor
+2.5-versus-3.5 AGC experiment below. It is a brightness experiment, not a
+proven fix; changing the target cannot establish a colour correction. For a
+rear experiment a separately identified, sensor-specific tuning arm and its
+baseline would be needed. No global gain law, exposure cap or Bayer change.
+
+### 4. Orientation after lens identification
+
+Use readable asymmetric text with marked top and left. Compare the rear and front
+in direct capture, Snapshot preview and saved output; distinguish mirror from
+rotation. Candidate [0026](patches/0026-candidate-arm64-dts-qcom-denali-rear-camera-rotation.patch)
+requires a separate reviewed kernel/DTB build and supplies rear 180-degree
+metadata only. If the rear is still inverted, test a rear-only processed-frame
+180-degree conversion or independently validated sensor flips with propagated
+Bayer layout. Verify clients that honor metadata do not rotate twice. The front
+must not be rotated by the rear correction.
+
+### 5. Rev25c menu entries, rear rotation and an on-device tuning A/B
+
+The rev25c private ISO adds two nondefault entries and keeps line 2 `SP11 debug,
+safe (no GPU)` as the control:
+
+- line 22 `SP11 debug, safe, rear rotation test` (`m15-safe-camrot`, `sp11.entry=safe`,
+  `sp11.test=test-safe-camrot`). **In the rev25f build this DTB is byte-identical to
+  `m15-safe`** (both SHA-256 `244d6e77…`), because camera patch 0026 is in kernel
+  series rev25 and `rotation = <180>` is therefore already in every variant, line 2
+  included. Booting line 22 can only show that the ISO carries the recorded DTB; it
+  is not an A/B. The real check is on the plain safe boot: read
+  `V4L2_CID_CAMERA_SENSOR_ROTATION` from the rear sub-device (`v4l2-ctl -d
+  /dev/v4l-subdevN -L`), then compare the saved rear output. The simple pipeline
+  rotates no pixels; if a client ignores the metadata the rear stays inverted and
+  the next step is a rear-only processed-frame rotation or validated sensor flips
+  with a propagated Bayer layout (neither is implemented). The duplicate entry is
+  scheduled for removal in the next menu build.
+- line 23 `SP11 debug, safe, muted closed-loop VI` is the audio diagnostic; do not
+  use it for camera work (its `-CL` sound model changes firmware selection only).
+
+This image also installs the private per-sensor libcamera YAMLs with the Agc
+`exposureTarget: 3.5` experiment and the measured `Adjust` gamma (front 1.882,
+rear 2.288) on top of the device-derived CCM, black level and LSC data. It
+also sets `Awb: maxGains` from the module's own calibrated white-balance
+ladder (front 9.83/4.71, rear 4.07/4.00) because the stock Software ISP
+clamps red and blue gains at 4.0 and the front calibration needs up to 8.93×
+red; see [the AWB ceiling evidence](evidence/2026-11-04-awb-gain-ceiling.md).
+That is a rendered-brightness and colour-cast candidate, not a measured
+correction and not the RAW measurement of sections 2-3. The stock simple IPA
+hardcodes 2.5 and 4.0; on the live system the YAMLs are
+in `/usr/share/libcamera/ipa/simple/{imx681,ov13858}.yaml` on the writable
+overlay, so an A/B needs no rebuild: copy the file aside, delete or change the
+`exposureTarget` or `maxGains` line to return to the stock value, close every
+camera client (PipeWire portal, Snapshot, `cam`), and open the camera again on
+the same fixed scene. Record the file hash and the chosen value with each
+capture.
+
+### 6. One-command AWB report and measured correction
+
+The image carries `/usr/libexec/sp11/camera-diagnostic/awb-report.sh`. On the
+`safe` entry, with every camera client closed and an observer watching the
+privacy indicator:
+
+```
+sudo /usr/libexec/sp11/camera-diagnostic/awb-report.sh
+```
+
+It enumerates both cameras, enables `IPASoftAwb` debug logging for one
+10-frame capture per camera, parses the last applied gains and prints
+`AWB_STUCK` (gains 1.0: estimator not updating), `AWB_CEILING` (a gain at the
+tuning ceiling), `AWB_OK` (plausible gains) or `AWB_NO_LINE`, per sensor, with
+the CCT and the ceiling in use. It saves nothing but a 0600 text report under
+`/var/tmp`; it does not read samples, change controls or touch the LED.
+`--self-test` checks the parser and the verdict without a camera.
+
+### 6. Measured correction in one device cycle, if green persists
+
+If the stock-versus-`maxGains` A/B still shows a cast, the deterministic path
+is a grey-card measurement instead of another guess:
+
+1. Run `camera-diagnostic/capture.py` once per sensor for a capped-lens dark
+   frame and once for an evenly lit neutral target, keeping every file. The
+   raw stream file is the large one (front 3840×2160 → 10,368,000 bytes per
+   frame at stride 4800; rear 2112×1188 → 3,136,320 bytes at stride 2640);
+   the 1920×1080 viewfinder file is smaller. Confirm the size before use.
+2. Close every camera client and run, as root, for the front:
+   `sudo /usr/libexec/sp11/camera-diagnostic/calibrate.py --sensor imx681
+   --neutral <neutral-raw> --dark <dark-raw> --width 3840 --height 2160
+   --stride 4800 --cfa RGGB --install`
+   and for the rear the matching `--sensor ov13858 --width 2112 --height 1188
+   --stride 2640 --cfa GRBG`.
+3. The tool prints the per-channel black and the measured red/blue gains,
+   refuses clipped or dark frames and writes `Awb: gains` into the private
+   YAML, keeping a `.sp11-orig` backup. Reopen the camera on the same scene
+   and compare the saved frame with the pre-calibration one.
+4. `--restore` puts the original YAML back. Record both YAML hashes. This
+   correction is per sensor and per lighting condition; it is not a
+   production calibration and does not replace the sections 2-3 measurement.
+
+
+## Historical rev25 camera quality plan (2026-11-03)
+
+The control is the exact rev24 safe stack, including active-trio/CSID/VFE,
+private blobs and sensor YAMLs, and the safe-only WirePlumber softpipe wrapper.
+The new [quality evidence](evidence/2026-11-03-rev24-quality-orientation.md)
+identifies front as exposure range 4–3550 lines / gain 1–15.5152, and rear as
+4–3206 / 0–63.9922. Those are ranges, not observed settings. Keep the normal
+safe boot available and run all quality experiments on safe; the GPU owner
+separately owns the debug reset. No IR, flash, LED bypass or sensor/register
+poking. An observer must watch the appropriate physical indicator and stop the
+stream immediately if dark, on fault or reset, per the prerequisites below.
+
+### 1. Verify rear orientation and front orientation
+
+1. Obtain a separately identified kernel/DTB with only candidate [0026](patches/0026-candidate-arm64-dts-qcom-denali-rear-camera-rotation.patch)
+   added to rev24, after kernel review, BTF build and DT schema checks. Record
+   kernel/DTB/ISO hashes. Keep the rev24 DTB as rollback. On safe, enumerate
+   with `cam -l`, `media-ctl -p`, and `v4l2-ctl --list-devices`. Find each
+   sensor's actual `/dev/v4l-subdevN` from the media graph, then run
+   `v4l2-ctl -d /dev/v4l-subdevN -L` for both and `cam --camera "$IDX" --list-properties`
+   with each observed ID. Rear should report read-only camera sensor rotation
+   180 and back location; front location should be front and rotation remains
+   the 0 fallback. Preserve the output and warnings.
+2. With the device in normal landscape orientation, use an asymmetrical,
+   readable target with marked top and left. For **each** camera compare direct
+   libcamera capture, Snapshot preview and saved image, and another PipeWire
+   client if available. Record exact camera ID, app, frame format, orientation,
+   and whether text/left-right are mirrored. Rear 180 is an inference from the
+   reported upside-down picture; confirm it physically. Front upright is still
+   an observation to make, not an assumed fact. A mirror is not a 180 rotation.
+3. The metadata-only DT patch cannot force a sensor flip in this libcamera
+   simple pipeline. If a consumer still displays the rear upside down, image
+   owner should test a separately marked rear-only 180° **processed-frame**
+   transform and verify saved pictures and clients do not double-rotate. Do not
+   alter raw CFA or front output. No production transform is claimed yet.
+
+### 2. Front green: locate the failing stage
+
+Use even, steady illumination, neutral grey/white and separately red and blue
+patches in view; record the light source and setup. The same RAW and processed
+frames are ideal; request both streams in a single libcamera configuration if
+supported, otherwise record the limitation, exact active mode and settings and
+capture in separate controlled runs. Record actual code, stride, packing,
+width/height, crop, sequence and timestamps. Save private RAW samples and
+processed images, not just screenshots. Use `cam --help` to select supported
+RAW/viewfinder roles; `cam --camera "$FRONT" --capture=120 --metadata` logs
+completed request metadata but does not save frames unless `--file` is used.
+Do not assume request count proves a frame was saved.
+
+- Capture a capped-lens dark RAW, uniform flat, and central/corner neutral and
+  red/blue targets under the same measured light. Decode negotiated packed
+  RAW10 using its stride; record R, Gr, Gb and B parity means, per-channel
+  black, saturation fractions and noise. The red/blue targets, not a neutral
+  flat alone, distinguish CFA positions. The reported RGGB is the negotiated
+  format, not yet a physical measurement.
+- Save per-frame exposure, analogue gain, ColourGains, ColourTemperature and
+  ColourCorrectionMatrix when present. Verify actual file and IPA/helper
+  hashes; the installed YAML path alone does not prove contents. Offline,
+  compare the same RAW with measured fixed white balance and current versus
+  identity CCM, then inspect centre and corners. This isolates a likely AWB or
+  CCM problem from CFA/packing/black or lens shading. Any measured CCM/AWB
+  candidate must be private, separately named, and vary one item at a time.
+
+### 3. Front dark / rear brighter: measure before changing gain
+
+Using the same stable illumination and a large neutral target filling both
+fields of view, record each sensor's negotiated mode, frame rate, HBLANK,
+VBLANK, reported pixel rate/line duration, exposure in lines and microseconds,
+analogue and digital gain if observable, AWB/CCM metadata, RAW channel means,
+black, noise, saturation and processed luminance. Record first-to-converged
+frames and actual scene light; repeat for moderate and low light if safely
+available. Account for different field of view, pixel area/binning, aperture and
+sensor size. These optical properties are currently unknown; different image
+brightness alone does not quantify them. Front exposure time depends on an
+inferred line clock, so compare reported timing with measured frame cadence.
+
+Check `cam --camera "$IDX" --list-controls` first. The v0.7.2 simple IPA's
+AGC continuously drives exposure/gain and may not offer manual AE or AWB. Do
+not race V4L2 writes against it. If fixed common settings cannot be requested,
+report that limitation and have the image owner supply an isolated diagnostic
+capture path that disables the AGC loop and records requested **and applied**
+controls while preserving the LED gate. Then compare unsaturated RAW responses
+to safe, driver-supported exposure and gain steps, with a stable scene and
+latency/readback. Never increase a sensor limit, frame length or exposure cap,
+or invert/remap gains, merely to brighten the front.
+
+### 4. Private per-sensor AGC A/B, after baseline measurements
+
+The image owner prepares a separately named private experimental libcamera IPA
+using [the optional-target patch](userspace/quality/libcamera-sp11-rev25-agc-experiment.patch)
+on the exact Fedora 0.7.2 RPM source, plus both existing SP11 patches. Preserve
+all rev24 kernel/DT, helper, AWB/CCM/gamma, source YAML, blob, package and LED
+behavior. Build and identify the IPA with matching signing/proxy provenance;
+retain the unmodified RPM for rollback. Do not replace the production IPA.
+
+On the private image build host run:
+
+```sh
+python3 hardware/cameras/userspace/quality/prepare-rev25-agc.py \
+  --output-dir out/firmware-private/cameras/rev25-agc-ab
+```
+
+The new directory contains a manifest and separately named
+`imx681-rev25-agc-2.5/simple/imx681.yaml` and
+`imx681-rev25-agc-3.5/simple/imx681.yaml`; the second has exactly one extra
+AGC target key. Keep both private. Verify their hashes and parse with the
+Fedora libcamera YAML parser; do not substitute a different baseline. Put the
+chosen variant root on the device as `$VARIANT_ROOT`. With other clients closed,
+select the front ID and test both roots using the **same patched IPA**:
+
+```sh
+env -u LIBCAMERA_SIMPLE_TUNING_FILE \
+  LIBCAMERA_IPA_CONFIG_PATH="$VARIANT_ROOT" \
+  LIBCAMERA_LOG_LEVELS='*:INFO,IPASoftExposure:DEBUG' \
+  cam --camera "$FRONT" --capture=120 --metadata
+```
+
+Verify `IPAProxy` prints that root's `simple/imx681.yaml` and
+`IPASoftExposure` prints target 2.5 or 3.5. Its rear lookup must continue to the
+original rear YAML. For Snapshot, use the same environment only in a separate
+private safe WirePlumber test instance and verify the actually loaded path;
+changing a terminal's environment does not change an already running service.
+Compare steady-scene convergence, actual exposure/gain, RAW/processed signal,
+noise, highlight clipping and LED for both targets. A brighter but clipped or
+noisier image is not an automatic pass. Separately confirm rear remains at 2.5.
+Retain original private tuning and remove the experimental instance after test.
+
+## Rev24 one-variable matrix (historical reset isolation, GPU owner)
+
+This pre-result matrix is retained for the GPU owner's reset investigation; rev24 already includes 0024/0025 and streams both sensors in safe. Do not change the safe baseline to re-run historical camera candidates for quality work. The control is the exact rev23 image, kernel, DTB, private blob and tuning, with their full hashes and build IDs recorded. Rev23 includes the BW-vote backport and safe softpipe candidate; rev22 has neither, so it is a historical control, not a one-variable rev24 comparison. Each row below is a separate boot where stated; close camera clients, identify the sensor by `cam -l` rather than its index, verify observer/physical LED and all prerequisites below, and persist markers/live logs externally. Do not stream without the observed LED gate. An operator must stop immediately on an unlit LED, fault, stall or reset; no automatic retry. Never test IR or flash. See [reference and candidates](evidence/2026-11-03-rev24-reference-comparison.md).
 
 | Order | Boot and single controlled action | Required outcome/evidence |
 |:--|:--|:--|

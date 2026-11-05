@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Build a LOCAL libcamera RPM from Fedora's own libcamera source package (0.7.2) plus the cameras owner's two patches
-# (hardware/cameras/userspace/quality/libcamera-sp11.patch, then libcamera-sp11-imx681-helper.patch). Outputs stay under out/rpms-local/.
+# Build a LOCAL libcamera RPM from Fedora's own libcamera source package (0.7.2) plus the cameras owner's patches
+# (libcamera-sp11.patch, libcamera-sp11-imx681-helper.patch, the rev25 AGC experiment, the rear-rotate candidate and
+# the AWB per-sensor gain limits). Outputs stay under out/rpms-local/.
 # The release carries ".sp11" so it sorts above Fedora's "2.fc44" and a Fedora update cannot replace it silently.
 set -euo pipefail
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -16,11 +17,11 @@ srpm=$(ls dl/libcamera-0.7.2-*.src.rpm)
 rpm -ivh --define "_topdir $work" "$srpm" >/dev/null
 spec=SPECS/libcamera.spec
 q=/sp11/hardware/cameras/userspace/quality
-cp "$q/libcamera-sp11.patch" "$q/libcamera-sp11-imx681-helper.patch" SOURCES/
+cp "$q/libcamera-sp11.patch" "$q/libcamera-sp11-imx681-helper.patch" "$q/libcamera-sp11-rev25-agc-experiment.patch" "$q/libcamera-sp11-rear-rotate180-candidate.patch" "$q/libcamera-sp11-awb-fixed-gains.patch" SOURCES/
 grep -q '^%autosetup' "$spec" || { echo "spec has no %autosetup; cannot add patches" >&2; exit 1; }
 grep -qE '^Release:[[:space:]]+[0-9]+%\{\?dist\}' "$spec" || { echo "unexpected Release line" >&2; grep -n '^Release' "$spec" >&2; exit 1; }
 lastsrc=$(grep -nE '^(Source|Patch)[0-9]*:' "$spec" | tail -n1 | cut -d: -f1)
-sed -i "${lastsrc}a Patch9001: libcamera-sp11.patch\nPatch9002: libcamera-sp11-imx681-helper.patch" "$spec"
+sed -i "${lastsrc}a Patch9001: libcamera-sp11.patch\nPatch9002: libcamera-sp11-imx681-helper.patch\nPatch9003: libcamera-sp11-rev25-agc-experiment.patch\nPatch9004: libcamera-sp11-rear-rotate180-candidate.patch\nPatch9005: libcamera-sp11-awb-fixed-gains.patch" "$spec"
 sed -i -E 's/^(Release:[[:space:]]+[0-9]+)%\{\?dist\}/\1.sp11%{?dist}/' "$spec"
 dnf -y --setopt=install_weak_deps=False builddep "$spec" >builddep.log 2>&1 || { tail -n 30 builddep.log; exit 1; }
 rpmbuild --define "_topdir $work" --define '_smp_mflags -j6' -ba "$spec" >build.log 2>&1 || { tail -n 60 build.log; exit 1; }
@@ -33,7 +34,7 @@ import hashlib, json, pathlib, sys
 work, out, srpm = map(pathlib.Path, sys.argv[1:4])
 d = lambda p: hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest()
 rec = {'fedora_source_rpm': srpm.name, 'fedora_source_rpm_sha256': d(srpm),
-       'patches': {p: d(work / 'SOURCES' / p) for p in ('libcamera-sp11.patch', 'libcamera-sp11-imx681-helper.patch')},
+       'patches': {p: d(work / 'SOURCES' / p) for p in ('libcamera-sp11.patch', 'libcamera-sp11-imx681-helper.patch', 'libcamera-sp11-rev25-agc-experiment.patch', 'libcamera-sp11-rear-rotate180-candidate.patch', 'libcamera-sp11-awb-fixed-gains.patch')},
        'rpms': {p.name: d(p) for p in sorted(out.glob('*.rpm'))}}
 (out / 'libcamera-sp11-build.json').write_text(json.dumps(rec, indent=1) + '\n')
 print(len(rec['rpms']), 'rpms')

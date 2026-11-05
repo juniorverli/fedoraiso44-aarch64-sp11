@@ -1,0 +1,353 @@
+Subject: [PATCH CANDIDATE] simple: rotate the SP11 rear processed CPU stream
+
+Candidate for libcamera v0.7.2; requires rear DT rotation = <180>.
+The exact OV13858 path and model plus mounting metadata select CPU SoftISP.
+Only a single processed stream requested upright is rotated, and its
+negotiated orientation is upright. RAW and mixed requests remain native;
+sensor transforms, if available, take precedence. The front is unchanged.
+No private tuning or hardware register is included. Test on the safe entry
+with an asymmetric target before promotion. See the camera test plan.
+
+---
+--- a/src/libcamera/pipeline/simple/simple.cpp
++++ b/src/libcamera/pipeline/simple/simple.cpp
+@@ -47,6 +47,8 @@
+ #include "libcamera/internal/software_isp/software_isp.h"
+ #include "libcamera/internal/v4l2_subdevice.h"
+ #include "libcamera/internal/v4l2_videodevice.h"
++
++#include "../../software_isp/sp11_rotation_policy.h"
+ 
+ namespace libcamera {
+ 
+@@ -387,6 +389,7 @@
+ 	}
+ 
+ 	bool needConversion() const { return needConversion_; }
++	bool softwareRotate180() const { return softwareRotate180_; }
+ 	const Transform &combinedTransform() const { return combinedTransform_; }
+ 
+ private:
+@@ -403,6 +406,7 @@
+ 
+ 	const SimpleCameraData::Configuration *pipeConfig_;
+ 	bool needConversion_;
++	bool softwareRotate180_;
+ 	Transform combinedTransform_;
+ };
+ 
+@@ -1143,8 +1147,7 @@
+ 
+ 	Orientation requestedOrientation = orientation;
+ 	combinedTransform_ = sensor->computeTransform(&orientation);
+-	if (orientation != requestedOrientation)
+-		status = Adjusted;
++	softwareRotate180_ = false;
+ 
+ 	/* Cap the number of entries to the available streams. */
+ 	if (config_.size() > data_->streams_.size()) {
+@@ -1182,6 +1185,23 @@
+ 			<< "Camera configuration with multiple raw streams not supported";
+ 		return Invalid;
+ 	}
++
++	/*
++	 * SP11 candidate: only a single processed stream can be rotated in the
++	 * CPU SoftISP. RAW and mixed configurations keep the native orientation,
++	 * so all buffers in a request agree with the advertised orientation.
++	 * A sensor transform, if ever available, remains the preferred path.
++	 */
++	if (sp11UseRearRotation(data_->swIsp_ && data_->swIsp_->canRotateSp11Rear180(),
++				!!data_->converter_, config_.size(), rawCount,
++				requestedOrientation == Orientation::Rotate0,
++				orientation == Orientation::Rotate180,
++				combinedTransform_ == Transform::Identity)) {
++		orientation = requestedOrientation;
++		softwareRotate180_ = true;
++	}
++	if (orientation != requestedOrientation)
++		status = Adjusted;
+ 
+ 	/*
+ 	 * Find the best configuration for the pipeline using a heuristic.
+@@ -1261,7 +1281,7 @@
+ 	 * require any conversion, similar to raw capture use cases). This is
+ 	 * left as a future improvement.
+ 	 */
+-	needConversion_ = config_.size() > 1 + rawCount;
++	needConversion_ = config_.size() > 1 + rawCount || softwareRotate180_;
+ 
+ 	for (unsigned int i = 0; i < config_.size(); ++i) {
+ 		StreamConfiguration &cfg = config_[i];
+@@ -1605,7 +1625,8 @@
+ 	} else {
+ 		ipa::soft::IPAConfigInfo configInfo;
+ 		configInfo.sensorControls = data->sensor_->controls();
+-		return data->swIsp_->configure(inputCfg, outputCfgs, configInfo);
++		return data->swIsp_->configure(inputCfg, outputCfgs, configInfo,
++					       config->softwareRotate180());
+ 	}
+ }
+ 
+--- a/include/libcamera/internal/software_isp/software_isp.h
++++ b/include/libcamera/internal/software_isp/software_isp.h
+@@ -54,6 +54,7 @@
+ 	int loadConfiguration([[maybe_unused]] const std::string &filename) { return 0; }
+ 
+ 	bool isValid() const;
++	bool canRotateSp11Rear180() const;
+ 
+ 	std::vector<PixelFormat> formats(PixelFormat input);
+ 
+@@ -65,7 +66,8 @@
+ 
+ 	int configure(const StreamConfiguration &inputCfg,
+ 		      const std::vector<std::reference_wrapper<const StreamConfiguration>> &outputCfgs,
+-		      const ipa::soft::IPAConfigInfo &configInfo);
++		      const ipa::soft::IPAConfigInfo &configInfo,
++		      bool rotate180);
+ 
+ 	int exportBuffers(const Stream *stream, unsigned int count,
+ 			  std::vector<std::unique_ptr<FrameBuffer>> *buffers);
+@@ -94,6 +96,7 @@
+ 	void statsReady(uint32_t frame, uint32_t bufferId);
+ 	void inputReady(FrameBuffer *input);
+ 	void outputReady(FrameBuffer *output);
++	bool sp11Rear_;
+ 	std::unique_ptr<Debayer> debayer_;
+ 	Thread ispWorkerThread_;
+ 	SharedMemObject<DebayerParams> sharedParams_;
+--- a/src/libcamera/software_isp/software_isp.cpp
++++ b/src/libcamera/software_isp/software_isp.cpp
+@@ -28,6 +28,7 @@
+ #include "libcamera/internal/software_isp/debayer_params.h"
+ 
+ #include "debayer_cpu.h"
++#include "sp11_rotation_policy.h"
+ #if HAVE_DEBAYER_EGL
+ #include "debayer_egl.h"
+ #endif
+@@ -81,7 +82,9 @@
+  */
+ SoftwareIsp::SoftwareIsp(PipelineHandler *pipe, const CameraSensor *sensor,
+ 			 ControlInfoMap *ipaControls)
+-	: ispWorkerThread_("SWIspWorker"),
++	: sp11Rear_(sp11IsRearRotationCandidate(sensor->id(), sensor->model(),
++						 sensor->mountingOrientation() == Orientation::Rotate180)),
++	  ispWorkerThread_("SWIspWorker"),
+ 	  dmaHeap_(DmaBufAllocator::DmaBufAllocatorFlag::CmaHeap |
+ 		   DmaBufAllocator::DmaBufAllocatorFlag::SystemHeap |
+ 		   DmaBufAllocator::DmaBufAllocatorFlag::UDmaBuf)
+@@ -119,7 +122,7 @@
+ 		}
+ 	}
+ 
+-	if (!softISPMode || softISPMode == "gpu") {
++	if (!sp11Rear_ && (!softISPMode || softISPMode == "gpu")) {
+ 		if (eGL::isAvailable()) {
+ 			debayer_ = std::make_unique<DebayerEGL>(std::move(stats), cm);
+ 		} else {
+@@ -129,8 +132,11 @@
+ 	}
+ 
+ #endif
+-	if (!debayer_)
++	if (!debayer_) {
++		if (sp11Rear_)
++			LOG(SoftwareIsp, Info) << "SP11 rear rotation candidate: CPU SoftISP";
+ 		debayer_ = std::make_unique<DebayerCpu>(std::move(stats), cm);
++	}
+ 
+ 	debayer_->inputBufferReady.connect(this, &SoftwareIsp::inputReady);
+ 	debayer_->outputBufferReady.connect(this, &SoftwareIsp::outputReady);
+@@ -221,6 +227,11 @@
+ 	return !!debayer_;
+ }
+ 
++bool SoftwareIsp::canRotateSp11Rear180() const
++{
++	return sp11Rear_ && debayer_ && debayer_->supportsRotation180();
++}
++
+ /**
+   * \brief Get the output formats supported for the given input format
+   * \param[in] inputFormat The input format
+@@ -284,9 +295,17 @@
+  */
+ int SoftwareIsp::configure(const StreamConfiguration &inputCfg,
+ 			   const std::vector<std::reference_wrapper<const StreamConfiguration>> &outputCfgs,
+-			   const ipa::soft::IPAConfigInfo &configInfo)
++			   const ipa::soft::IPAConfigInfo &configInfo,
++			   bool rotate180)
+ {
+ 	ASSERT(ipa_ && debayer_);
++
++	if ((rotate180 && !canRotateSp11Rear180()) ||
++	    !debayer_->setRotation180(rotate180))
++		return -EINVAL;
++	if (sp11Rear_)
++		LOG(SoftwareIsp, Info) << "SP11 rear processed 180 rotation "
++				       << (rotate180 ? "enabled" : "disabled");
+ 
+ 	int ret = ipa_->configure(configInfo);
+ 	if (ret < 0)
+--- a/src/libcamera/software_isp/debayer.h
++++ b/src/libcamera/software_isp/debayer.h
+@@ -49,6 +49,8 @@
+ 	virtual uint32_t preferredInputStride([[maybe_unused]] const PixelFormat &inputFormat, [[maybe_unused]] const Size &size) { return 0; }
+ 
+ 	virtual void process(uint32_t frame, FrameBuffer *input, FrameBuffer *output, const DebayerParams &params) = 0;
++	virtual bool supportsRotation180() const { return false; }
++	virtual bool setRotation180(bool enabled) { return !enabled; }
+ 	virtual int start() { return 0; }
+ 	virtual void stop() {}
+ 
+--- a/src/libcamera/software_isp/debayer_cpu.h
++++ b/src/libcamera/software_isp/debayer_cpu.h
+@@ -43,6 +43,8 @@
+ 	std::tuple<unsigned int, unsigned int>
+ 	strideAndFrameSize(const PixelFormat &outputFormat, const Size &size) override;
+ 	void process(uint32_t frame, FrameBuffer *input, FrameBuffer *output, const DebayerParams &params) override;
++	bool supportsRotation180() const override { return true; }
++	bool setRotation180(bool enabled) override { rotate180_ = enabled; return true; }
+ 	int start() override;
+ 	void stop() override;
+ 	SizeRange sizes(PixelFormat inputFormat, const Size &inputSize) override;
+@@ -147,6 +149,7 @@
+ 	std::array<double, kGammaLookupSize> gammaTable_;
+ 	LookupTable gammaLut_;
+ 	bool ccmEnabled_;
++	bool rotate180_ = false;
+ 	DebayerParams params_;
+ 
+ 	debayerFn debayer0_;
+--- a/src/libcamera/software_isp/debayer_cpu.cpp
++++ b/src/libcamera/software_isp/debayer_cpu.cpp
+@@ -10,6 +10,7 @@
+  */
+ 
+ #include "debayer_cpu.h"
++#include "sp11_rotate180.h"
+ 
+ #include <algorithm>
+ #include <stdlib.h>
+@@ -668,6 +669,8 @@
+ 	}
+ 
+ 	const StreamConfiguration &outputCfg = outputCfgs[0];
++	if (getOutputConfig(outputCfg.pixelFormat, outputConfig_) != 0)
++		return -EINVAL;
+ 	SizeRange outSizeRange = sizes(inputCfg.pixelFormat, inputCfg.size);
+ 	std::tie(outputConfig_.stride, outputConfig_.frameSize) =
+ 		strideAndFrameSize(outputCfg.pixelFormat, outputCfg.size);
+@@ -1071,7 +1074,14 @@
+ 
+ 	std::vector<DmaSyncer> dmaSyncers;
+ 
+-	dmaSyncBegin(dmaSyncers, input, output);
++	if (rotate180_) {
++		for (const FrameBuffer::Plane &plane : input->planes())
++			dmaSyncers.emplace_back(plane.fd, DmaSyncer::SyncType::Read);
++		for (const FrameBuffer::Plane &plane : output->planes())
++			dmaSyncers.emplace_back(plane.fd, DmaSyncer::SyncType::ReadWrite);
++	} else {
++		dmaSyncBegin(dmaSyncers, input, output);
++	}
+ 
+ 	updateLookupTables(params);
+ 
+@@ -1082,7 +1092,8 @@
+ 	metadata.timestamp = input->metadata().timestamp;
+ 
+ 	MappedFrameBuffer in(input, MappedFrameBuffer::MapFlag::Read);
+-	MappedFrameBuffer out(output, MappedFrameBuffer::MapFlag::Write);
++	MappedFrameBuffer out(output, rotate180_ ? MappedFrameBuffer::MapFlag::ReadWrite
++					     : MappedFrameBuffer::MapFlag::Write);
+ 	if (!in.isValid() || !out.isValid()) {
+ 		LOG(Debayer, Error) << "mmap-ing buffer(s) failed";
+ 		metadata.status = FrameMetadata::FrameError;
+@@ -1107,7 +1118,16 @@
+ 		});
+ 	}
+ 
+-	metadata.planes()[0].bytesused = out.planes()[0].size();
++	if (rotate180_ &&
++	    !sp11Rotate180(out.planes()[0].data(), out.planes()[0].size(),
++			   window_.width, window_.height, outputConfig_.stride,
++			   outputConfig_.bpp / 8)) {
++		LOG(Debayer, Error) << "SP11 rotation rejected invalid output buffer";
++		metadata.status = FrameMetadata::FrameError;
++		metadata.planes()[0].bytesused = 0;
++	} else {
++		metadata.planes()[0].bytesused = out.planes()[0].size();
++	}
+ 
+ 	dmaSyncers.clear();
+ 
+--- /dev/null
++++ b/src/libcamera/software_isp/sp11_rotate180.h
+@@ -0,0 +1,36 @@
++/* SPDX-License-Identifier: LGPL-2.1-or-later */
++#pragma once
++
++#include <algorithm>
++#include <cstddef>
++#include <cstdint>
++
++namespace libcamera {
++
++/* Rotate packed RGB/BGR pixels in place without moving row padding. */
++inline bool sp11Rotate180(uint8_t *data, std::size_t length,
++			  std::size_t width, std::size_t height,
++			  std::size_t stride, std::size_t pixelBytes)
++{
++	if (!data || !width || !height || !stride ||
++	    (pixelBytes != 3 && pixelBytes != 4) ||
++	    width > stride / pixelBytes || height > length / stride)
++		return false;
++
++	auto swapPixel = [data, pixelBytes](std::size_t a, std::size_t b) {
++		for (std::size_t c = 0; c < pixelBytes; ++c)
++			std::swap(data[a + c], data[b + c]);
++	};
++	for (std::size_t y = 0; y < height / 2; ++y)
++		for (std::size_t x = 0; x < width; ++x)
++			swapPixel(y * stride + x * pixelBytes,
++				  (height - 1 - y) * stride + (width - 1 - x) * pixelBytes);
++	if (height % 2) {
++		const std::size_t row = (height / 2) * stride;
++		for (std::size_t x = 0; x < width / 2; ++x)
++			swapPixel(row + x * pixelBytes, row + (width - 1 - x) * pixelBytes);
++	}
++	return true;
++}
++
++} /* namespace libcamera */
+--- /dev/null
++++ b/src/libcamera/software_isp/sp11_rotation_policy.h
+@@ -0,0 +1,25 @@
++/* SPDX-License-Identifier: LGPL-2.1-or-later */
++#pragma once
++
++#include <cstddef>
++#include <string_view>
++
++namespace libcamera {
++
++inline bool sp11IsRearRotationCandidate(std::string_view id, std::string_view model,
++					bool mounted180)
++{
++	return id == "/base/soc@0/cci@ac15000/i2c-bus@1/camera@10" &&
++	       model == "ov13858" && mounted180;
++}
++
++inline bool sp11UseRearRotation(bool eligibleCpu, bool hasConverter,
++				std::size_t streams, unsigned int rawStreams,
++				bool requestedUpright, bool native180,
++				bool sensorTransformIdentity)
++{
++	return eligibleCpu && !hasConverter && streams == 1 && rawStreams == 0 &&
++	       requestedUpright && native180 && sensorTransformIdentity;
++}
++
++} /* namespace libcamera */
