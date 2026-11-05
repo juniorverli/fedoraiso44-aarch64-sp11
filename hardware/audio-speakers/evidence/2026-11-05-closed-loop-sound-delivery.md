@@ -173,6 +173,6 @@ platform sound card's Speaker sink and Mic source by name and skips any node
 named MultiMedia5; it changes no volume, mute or route and logs each choice.
 
 `sp11-audio-check` is the manual report: entry, guard file, PipeWire status,
-sink volume and the last wm8962/sp11 kernel lines. With `--tone` it plays one
+sink volume and the last wsa884x/sp11 kernel lines. With `--tone` it plays one
 0.5 s low-level 440 Hz tone and prints the guard again, so a sound test needs no
 browser or video. Nothing runs automatically and no mixer value is written.
