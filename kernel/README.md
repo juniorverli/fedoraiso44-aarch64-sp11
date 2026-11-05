@@ -94,6 +94,25 @@ The RPM release carries the series revision through Fedora's `buildid`: `65.sp11
 
 ### DTB variants (diagnostic, DT-only)
 
+
+### Integration branch (`sp11/rev25`)
+
+The kernel changes are committed twice, from the same content:
+
+- `kernel/series` + `kernel/patches/` and the component `patches/` directories are the
+  **build input** (Fedora `kernel.spec` applies them with `patch --fuzz=0`);
+- the branch `sp11/rev25` in `sources/linux` (origin `juniorverli/sp11-linux`) holds one
+  commit per series patch on top of the pinned `v7.3` commit. It is the reviewable mirror
+  and is published on GitHub.
+
+`scripts/kernel-series-branch-check.sh` applies the series to the pinned base in a
+temporary worktree and requires the result to equal the branch; `scripts/kernel-check`
+runs it as a gate. After a `git clone`, fetch the branch once:
+
+    git -C sources/linux fetch origin sp11/rev25
+
+A series change must be mirrored as a commit on the branch (and vice versa) before a build.
+
 `scripts/kernel-dtb-variants.sh [KVER]` builds the diagnostic variants with `scripts/kernel-dev.sh` in dev kernel trees into `out/dtb-variants/<kver>/qcom/`, each with a `.json` record (source commit, patches applied, overlay sha256, sha256). The directory follows the RPM kver (`7.3.0-65.sp11.3.fc44.aarch64`). The image worker ships them as extra DTBs.
 
 | File | Content |

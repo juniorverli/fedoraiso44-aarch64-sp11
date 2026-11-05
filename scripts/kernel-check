@@ -24,6 +24,8 @@ CK="$KERNEL_BUILD_DIR/check"
 rm -rf "$CK"; mkdir -p "$CK/root"
 RPMDIR="$TOPDIR/RPMS/aarch64"
 kernel_series_check
+# The series is the packaging input; the pushed branch is its reviewable mirror.
+"$KERNEL_REPO/scripts/kernel-series-branch-check.sh" >/dev/null || die "kernel/series and the integration branch differ (or the branch is missing in sources/linux)"
 core="$RPMDIR/kernel-core-$KERNEL_KVER.rpm"
 [[ -f $core ]] || die "no $core: the build tree has no RPMs for series_rev $KERNEL_SERIES_REV (expected kver $KERNEL_KVER)"
 nevra=$(rpm -qp --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}' "$RPMDIR/kernel-$KERNEL_KVER.rpm")
