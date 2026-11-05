@@ -1,0 +1,242 @@
+From: Audio speakers <audio-speakers@localhost>
+Subject: [PATCH candidate] ASoC: qcom: consume the VI calibration events
+
+The Windows ACDB driver parses two DSP custom events (REA 2026-11-05,
+qcadcm8380.sys FUN_140083d00):
+
+  EVENT_ID_VI_CALIBRATION (0x0800119f)
+      [num_ch][state][R0_ch0]...[R0_chN], state 4 = success, 5 = failure
+      (ParseAndSendSpeakerProtectionCalibPayload)
+  EVENT_ID_VI_PER_SPKR_CALIBRATION (0x08001511)
+      [num_ch][state_0][R0_0][state_1][R0_1]..., per-channel state
+      (ParseAndSendSpeakerProtectionPerSpkrCalibPayload)
+
+Register both next to the SP diagnostics event, route them from q6apm and
+accept a successful event as a measured (non-nominal) calibration through the
+guard's existing generation path. Graph identity, caps, the CPS policy and the
+fault latch still gate unmute, and an invalid or malformed event changes
+nothing, so the guard stays fail-closed without a valid measurement.
+
+R0 is Q24, matching the registry R0CalQ24 value Windows reads.
+
+Assisted-by: Claude Code
+---
+--- a/include/sound/sp11-guard.h
++++ b/include/sound/sp11-guard.h
+@@ -51,6 +51,7 @@
+ void sp11_guard_sp_enabled(bool enabled);
+ void sp11_guard_diagnostics_degraded(bool degraded);
+ void sp11_guard_fault(const char *src, u32 code);
++void sp11_guard_vi_calibration(const void *graph, unsigned int ch_mask, bool valid);
+ void sp11_guard_set_mute(void (*mute)(void *data), void *data);
+ void sp11_guard_clear_mute(void *data);
+ 
+@@ -76,6 +77,7 @@
+ static inline void sp11_guard_sp_enabled(bool enabled) { }
+ static inline void sp11_guard_diagnostics_degraded(bool degraded) { }
+ static inline void sp11_guard_fault(const char *src, u32 code) { }
++static inline void sp11_guard_vi_calibration(const void *graph, unsigned int ch_mask, bool valid) { }
+ static inline void sp11_guard_set_mute(void (*mute)(void *data), void *data) { }
+ static inline void sp11_guard_clear_mute(void *data) { }
+ static inline bool sp11_guard_faulted(void) { return true; }
+--- a/sound/soc/qcom/sp11-guard.c
++++ b/sound/soc/qcom/sp11-guard.c
+@@ -270,6 +270,31 @@
+ }
+ EXPORT_SYMBOL_GPL(sp11_guard_stream);
+ 
++/*
++ * Measured VI calibration reported by the DSP (EVENT_ID_VI_CALIBRATION and
++ * EVENT_ID_VI_PER_SPKR_CALIBRATION). The payload layouts are taken from the
++ * Windows ACDB driver's parser (REA 2026-11-05): a count, a state where 4
++ * means success, and one R0 (Q24) per channel. A valid event is accepted as a
++ * measured (non-nominal) calibration through the existing generation path;
++ * graph identity, caps, CPS policy and the fault latch still gate unmute.
++ * An invalid event changes nothing.
++ */
++void sp11_guard_vi_calibration(const void *graph, unsigned int ch_mask, bool valid)
++{
++	u64 generation;
++
++	if (!valid || !graph || !(ch_mask & SP11_CAL_ALL_MASK))
++		return;
++	generation = sp11_guard_calibration_begin(graph);
++	if (!generation || !sp11_guard_calibrated(generation, ch_mask & SP11_CAL_ALL_MASK, false)) {
++		pr_warn("sp11-guard: measured VI calibration rejected (graph or generation)\n");
++		return;
++	}
++	pr_info("sp11-guard: measured VI calibration accepted, mask 0x%x\n",
++		ch_mask & SP11_CAL_ALL_MASK);
++}
++EXPORT_SYMBOL_GPL(sp11_guard_vi_calibration);
++
+ void sp11_guard_calibration_reset(void)
+ {
+ 	unsigned long flags;
+@@ -487,6 +512,7 @@
+ 		   guard.caps_ready);
+ 	seq_printf(s, "degraded_fault: %d\n", sp11_guard_degraded_fault());
+ 	seq_printf(s, "cal_mask: 0x%x\ncal_nominal: %d\n", guard.cal_mask, guard.cal_nominal);
++	seq_printf(s, "cal_source: %s\n", guard.cal_mask ? "measured-or-file" : "none");
+ 	seq_printf(s, "cal_graph_matches_vi: %d\nvi_ambiguous: %d\n",
+ 		   sp11_guard_cal_matches_vi(), guard.vi_ambiguous);
+ 	seq_printf(s, "fault: %d (%s, 0x%08x)\nnospk: %d\nallow_nominal: %d\n",
+--- a/sound/soc/qcom/qdsp6/audioreach.h
++++ b/sound/soc/qcom/qdsp6/audioreach.h
+@@ -1081,6 +1081,8 @@
+ 
+ /* Closed-loop speaker protection (audioreach-sp11.c) */
+ #define EVENT_ID_SP_DIAGNOSTICS		0x0800138c
++#define EVENT_ID_VI_CALIBRATION		0x0800119f
++#define EVENT_ID_VI_PER_SPKR_CALIBRATION	0x08001511
+ #define PARAM_ID_SP_TH_VI_R0T0_CFG	0x080011f5
+ 
+ int audioreach_sp11_load(struct device *dev, const char *driver_name, const char *card_name);
+@@ -1091,6 +1093,7 @@
+ 				 const struct audioreach_module *module);
+ int audioreach_sp11_register_events(struct q6apm_graph *graph,
+ 				    const struct audioreach_module *module);
+-void audioreach_sp11_event(struct device *dev, u32 event_id, const void *payload, u32 size);
++void audioreach_sp11_event(struct device *dev, struct q6apm_graph *graph, u32 event_id,
++			   const void *payload, u32 size);
+ void audioreach_sp11_graph_state(struct q6apm_graph *graph, bool started);
+ #endif /* __AUDIOREACH_H__ */
+--- a/sound/soc/qcom/qdsp6/audioreach-sp11.c
++++ b/sound/soc/qcom/qdsp6/audioreach-sp11.c
+@@ -483,8 +483,9 @@
+ 	return ret;
+ }
+ 
+-int audioreach_sp11_register_events(struct q6apm_graph *graph,
+-				    const struct audioreach_module *module)
++static int sp11_register_one_event(struct q6apm_graph *graph,
++				   const struct audioreach_module *module,
++				   u32 event_id)
+ {
+ 	struct apm_module_register_events *event;
+ 	void *p;
+@@ -498,24 +499,109 @@
+ 	p = (void *)pkt + GPR_HDR_SIZE + APM_CMD_HDR_SIZE;
+ 	event = p;
+ 	event->module_instance_id = module->instance_id;
+-	event->event_id = EVENT_ID_SP_DIAGNOSTICS;
++	event->event_id = event_id;
+ 	event->is_register = 1;
+ 	event->event_config_payload_size = 0;
+ 
+ 	return audioreach_graph_send_cmd_sync(graph, pkt, 0);
+ }
+ 
++int audioreach_sp11_register_events(struct q6apm_graph *graph,
++				    const struct audioreach_module *module)
++{
++	int ret;
++
++	ret = sp11_register_one_event(graph, module, EVENT_ID_SP_DIAGNOSTICS);
++	if (ret)
++		return ret;
++	ret = sp11_register_one_event(graph, module, EVENT_ID_VI_CALIBRATION);
++	if (ret)
++		return ret;
++	/*
++	 * The DSP reports the measured R0 through these two events; the layouts
++	 * are the ones the Windows ACDB driver parses (REA 2026-11-05).
++	 */
++	return sp11_register_one_event(graph, module, EVENT_ID_VI_PER_SPKR_CALIBRATION);
++}
++
++#define SP11_CALIB_SUCCESS 4
++
++/*
++ * Aggregate VI calibration: [num_ch][state][R0_ch0]...[R0_chN], state 4 =
++ * success, 5 = failure (Windows ParseAndSendSpeakerProtectionCalibPayload).
++ */
++static void sp11_vi_calibration_event(struct device *dev, struct q6apm_graph *graph,
++				      const void *payload, u32 size)
++{
++	const __le32 *w = payload;
++	unsigned int i, n, mask = 0;
++	u32 state;
++
++	if (size < 8)
++		return;
++	n = le32_to_cpu(w[0]);
++	state = le32_to_cpu(w[1]);
++	dev_info(dev, "VI calibration: count %u state %u\n", n, state);
++	if (n < 1 || n > 2 || state != SP11_CALIB_SUCCESS || size < (2 + n) * 4)
++		return;
++	for (i = 0; i < n; i++) {
++		u32 r0 = le32_to_cpu(w[2 + i]);
++
++		if (!r0)
++			continue;
++		dev_info(dev, "VI calibration ch %u R0 0x%08x\n", i, r0);
++		mask |= BIT(i);
++	}
++	sp11_guard_vi_calibration(graph, mask, mask != 0);
++}
++
++/*
++ * Per-speaker calibration: [num_ch][state_0][R0_0][state_1][R0_1]...
++ * (Windows ParseAndSendSpeakerProtectionPerSpkrCalibPayload).
++ */
++static void sp11_vi_per_spkr_calibration_event(struct device *dev, struct q6apm_graph *graph,
++					       const void *payload, u32 size)
++{
++	const __le32 *w = payload;
++	unsigned int i, n, mask = 0;
++
++	if (size < 4)
++		return;
++	n = le32_to_cpu(w[0]);
++	if (n < 1 || n > 2 || size < (1 + 2 * n) * 4)
++		return;
++	for (i = 0; i < n; i++) {
++		u32 state = le32_to_cpu(w[1 + 2 * i]);
++		u32 r0 = le32_to_cpu(w[2 + 2 * i]);
++
++		dev_info(dev, "VI calibration per speaker ch %u state %u R0 0x%08x\n",
++			 i, state, r0);
++		if (state == SP11_CALIB_SUCCESS && r0)
++			mask |= BIT(i);
++	}
++	sp11_guard_vi_calibration(graph, mask, mask != 0);
++}
++
+ /*
+  * The layout of the diagnostics payload is not known (Unknown in the dossier).
+  * Fail safe: any diagnostics event latches a fault, and the first words are
+  * logged so the first device test shows what the module reports.
+  */
+-void audioreach_sp11_event(struct device *dev, u32 event_id, const void *payload, u32 size)
++void audioreach_sp11_event(struct device *dev, struct q6apm_graph *graph, u32 event_id,
++			   const void *payload, u32 size)
+ {
+ 	const __le32 *w = payload;
+ 	u32 first = size >= sizeof(*w) ? le32_to_cpu(w[0]) : 0;
+ 	u32 second = size >= 2 * sizeof(*w) ? le32_to_cpu(w[1]) : 0;
+ 
++	if (event_id == EVENT_ID_VI_CALIBRATION) {
++		sp11_vi_calibration_event(dev, graph, payload, size);
++		return;
++	}
++	if (event_id == EVENT_ID_VI_PER_SPKR_CALIBRATION) {
++		sp11_vi_per_spkr_calibration_event(dev, graph, payload, size);
++		return;
++	}
+ 	if (event_id != EVENT_ID_SP_DIAGNOSTICS)
+ 		return;
+ 
+--- a/sound/soc/qcom/qdsp6/q6apm.c
++++ b/sound/soc/qcom/qdsp6/q6apm.c
+@@ -607,7 +607,9 @@
+ 			graph->cb(client_event, hdr->token, data->payload, graph->priv);
+ 			break;
+ 		case EVENT_ID_SP_DIAGNOSTICS:
+-			audioreach_sp11_event(dev, event->event_id, event + 1,
++		case EVENT_ID_VI_CALIBRATION:
++		case EVENT_ID_VI_PER_SPKR_CALIBRATION:
++			audioreach_sp11_event(dev, graph, event->event_id, event + 1,
+ 					      event->event_payload_size);
+ 			break;
+ 		}

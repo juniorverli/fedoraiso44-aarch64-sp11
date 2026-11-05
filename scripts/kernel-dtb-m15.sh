@@ -6,7 +6,7 @@ set -euo pipefail
 preflight=0
 if [[ ${1:-} == --preflight ]]; then preflight=1; shift; fi
 kver=${1:-$KERNEL_KVER}
-[[ ($KERNEL_SERIES_REV == 12 || $KERNEL_SERIES_REV == 13 || $KERNEL_SERIES_REV == 14 || $KERNEL_SERIES_REV == 15 || $KERNEL_SERIES_REV == 16 || $KERNEL_SERIES_REV == 17 || $KERNEL_SERIES_REV == 18 || $KERNEL_SERIES_REV == 19 || $KERNEL_SERIES_REV == 20 || $KERNEL_SERIES_REV == 21 || $KERNEL_SERIES_REV == 22 || $KERNEL_SERIES_REV == 23 || $KERNEL_SERIES_REV == 24 || $KERNEL_SERIES_REV == 25) && $kver == "$KERNEL_KVER" ]] || die 'M15/M16 requires series_rev 12 through 25 and $KERNEL_KVER'
+[[ ($KERNEL_SERIES_REV == 12 || $KERNEL_SERIES_REV == 13 || $KERNEL_SERIES_REV == 14 || $KERNEL_SERIES_REV == 15 || $KERNEL_SERIES_REV == 16 || $KERNEL_SERIES_REV == 17 || $KERNEL_SERIES_REV == 18 || $KERNEL_SERIES_REV == 19 || $KERNEL_SERIES_REV == 20 || $KERNEL_SERIES_REV == 21 || $KERNEL_SERIES_REV == 22 || $KERNEL_SERIES_REV == 23 || $KERNEL_SERIES_REV == 24 || $KERNEL_SERIES_REV == 25 || $KERNEL_SERIES_REV == 26 || $KERNEL_SERIES_REV == 27) && $kver == "$KERNEL_KVER" ]] || die 'M15/M16 requires series_rev 12 through 27 and $KERNEL_KVER'
 kernel_series_check
 src="$SP11_OUT/linux/m15"
 checks="$SP11_OUT/build/dtb-m15-checks"
@@ -45,7 +45,7 @@ while IFS= read -r p; do
 done < "$KERNEL_REPO/kernel/series"
 
 mkdir -p "$stage"
-cp "$KERNEL_REPO/kernel/dtb-variants/"x1p64100-microsoft-denali-{parity,m12,m15,m15-safe,m15-nosnd,m15-notouch,m15-spk,m15-spectra,m15-safe-cl,m15-safe-camrot}.dts "$stage/"
+cp "$KERNEL_REPO/kernel/dtb-variants/"x1p64100-microsoft-denali-{parity,m12,m15,m15-safe,m15-nosnd,m15-notouch,m15-spk,m15-spectra,m15-safe-cl,m15-safe-camrot,m15-cl}.dts "$stage/"
 m12dir="$SP11_OUT/dtb-variants/7.3.0-65.sp11.9.fc44.aarch64/qcom"
 for f in m12 m12-audio; do [[ -f $m12dir/x1p64100-microsoft-denali-$f.dtb ]] || die "missing M12 comparison DTB $f"; done
 # Preserve the historical parity source in git. New series already applies it;
@@ -79,8 +79,8 @@ canonical_source x1p64100-microsoft-denali
 
 # order matters: later variants use earlier source DTBs as baselines.
 #   variant       baseline (diff recorded; notouch must change only touch)   M12 DTB it must equal apart from disabled camera nodes
-declare -A baseline_of=( [m15-nosnd]="" [m15-safe]="" [m15]=m15-safe [m15-notouch]=m15-safe [m15-spk]="" [m15-spectra]=m15-safe [m15-safe-cl]=m15-safe [m15-safe-camrot]=m15-safe )
-declare -A m12_of=( [m15-nosnd]=m12 [m15-safe]="" [m15]="" [m15-notouch]="" [m15-spk]="" [m15-spectra]="" [m15-safe-cl]="" [m15-safe-camrot]="" )
+declare -A baseline_of=( [m15-nosnd]="" [m15-safe]="" [m15]=m15-safe [m15-notouch]=m15-safe [m15-spk]="" [m15-spectra]=m15-safe [m15-safe-cl]=m15-safe [m15-safe-camrot]=m15-safe [m15-cl]=m15 )
+declare -A m12_of=( [m15-nosnd]=m12 [m15-safe]="" [m15]="" [m15-notouch]="" [m15-spk]="" [m15-spectra]="" [m15-safe-cl]="" [m15-safe-camrot]="" [m15-cl]="" )
 # m15-spectra needs Qualcomm's hamoa-camera.dtsi (BSD-3-Clause) and msm-camera.h (GPL-2.0-only) in the kernel tree
 # include path. Both licences are GPL-2.0 compatible, so the unmodified files are kept in git under
 # hardware/cameras/spectra/dt/ (cameras worker; pinned by SOURCE.txt and SHA256SUMS) and copied into the scratch tree
@@ -93,7 +93,7 @@ install_spectra_inputs() {
   cp "$spectra_dt/qcl/hamoa-camera.dtsi" "$src/arch/arm64/boot/dts/qcom/"
   cp "$spectra_dt/include/dt-bindings/camera/msm-camera.h" "$src/include/dt-bindings/camera/"
 }
-for name in m15-nosnd m15-safe m15 m15-notouch m15-spk m15-spectra m15-safe-cl m15-safe-camrot; do
+for name in m15-nosnd m15-safe m15 m15-notouch m15-spk m15-spectra m15-safe-cl m15-safe-camrot m15-cl; do
   [[ $name != m15-spectra ]] || install_spectra_inputs
   full=x1p64100-microsoft-denali-$name
   rm -f "$SP11_OUT/build/dev-m15/arch/arm64/boot/dts/qcom/$full.dtb"
@@ -109,7 +109,7 @@ for name in m15-nosnd m15-safe m15 m15-notouch m15-spk m15-spectra m15-safe-cl m
   extra_args=()
   [[ -z ${m12_of[$name]} ]] || extra_args+=(--previous-m12 "$m12dir/x1p64100-microsoft-denali-${m12_of[$name]}.dtb")
   case $name in
-    m15-spk|m15|m15-safe|m15-notouch|m15-safe-cl|m15-safe-camrot) profile=d26 ;;
+    m15-spk|m15|m15-safe|m15-notouch|m15-safe-cl|m15-safe-camrot|m15-cl) profile=d26 ;;
     *) profile=default ;;
   esac
   "$KERNEL_REPO/scripts/kernel-container.sh" run bash -e -c '
@@ -120,7 +120,7 @@ for name in m15-nosnd m15-safe m15 m15-notouch m15-spk m15-spectra m15-safe-cl m
       python3 -I "$repo/scripts/kernel-dtb-spectra-lines.py" "$dtb" "$checks/x1p64100-microsoft-denali-m15-safe.source.dtb" \
         "$checks/$name.dt-validate.log" "$checks/$name.build.log" > "$checks/$name.spectra-lines.json"
     elif [ "$name" = m15-spk ] || [ "$name" = m15 ] || [ "$name" = m15-safe ] || [ "$name" = m15-notouch ] \
-      || [ "$name" = m15-safe-cl ] || [ "$name" = m15-safe-camrot ]; then
+      || [ "$name" = m15-safe-cl ] || [ "$name" = m15-safe-camrot ] || [ "$name" = m15-cl ]; then
       # The d26 marker has no binding: accept exactly its schema complaints, nothing else.
       ! grep -v "from schema" "$checks/$name.dt-validate.log" | grep -v "sp11,speaker-policy" | grep -q .
       grep -q "sp11,speaker-policy" "$checks/$name.dt-validate.log"
@@ -176,10 +176,11 @@ chain = {'m15-nosnd': (D + 'm12.dts', D + 'm15-nosnd.dts'),
          'm15-spk': (D + 'm12.dts', D + 'm15-spk.dts'),
          'm15-spectra': (D + 'm12.dts', D + 'm15-safe.dts', D + 'm15-spectra.dts'),
          'm15-safe-cl': (D + 'm12.dts', D + 'm15-safe.dts', D + 'm15-safe-cl.dts'),
-         'm15-safe-camrot': (D + 'm12.dts', D + 'm15-safe.dts', D + 'm15-safe-camrot.dts')}
+         'm15-safe-camrot': (D + 'm12.dts', D + 'm15-safe.dts', D + 'm15-safe-camrot.dts'),
+         'm15-cl': (D + 'm12.dts', D + 'm15-safe.dts', D + 'm15.dts', D + 'm15-cl.dts')}
 extra_sources = {}
 for name, previous in [('m15-nosnd', ''), ('m15-safe', ''), ('m15', '-m15-safe'), ('m15-notouch', '-m15-safe'), ('m15-spk', ''),
-                        ('m15-spectra', '-m15-safe'), ('m15-safe-cl', '-m15-safe'), ('m15-safe-camrot', '-m15-safe')]:
+                        ('m15-spectra', '-m15-safe'), ('m15-safe-cl', '-m15-safe'), ('m15-safe-camrot', '-m15-safe'), ('m15-cl', '-m15')]:
     full = f'x1p64100-microsoft-denali-{name}'
     before, after = canonical(previous), canonical('-' + name)
     diff = list(difflib.unified_diff(before, after, fromfile='packaged' if not previous else previous[1:],
@@ -189,7 +190,7 @@ for name, previous in [('m15-nosnd', ''), ('m15-safe', ''), ('m15', '-m15-safe')
     if name == 'm15-spectra':
         includes += ['hardware/cameras/spectra/dt/qcl/hamoa-camera.dtsi',
                      'hardware/cameras/spectra/dt/include/dt-bindings/camera/msm-camera.h']
-    profile = 'd26' if name in ('m15-spk', 'm15', 'm15-safe', 'm15-notouch', 'm15-safe-cl', 'm15-safe-camrot') else 'default'
+    profile = 'd26' if name in ('m15-spk', 'm15', 'm15-safe', 'm15-notouch', 'm15-safe-cl', 'm15-safe-camrot', 'm15-cl') else 'default'
     log = (checks / f'{name}.build.log').read_text()
     timing = re.search(r'kernel-dev: m15 variant .* took (\d+) s', log)
     warnings = len([l for l in log.splitlines() if l.startswith(('arch/arm64/boot/dts/qcom/' + full + '.dtb:', full + '.dtb:'))
@@ -214,7 +215,7 @@ for name, previous in [('m15-nosnd', ''), ('m15-safe', ''), ('m15', '-m15-safe')
         release_record=release_path, release_record_sha256=sha(Path(release_path)),
         build_seconds=int(timing[1]), dt_validate_warning_lines='0' if name != 'm15-spectra' else 'accepted Qualcomm lines only',
         checks=dict(dt_validate=dict(exit_code=0, diagnostic_lines=0 if name not in ('m15-spk', 'm15', 'm15-safe', 'm15-notouch', 'm15-spectra',
-                                                                                            'm15-safe-cl', 'm15-safe-camrot') else
+                                                                                            'm15-safe-cl', 'm15-safe-camrot', 'm15-cl') else
                                      'marker-only (sp11,speaker-policy has no binding)' if name in ('m15-spk', 'm15', 'm15-safe', 'm15-notouch',
                                                                                                      'm15-safe-cl', 'm15-safe-camrot') else 'Qualcomm qcom,cam-* nodes only'),
                     check_dtbs=dict(exit_code=0, diagnostic_lines=warnings, marker_only_diagnostic_lines=marker_lines),

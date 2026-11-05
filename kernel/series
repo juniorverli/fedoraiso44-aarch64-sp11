@@ -176,4 +176,5 @@ kernel/patches/0011-audio-speakers-guard-calibration-lifetime.patch
 kernel/patches/0024-ASoC-qcom-validate-calibration-flags-report-VI-identity.patch
 kernel/patches/0026-ASoC-qcom-propagate-graph-open-errors.patch
 kernel/patches/0027-ASoC-qcom-report-muted-speaker-graph-metadata.patch
+kernel/patches/0028-audio-speakers-consume-vi-calibration-event.patch
 hardware/cameras/patches/0026-candidate-arm64-dts-qcom-denali-rear-camera-rotation.patch
