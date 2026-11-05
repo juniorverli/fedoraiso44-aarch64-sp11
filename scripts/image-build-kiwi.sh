@@ -29,7 +29,8 @@ done
 
 id=${post_only:-$(date -u +%Y%m%dT%H%M%SZ)}
 kind=kiwi; [ "$smoke" = 1 ] && kind=kiwi-smoke
-name=${name_arg:-sp11-fedora44-aarch64-$kind-$id}
+rel=${SP11_FEDORA_RELEASE:-44}
+name=${name_arg:-sp11-fedora${rel}-aarch64-$kind-$id}
 if [ "$private" = 1 ]; then
 	case $name in *-private*) ;; *) name=$name-private ;; esac
 fi
@@ -107,14 +108,14 @@ log "kernel $kver_full (newer than $min, the only kernel NEVRA at the top level 
 	log "REFUSED: M15/M16 requires kernel revision 12 through 21 (7.3.0-65.sp11.*.fc44.aarch64), found $kver_full"; exit 6;
 }
 patch_series_sha=$( . "$REPO/scripts/kernel-common.sh"; kernel_series_hash )
-for v in m15 m15-safe m15-nosnd m15-notouch m15-spk m15-spectra m15-safe-camrot m15-safe-cl; do
+for v in m15 m15-safe m15-nosnd m15-notouch m15-spk m15-spectra m15-safe-camrot m15-safe-cl m15-cl; do
 	vsrc=$OUT/dtb-variants/$kver_full/qcom/x1p64100-microsoft-denali-$v
 	[ -s "$vsrc.dtb" ] && [ -s "$vsrc.json" ] || {
 		log "REFUSED: $v DTB and JSON not yet published by the kernel worker"; exit 6;
 	}
 	[ "$(sha256sum "$vsrc.dtb" | cut -d' ' -f1)" = "$(jq -r .sha256 "$vsrc.json")" ] &&
 	[ "$(jq -r .kver "$vsrc.json")" = "$kver_full" ] &&
-	{ [ "$(jq -r .series_rev "$vsrc.json")" = 12 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 13 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 14 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 15 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 16 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 17 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 18 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 19 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 20 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 21 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 22 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 23 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 24 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 25 ]; } &&
+	{ [ "$(jq -r .series_rev "$vsrc.json")" = 12 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 13 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 14 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 15 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 16 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 17 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 18 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 19 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 20 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 21 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 22 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 23 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 24 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 25 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 26 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 27 ]; } &&
 	[ "$(jq -r .series_hash_sha256 "$vsrc.json")" = "$patch_series_sha" ] || {
 		log "REFUSED: $v DTB hash/release/series differs from the kernel worker JSON"; exit 6;
 	}
@@ -150,6 +151,14 @@ for p in "$REPO"/image/kiwi/patches/*.patch; do
 	log "patch $(basename "$p")"
 	patch -p1 --no-backup-if-mismatch -s <"$p"
 done
+if [ "${SP11_FEDORA_RELEASE:-44}" = 45 ]; then
+	for p in "$REPO"/image/kiwi/patches-f45/*.patch; do
+		log "patch(f45) $(basename "$p")"
+		patch -p1 --no-backup-if-mismatch -s <"$p"
+	done
+	sed -i "s/Fedora-WS-Live-44/Fedora-WS-Live-45/g" "$desc/grub-arm.cfg.iso-template"
+	sed -i "s/Fedora-WS-Live-44/Fedora-WS-Live-45/g" "$desc/root/etc/sp11-boot-medium"
+fi
 cp -a "$REPO/image/overlay/." "$desc/root/"
 rm -f "$desc/root/etc/sp11-log-collector.conf"   # lmc-only; the kiwi overlay has its own (ESP label BOOT)
 cp -a "$REPO/image/kiwi/overlay/root/." "$desc/root/"
@@ -358,7 +367,7 @@ rpm2cpio "$kcore" | cpio -i --quiet --to-stdout "./lib/modules/$kver/dtb/qcom/x1
 # M11: the kernel worker variants next to the packaged DTB. The build fails without
 # it; with --smoke a copy of the packaged DTB stands in (recorded, never for the device).
 variants_smoke_copy=0
-for v in m15 m15-safe m15-nosnd m15-notouch m15-spk m15-spectra m15-safe-camrot m15-safe-cl; do
+for v in m15 m15-safe m15-nosnd m15-notouch m15-spk m15-spectra m15-safe-camrot m15-safe-cl m15-cl; do
 	vf=x1p64100-microsoft-denali-$v.dtb
 	vsrc=$OUT/dtb-variants/$kver/qcom/$vf
 	if [ -s "$vsrc" ]; then
@@ -399,7 +408,7 @@ tail -n 25 "$work/kiwi.log" | cut -c1-300
 [ "$rc" = 0 ] || { log "kiwi failed (rc=$rc), see $work/kiwi.log"; exit 1; }
 elapsed=$(($(date +%s) - start))
 mkdir -p "$work/out-build"
-cp "$kiwiout"/out-build/Fedora.aarch64-44.* "$kiwiout"/out-build/kiwi.result* "$work/out-build/"
+cp "$kiwiout"/out-build/Fedora.aarch64-${rel}.* "$kiwiout"/out-build/kiwi.result* "$work/out-build/"
 iso=$(ls "$work"/out-build/*.iso 2>/dev/null | head -n1)
 [ -f "$iso" ] || { log "no ISO in $work/out-build"; ls -la "$work/out-build" >&2; exit 1; }
 log "ISO $iso after ${elapsed}s"
@@ -465,12 +474,12 @@ for f in "$chk"/_* "$chk/esp-grub.cfg"; do
 	# kernel arguments only: a menu title or a parameter value such as shutdown_mode=quiet is not the kernel argument `quiet`
 	if grep -E '^[[:space:]]*(linux|linuxefi)[[:space:]]' "$f" | tr -s ' \t' '\n\n' | grep -x -E 'quiet|rhgb|splash' >/dev/null; then log "FAIL: quiet/rhgb/splash argument in $f"; exit 1; fi
 done
-n=$(grep -c "^menuentry '" "$chk/_boot_grub2_grub.cfg"); [ "$n" = 25 ] || { log "FAIL: $n top-level menu entries, expected 25 (M15: flat static menu, rev25/25b tests, two safe camera/audio tests and the installer)"; exit 1; }
+n=$(grep -c "^menuentry '" "$chk/_boot_grub2_grub.cfg"); [ "$n" = 26 ] || { log "FAIL: $n top-level menu entries, expected 26 (M15: flat static menu, rev25/25b tests, two safe camera/audio tests and the installer)"; exit 1; }
 [ "$(grep -c -E '^[[:space:]]*submenu[[:space:]]' "$chk/_boot_grub2_grub.cfg")" = 0 ] || { log "FAIL: submenu command in the M15 menu"; exit 1; }
 for e in debug safe nosnd notouch spk usbdbg nodsp wifi-unblock nomodeset initramfs spectra vmtest; do grep -q "sp11.entry=$e\$" "$chk/_boot_grub2_grub.cfg" || { log "FAIL: no entry with sp11.entry=$e"; exit 1; }; done
 for e in test-multi-user test-ignore-unused test-pinoff test-acd-off test-preempt-off test-msm-off test-softgl test-safe-debug test-safe-pstore test-m15-safe test-safe-camrot test-safe-cl; do grep -q "sp11.test=$e " "$chk/_boot_grub2_grub.cfg" || { log "FAIL: no debug test entry with sp11.test=$e"; exit 1; }; done
-python3 -I "$REPO/image/tools/check-m8-menu.py" "$chk/_boot_grub2_grub.cfg"
-for f in x1p64100-microsoft-denali-m15 x1p64100-microsoft-denali-m15-safe x1p64100-microsoft-denali-m15-nosnd x1p64100-microsoft-denali-m15-notouch x1p64100-microsoft-denali-m15-spk x1p64100-microsoft-denali-m15-spectra x1p64100-microsoft-denali-m15-safe-camrot x1p64100-microsoft-denali-m15-safe-cl; do
+SP11_RELEASE=$rel python3 -I "$REPO/image/tools/check-m8-menu.py" "$chk/_boot_grub2_grub.cfg"
+for f in x1p64100-microsoft-denali-m15 x1p64100-microsoft-denali-m15-safe x1p64100-microsoft-denali-m15-nosnd x1p64100-microsoft-denali-m15-notouch x1p64100-microsoft-denali-m15-spk x1p64100-microsoft-denali-m15-spectra x1p64100-microsoft-denali-m15-safe-camrot x1p64100-microsoft-denali-m15-safe-cl x1p64100-microsoft-denali-m15-cl; do
 	xorriso -indev "$iso" -find "/boot/dtb/qcom/$f.dtb" -type f 2>/dev/null | grep -q . || { log "FAIL: /boot/dtb/qcom/$f.dtb not on the ISO"; exit 1; }
 done
 
@@ -498,7 +507,7 @@ def read(p, default=''):
         return default
 
 pk = []
-for l in read(f"{work}/out-build/Fedora.aarch64-44.packages").splitlines():
+for l in read(f"{work}/out-build/Fedora.aarch64-${rel}.packages").splitlines():
     f = l.split('|')
     if len(f) >= 5:
         pk.append(f"{f[0]}-{0 if f[1] == '(none)' else f[1]}:{f[2]}-{f[3]}.{f[4]}")
@@ -547,7 +556,7 @@ record = {
     "module_policy": {"qcom_battmgr": "blacklist + install false + dracut omit_drivers (D23)",
                       "ucsi_glink": "retained early", "ath12k.debug_mask": "0x70; CONFIG_ATH12K_DEBUG=y; output checked by L0",
                       "scmi_cpufreq": "modules-load.d/sp11-cpufreq.conf (soc-boot R-I2); cap by default, lifted only by the boot-medium marker sp11/cpufreq-uncapped"},
-    "menu": "M15 flat static menu, 25 entries, no GRUB function except load_video, no grubenv, no variable: debug (m15 with GPU and cameras), safe (m15-safe), nosnd, notouch, spk, usbdbg, nodsp, wifi-unblock, nomodeset, initramfs, spectra, seven rev25 debug isolation tests (multi-user, ignore-unused, pinoff, acd-off, preempt-off, msm-off, softgl), three rev25b reset-axis tests (safe DTB + debug services, safe DTB + EFI pstore, m15 DTB + safe services), safe rear-rotation test, muted safe closed-loop VI test, interactive installer (keeps Windows, fixes the UEFI boot), vmtest; each test carries a unique sp11.test=<id> and its intended sp11.entry mark",
+    "menu": "M15 flat static menu, 26 entries, no GRUB function except load_video, no grubenv, no variable: debug (m15 with GPU and cameras), safe (m15-safe), nosnd, notouch, spk, usbdbg, nodsp, wifi-unblock, nomodeset, initramfs, spectra, seven rev25 debug isolation tests (multi-user, ignore-unused, pinoff, acd-off, preempt-off, msm-off, softgl), three rev25b reset-axis tests (safe DTB + debug services, safe DTB + EFI pstore, m15 DTB + safe services), safe rear-rotation test, muted safe closed-loop VI test, interactive installer (keeps Windows, fixes the UEFI boot), debug closed-loop audio entry, vmtest; each test carries a unique sp11.test=<id> and its intended sp11.entry mark",
     "diagnostic_args_reason": {"debug": "M15 line 1: m15 DTB (microphones + rear/front/IR camera nodes + GPU/GMU/zap), no automatic GPU two-step (manually add sp11.gpu_diag=1; may reset the machine), USB dynamic debug (usb-typec R-I1), PDR dynamic debug, DSP trace string without power:power_domain_target; nothing variable",
                                "safe": "m15-safe: microphones only, camera and GPU nodes off (the M13/M14-safe content); the always-booting fallback, line 1 arguments except entry marker",
                                "nosnd": "m15-nosnd: sound card off", "notouch": "touch-pen section 8: m15-notouch, touch child disabled",

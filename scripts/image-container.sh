@@ -20,7 +20,7 @@ cmd=${1:-}
 
 case "$cmd" in
 build)
-	exec docker build --pull=false -t "$IMAGE" -f "$here/image/Containerfile" "$here/image"
+	exec docker build --pull=false --build-arg "FEDORA_RELEASE=${SP11_FEDORA_RELEASE:-44}" -t "$IMAGE" -f "$here/image/Containerfile" "$here/image"
 	;;
 run | shell)
 	docker image inspect "$IMAGE" >/dev/null 2>&1 || {
@@ -31,7 +31,7 @@ run | shell)
 	[ -t 0 ] && [ -t 1 ] && tty=(-t)
 	args=(--rm -i "${tty[@]}" --privileged
 		-v "$here:/sp11" -v "$out:/out" -e SP11_OUT=/out
-		-e "SP11_UID=$(id -u)" -e "SP11_GID=$(id -g)"
+		-e "SP11_UID=$(id -u)" -e "SP11_GID=$(id -g)" -e "SP11_FEDORA_RELEASE=${SP11_FEDORA_RELEASE:-44}"
 		--tmpfs /tmp:exec,size=4g
 		-e "SP11_IMAGE_ID=$(docker image inspect -f '{{.Id}}' "$IMAGE")"
 		-w /sp11)

@@ -13,10 +13,12 @@ M15 policy (image/README.md, "M15 menu"):
   * the main-entry diagnostic arguments are the M13 ones with the corrected trace string; nothing variable; the command line never carries
     rotor, SAM, GPU DTB or firmware_class arguments.
 """
+import os
 import re
 import shlex
 import sys
 
+RELEASE = os.environ.get("SP11_RELEASE", "44")
 USB = "pmic_glink_altmode.dyndbg=+p ps883x.dyndbg=+p phy_qcom_qmp_combo.dyndbg=+p ucsi_glink.dyndbg=+p typec_ucsi.dyndbg=+p dwc3.dyndbg=+p dwc3_qcom.dyndbg=+p".split()
 PDR = "qcom_pd_mapper.dyndbg=+p pdr_interface.dyndbg=+p".split()
 TRACE = ["trace_event=:mod:qcom_glink,:mod:smp2p,:mod:qcom_aoss,rpmh:rpmh_send_msg", "trace_buf_size=16M"]
@@ -52,14 +54,15 @@ ENTRIES = {
     "test-m15-safe": ("SP11 debug, test m15 DTB + safe services", "m15", DEFAULT | {"sp11.test=test-m15-safe"}),
     "test-safe-camrot": ("SP11 debug, safe, rear rotation test", "m15-safe-camrot", DEFAULT | {"sp11.test=test-safe-camrot"}),
     "test-safe-cl": ("SP11 debug, safe, muted closed-loop VI", "m15-safe-cl", DEFAULT | {"sp11.nospk=1", "sp11.test=test-safe-cl"}),
-    "install": ("SP11 install (keeps Windows; fixes UEFI boot)", "m15-safe", DEFAULT | {"inst.ks=hd:LABEL=Fedora-WS-Live-44:/ks-sp11.cfg"}),
+    "cldebug": ("SP11 debug, closed-loop audio (needs calibration)", "m15-cl", DEFAULT | EFI_PSTORE | {"msm.skip_gpu=1"}),
+    "install": ("SP11 install (keeps Windows; fixes UEFI boot)", "m15-safe", DEFAULT | {f"inst.ks=hd:LABEL=Fedora-WS-Live-{RELEASE}:/ks-sp11.cfg"}),
     "vmtest": ("VM test (no devicetree)", None, {"console=ttyAMA0,115200"}),
 }
 # Test entries carry a unique sp11.test=<id>; their sp11.entry mark selects the intended service set.
 TEST_IDS = ("test-multi-user", "test-ignore-unused", "test-pinoff", "test-acd-off", "test-preempt-off", "test-msm-off", "test-softgl",
             "test-safe-debug", "test-safe-pstore", "test-m15-safe", "test-safe-camrot", "test-safe-cl")
 TEST_MARK = {i: "debug" for i in TEST_IDS[:7]}
-TEST_MARK.update({"test-safe-debug": "debug", "test-safe-pstore": "safe", "test-m15-safe": "safe", "test-safe-camrot": "safe", "test-safe-cl": "safe", "install": "safe"})
+TEST_MARK.update({"test-safe-debug": "debug", "test-safe-pstore": "safe", "test-m15-safe": "safe", "test-safe-camrot": "safe", "test-safe-cl": "safe", "install": "safe", "cldebug": "debug"})
 M15_TEST_IDS = TEST_IDS[:7] + ("test-m15-safe",)
 COMMON_KIWI = {"printk.devkmsg=on", "log_buf_len=16M", "console=tty0"}   # kiwi boot options (liveinstall.xml)
 FORBIDDEN_WORDS = {"quiet", "rhgb", "splash"}
@@ -144,7 +147,7 @@ def check(cfg):
     assert used["m15-spectra"] == ["spectra"], f"m15-spectra used by {used['m15-spectra']}"
     assert [i for i, a in arglists.items() if "module_blacklist=camera_x1e80100" in a] == ["spectra"], "module_blacklist=camera_x1e80100 only on the Spectra entry"
     assert sorted(strip("spectra")) == sorted(line1 + ["module_blacklist=camera_x1e80100"]), "spectra: arguments differ from safe beyond module_blacklist"
-    assert set(used) == {"m15", "m15-safe", "m15-nosnd", "m15-notouch", "m15-spk", "m15-spectra", "m15-safe-camrot", "m15-safe-cl"}, f"DTB set differs: {sorted(used)}"
+    assert set(used) == {"m15", "m15-safe", "m15-nosnd", "m15-notouch", "m15-spk", "m15-spectra", "m15-safe-camrot", "m15-safe-cl", "m15-cl"}, f"DTB set differs: {sorted(used)}"
     # the speaker entry keeps the first-test notice
     spk = [b for _, i, b in entries if i == "spk"][0]
     assert "kill switch" in spk.lower() and "sleep 3" in spk, "spk: first-test notice missing"

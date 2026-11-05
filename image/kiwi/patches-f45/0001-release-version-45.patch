@@ -1,0 +1,24 @@
+Subject: [PATCH] release: build the Fedora 45 userland from the f44 description
+
+No upstream f45 branch exists yet (pagure.io/fedora-kiwi-descriptions, 2026-11-05).
+This patch only moves the version/release-version to 45 so kiwi resolves the
+Fedora 45 repositories; the kernel stays our own 7.3.0-65.sp11.26.fc44.
+Assisted-by: Claude Code
+---
+--- a/Fedora.kiwi
++++ b/Fedora.kiwi
+@@ -7,12 +7,12 @@
+ 		<specification>Fedora Linux</specification>
+ 	</description>
+ 	<preferences>
+-		<version>44</version>
++		<version>45</version>
+ 		<packagemanager>dnf5</packagemanager>
+ 		<locale>en_US</locale>
+ 		<keytable>us</keytable>
+ 		<timezone>UTC</timezone>
+-		<release-version>44</release-version>
++		<release-version>45</release-version>
+ 	</preferences>
+ 	<include from="this://./repositories/core.xml"/>
+ 	<include from="this://./components/common.xml"/>

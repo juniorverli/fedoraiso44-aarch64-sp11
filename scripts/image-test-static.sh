@@ -190,8 +190,8 @@ fi
 titles=$(grep -o -E "^[[:space:]]*(menuentry|submenu) '[^']*'" "$cfg_esp" | sed -E "s/^[[:space:]]*(menuentry|submenu) '//;s/'\$//")
 if [ "$builder" = kiwi ]; then
 	# Rev25: one FLAT static menu (M13 style), nineteen entries, no submenu
-	expect=$'SP11 debug\nSP11 debug, safe (no GPU)\nSP11 debug, no sound\nSP11 debug, touch off\nSP11 debug, speakers (closed-loop experiment; private)\nSP11 debug, USB + DSP trace\nSP11 debug, no early DSP\nSP11 debug, Wi-Fi unblock probe\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nSP11 debug, Spectra camera test\nSP11 debug, test multi-user (no GNOME)\nSP11 debug, test ignore unused (regulator)\nSP11 debug, test GPU pin off\nSP11 debug, test ACD off\nSP11 debug, test preemption off\nSP11 debug, test msm off (display may be off; logs only)\nSP11 debug, test software GL\nSP11 debug, test safe DTB + msm off + debug\nSP11 debug, test safe DTB + EFI pstore\nSP11 debug, test m15 DTB + safe services\nSP11 debug, safe, rear rotation test\nSP11 debug, safe, muted closed-loop VI\nSP11 install (keeps Windows; fixes UEFI boot)\nVM test (no devicetree)'
-	nentries=25
+	expect=$'SP11 debug\nSP11 debug, safe (no GPU)\nSP11 debug, no sound\nSP11 debug, touch off\nSP11 debug, speakers (closed-loop experiment; private)\nSP11 debug, USB + DSP trace\nSP11 debug, no early DSP\nSP11 debug, Wi-Fi unblock probe\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nSP11 debug, Spectra camera test\nSP11 debug, test multi-user (no GNOME)\nSP11 debug, test ignore unused (regulator)\nSP11 debug, test GPU pin off\nSP11 debug, test ACD off\nSP11 debug, test preemption off\nSP11 debug, test msm off (display may be off; logs only)\nSP11 debug, test software GL\nSP11 debug, test safe DTB + msm off + debug\nSP11 debug, test safe DTB + EFI pstore\nSP11 debug, test m15 DTB + safe services\nSP11 debug, safe, rear rotation test\nSP11 debug, safe, muted closed-loop VI\nSP11 debug, closed-loop audio (needs calibration)\nSP11 install (keeps Windows; fixes UEFI boot)\nVM test (no devicetree)'
+	nentries=26
 else
 	expect=$'SP11 debug\nSP11 debug + DRM trace\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)'
 	nentries=5
@@ -219,9 +219,9 @@ ids_ok=1
 awk '/^[ \t]*menuentry /{t=$0} /^[[:space:]]+linux /{print t "\t" $0}' "$cfg_esp" >"$W/linux-lines.txt"
 while IFS=$'\t' read -r t l; do
 	id=$(echo "$t" | sed -n "s/.*--id sp11-\([a-z0-9-]*\).*/\1/p")
-	case $id in debug | safe | nosnd | notouch | spk | usbdbg | nodsp | wifi-unblock | nomodeset | initramfs | spectra | install | vmtest | test-*) ;; *) ids_ok=0; fail 2.12 "unknown entry id '$id' ($t)" ;; esac
+	case $id in debug | safe | nosnd | notouch | spk | usbdbg | nodsp | wifi-unblock | nomodeset | initramfs | spectra | install | cldebug | vmtest | test-*) ;; *) ids_ok=0; fail 2.12 "unknown entry id '$id' ($t)" ;; esac
 	# The rev25 test entries carry a unique sp11.test=<id>; sp11.entry selects the service set.
-	case $id in test-safe-pstore | test-m15-safe | test-safe-camrot | test-safe-cl | install) want=safe ;; test-*) want=debug ;; *) want=$id ;; esac
+	case $id in test-safe-pstore | test-m15-safe | test-safe-camrot | test-safe-cl | install) want=safe ;; cldebug) want=debug ;; test-*) want=debug ;; *) want=$id ;; esac
 	case $l in *" sp11.entry=$want"*) ;; *) ids_ok=0; fail 2.12 "entry '$t' lacks sp11.entry=$want" ;; esac
 	case $id in test-*) case $l in *" sp11.test=$id"*) ;; *) ids_ok=0; fail 2.12 "test entry '$t' lacks sp11.test=$id" ;; esac ;; esac
 	case $l in *console=ttyAMA0*) [ "$id" = vmtest ] || { ids_ok=0; fail 2.12 "serial console on a device entry: $t"; } ;; *) [ "$id" != vmtest ] || { ids_ok=0; fail 2.12 "VM entry lacks the serial console"; } ;; esac
@@ -233,7 +233,7 @@ vm=$(awk '/^[ \t]*menuentry /{f=0} /^[ \t]*menuentry .VM test/{f=1} f&&/^[[:spac
 [ "$(grep -c -E "^[[:space:]]*menuentry '" "$cfg_esp")" = "$nentries" ] && [ "$(grep '^set default' "$cfg_esp")" = "set default=1" ] && pass 2.9 "VM test entry is not the default"
 if [ "$builder" = kiwi ]; then
 	if python3 -I "$REPO/image/tools/check-m8-menu.py" "$cfg_esp" >"$W/m8-menu.txt" 2>&1; then
-		pass 2.17 "M15 flat static menu: 25 entries, no function except load_video, no load_env/save_env/grubenv/variable/submenu, fixed DTB per entry (line 1 m15 with GPU and cameras and no automatic sp11.gpu_diag, line 2 m15-safe fallback, rev25/rev25b test entries add one axis), exact diagnostic arguments, allow_nominal on spk only, no rotor/GPU/SAM/firmware_class argument on any line"
+		pass 2.17 "M15 flat static menu: 26 entries, no function except load_video, no load_env/save_env/grubenv/variable/submenu, fixed DTB per entry (line 1 m15 with GPU and cameras and no automatic sp11.gpu_diag, line 2 m15-safe fallback, rev25/rev25b test entries add one axis), exact diagnostic arguments, allow_nominal on spk only, no rotor/GPU/SAM/firmware_class argument on any line"
 	else
 		fail 2.17 "M15 menu: $(cat "$W/m8-menu.txt")"
 	fi
@@ -352,7 +352,7 @@ fi
 if [ "$builder" = kiwi ]; then
 	# D19: DTB variants next to the packaged one. Same SoC and board (root compatible), different from the
 	# packaged DTB, hashes as in the build record and as in out/dtb-variants (the kernel worker's output).
-	m13v="m15 m15-safe m15-nosnd m15-notouch m15-spk m15-spectra m15-safe-camrot m15-safe-cl"
+	m13v="m15 m15-safe m15-nosnd m15-notouch m15-spk m15-spectra m15-safe-camrot m15-safe-cl m15-cl"
 	for v in $m13v; do x "/boot/dtb/qcom/x1p64100-microsoft-denali-$v.dtb" "$W/x1p64100-microsoft-denali-$v.dtb"; done
 	m12dir=$OUT/dtb-variants/7.3.0-65.sp11.9.fc44.aarch64/qcom   # the M12 DTBs the M15 variants are compared with (kernel worker scripts/kernel-dtb-m15.sh)
 	for v in $m13v; do
@@ -363,7 +363,7 @@ if [ "$builder" = kiwi ]; then
 			continue
 		fi
 		dtc -I dtb -O dts -o "$vd.dts" "$vd" 2>"$vd.err" && pass 3.6 "variant $v decompiles with dtc" || fail 3.6 "variant $v: dtc failed: $(head -n2 "$vd.err")"
-		case $v in m15|m15-safe|m15-safe-camrot) expected_audio_model=X1E80100-Microsoft-Surface-Pro-11 ;; m15-spk|m15-safe-cl) expected_audio_model=X1E80100-Microsoft-Surface-Pro-11-CL ;; *) expected_audio_model= ;; esac
+		case $v in m15|m15-safe|m15-safe-camrot) expected_audio_model=X1E80100-Microsoft-Surface-Pro-11 ;; m15-spk|m15-safe-cl|m15-cl) expected_audio_model=X1E80100-Microsoft-Surface-Pro-11-CL ;; *) expected_audio_model= ;; esac
 		if [ -n "$expected_audio_model" ]; then
 			actual_audio_model=$(fdtget -t s "$vd" /sound model 2>/dev/null || true)
 			[ "$actual_audio_model" = "$expected_audio_model" ] && pass 3.17 "$v sound model selects $expected_audio_model firmware" || fail 3.17 "$v sound model '$actual_audio_model', expected $expected_audio_model (kernel patch 0022)"
@@ -377,7 +377,7 @@ if [ "$builder" = kiwi ]; then
 		# the exact baselines and M12 comparison DTBs of scripts/kernel-dtb-m13.sh
 		base=$dtbf extra=()
 		case $v in
-		m15 | m15-notouch | m15-spectra | m15-safe-camrot | m15-safe-cl) base=$W/x1p64100-microsoft-denali-m15-safe.dtb ;;
+		m15 | m15-notouch | m15-spectra | m15-safe-camrot | m15-safe-cl) base=$W/x1p64100-microsoft-denali-m15-safe.dtb ;; m15-cl) base=$W/x1p64100-microsoft-denali-m15.dtb ;;
 		esac
 		case $v in
 		m15-nosnd) extra=(--previous-m12 "$m12dir/x1p64100-microsoft-denali-m12.dtb") ;;
@@ -418,7 +418,7 @@ if [ "$builder" = kiwi ]; then
 		if [ -n "$rsha" ]; then [ "$vsha" = "$rsha" ] && pass 3.11 "variant $v SHA-256 equals the kernel worker's JSON record" || fail 3.11 "variant $v SHA-256 differs from the kernel worker's JSON record ($rsha)"; else fail 3.11 "no JSON record of the kernel worker for variant $v in the build record"; fi
 		vr=$OUT/dtb-variants/$kver/qcom/${vf%.dtb}.json
 		if [ -f "$vr" ] && [ "$vsha" = "$(jq -r .sha256 "$vr")" ] &&
-		   [ "$(jq -r .kver "$vr")" = "$kver" ] && { [ "$(jq -r .series_rev "$vr")" = 12 ] || [ "$(jq -r .series_rev "$vr")" = 13 ] || [ "$(jq -r .series_rev "$vr")" = 14 ] || [ "$(jq -r .series_rev "$vr")" = 15 ] || [ "$(jq -r .series_rev "$vr")" = 16 ] || [ "$(jq -r .series_rev "$vr")" = 17 ] || [ "$(jq -r .series_rev "$vr")" = 18 ] || [ "$(jq -r .series_rev "$vr")" = 19 ] || [ "$(jq -r .series_rev "$vr")" = 20 ] || [ "$(jq -r .series_rev "$vr")" = 21 ] || [ "$(jq -r .series_rev "$vr")" = 22 ] || [ "$(jq -r .series_rev "$vr")" = 23 ] || [ "$(jq -r .series_rev "$vr")" = 24 ] || [ "$(jq -r .series_rev "$vr")" = 25 ]; } &&
+		   [ "$(jq -r .kver "$vr")" = "$kver" ] && { [ "$(jq -r .series_rev "$vr")" = 12 ] || [ "$(jq -r .series_rev "$vr")" = 13 ] || [ "$(jq -r .series_rev "$vr")" = 14 ] || [ "$(jq -r .series_rev "$vr")" = 15 ] || [ "$(jq -r .series_rev "$vr")" = 16 ] || [ "$(jq -r .series_rev "$vr")" = 17 ] || [ "$(jq -r .series_rev "$vr")" = 18 ] || [ "$(jq -r .series_rev "$vr")" = 19 ] || [ "$(jq -r .series_rev "$vr")" = 20 ] || [ "$(jq -r .series_rev "$vr")" = 21 ] || [ "$(jq -r .series_rev "$vr")" = 22 ] || [ "$(jq -r .series_rev "$vr")" = 23 ] || [ "$(jq -r .series_rev "$vr")" = 24 ] || [ "$(jq -r .series_rev "$vr")" = 25 ] || [ "$(jq -r .series_rev "$vr")" = 26 ] || [ "$(jq -r .series_rev "$vr")" = 27 ]; } &&
 		   [ "$(jq -r .series_hash_sha256 "$vr")" = "$(jq_ .kernel_patch_series_sha256)" ] &&
 		   jq -e --arg f "$vf.json" --slurpfile source "$vr" '.dtb_variant_records[$f] == $source[0]' "$rec" >/dev/null; then
 			pass 3.14 "variant $v matches published JSON hash/release/series and embedded record"

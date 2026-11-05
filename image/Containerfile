@@ -1,8 +1,11 @@
-# Fedora 44 aarch64 build and test container of the image worker.
+# Fedora aarch64 build and test container of the image worker.
+# FEDORA_RELEASE selects the userland release; the default stays 44 until the
+# Fedora 45 migration passes its gates (SP11_FEDORA_RELEASE=45 builds the new one).
 # Built and run by scripts/image-container.sh. Nothing is installed on the host.
 # D16: kiwi (kiwi-cli 11.1.x in Fedora 44) builds the ISO; lorax stays until the kiwi ISO passes L0 and L1.
 # Fedora-native (D12): official fedora:44 base, all tools from Fedora packages.
-FROM registry.fedoraproject.org/fedora:44
+ARG FEDORA_RELEASE=44
+FROM registry.fedoraproject.org/fedora:${FEDORA_RELEASE}
 
 RUN dnf -y --setopt=install_weak_deps=False install \
         lorax lorax-lmc-novirt lorax-templates-generic \
