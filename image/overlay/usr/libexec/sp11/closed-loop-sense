@@ -135,8 +135,8 @@ def main():
     if len(sys.argv) > 2:
         sys.exit("usage: closed-loop-sense [hw:CARD,DEVICE]")
     line = cmdline()
-    if " sp11.allow_nominal=1 " not in line or " sp11.entry=debug " not in line:
-        log("not a closed-loop entry (needs sp11.allow_nominal=1 sp11.entry=debug)")
+    if " sp11.allow_nominal=1 " not in line:
+        log("not a closed-loop entry (needs sp11.allow_nominal=1)")
         return 0
     if " sp11.nospk" in line:
         log("kill switch sp11.nospk is set; not holding the sense trigger")

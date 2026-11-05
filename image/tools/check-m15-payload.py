@@ -60,11 +60,11 @@ def check(root, repo, record):
                                                        'snd_pcm_mmap_begin'))), f'{name} reads the capture or never starts it'
     # The closed-loop sense holder runs only on the closed-loop entry and never on the D26 entries.
     sense = (root / 'usr/libexec/sp11/closed-loop-sense').read_text()
-    assert 'sp11.allow_nominal=1' in sense and 'sp11.entry=debug' in sense and 'sp11.nospk' in sense, 'sense holder gates'
+    assert 'sp11.allow_nominal=1' in sense and 'sp11.nospk' in sense, 'sense holder gates'
     sense_unit = root / 'usr/lib/systemd/system/sp11-closed-loop-sense.service'
     assert sense_unit.is_file(), 'closed-loop sense unit missing'
     unit_text = sense_unit.read_text()
-    for needle in ('ConditionKernelCommandLine=sp11.allow_nominal=1', 'ConditionKernelCommandLine=sp11.entry=debug',
+    for needle in ('ConditionKernelCommandLine=sp11.allow_nominal=1',
                    'ConditionKernelCommandLine=!sp11.nospk', 'ExecStart=/usr/libexec/sp11/closed-loop-sense'):
         assert needle in unit_text, f'sense unit lacks {needle}'
     assert (root / 'etc/systemd/system/multi-user.target.wants/sp11-closed-loop-sense.service').readlink() == \

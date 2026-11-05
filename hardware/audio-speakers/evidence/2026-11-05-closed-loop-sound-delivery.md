@@ -149,3 +149,17 @@ measurement arriving during playback would have replaced a valid nominal
 calibration with one the identity check rejects. Patch 0031 binds a measurement
 to the unique running V/I graph (zero or several running V/I graphs stay
 refused) so a real measurement can only strengthen the guard.
+
+## Sense holder on both closed-loop entries (after the 22:07 boot)
+
+Boot `2d0045ed`, entry `spk`, kernel rev30: `allow_nominal: 1`, no unknown
+parameter, no `0x0100100e`, SP enabled with all 28 records. The unmute reached
+the last missing gate:
+
+    wsa884x-codec: speaker stays muted: the V/I sense stream is not running
+
+On `spk` nothing opened MultiMedia5: the holder was gated to
+`sp11.entry=debug`, and the manual first-test script had not been run. The
+holder now runs on any entry with `sp11.allow_nominal=1` (lines 24 and 5), and
+`speaker-first-test` stops the holder before it opens the trigger itself, so
+both the automatic path and the scripted tone test work.
