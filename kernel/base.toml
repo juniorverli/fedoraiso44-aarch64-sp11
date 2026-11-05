@@ -2,6 +2,11 @@
 url = "https://github.com/juniorverli/sp11-linux.git"
 tag = "v7.3"
 commit = "c03c1a14507dfaf8b856c2608f9ac216021fc222"
+# Integration branch: the same series as committed patches on top of the pinned base.
+# The build still applies kernel/series to the pinned commit (Fedora kernel.spec); this
+# branch is the reviewable mirror and must stay identical to the series.
+branch = "sp11/rev25"
+branch_commit = "9754050aa77f004324a5654c8e337c8d683ce4af"
 dtb = "qcom/x1p64100-microsoft-denali.dtb"
 localversion = ".sp11"
 
