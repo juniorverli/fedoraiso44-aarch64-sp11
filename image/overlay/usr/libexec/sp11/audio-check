@@ -1,0 +1,50 @@
+#!/usr/bin/bash
+# One-shot audio state report for the closed-loop entries (manual tool).
+#
+#   sp11-audio-check           print the entry, the guard and the PipeWire defaults
+#   sp11-audio-check --tone    also play one 0.5 s low-level 440 Hz tone and print
+#                              the guard again (the operator runs this; nothing is
+#                              automatic and no mixer value is written)
+#
+# Never raises a volume, never writes a control, never records. The kernel caps
+# and the guard stay in force; a refused unmute is reported, not retried.
+set -u
+export LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin
+TONE=0
+[ "${1:-}" = "--tone" ] && TONE=1
+say() { echo "$*"; }
+entry=$(tr ' ' '\n' </proc/cmdline | grep -E '^sp11\.' | tr '\n' ' ')
+say "entry: $entry"
+say "kernel: $(uname -r)"
+say "guard:"
+timeout 5 cat /sys/kernel/debug/sp11/guard 2>&1 | sed 's/^/  /'
+say "session: $(loginctl list-sessions --no-legend 2>/dev/null | awk '$3 != "root" {print $2; exit}')"
+uid=$(loginctl list-sessions --no-legend 2>/dev/null | awk '$3 != "root" {print $2; exit}')
+user=$(loginctl list-sessions --no-legend 2>/dev/null | awk '$3 != "root" {print $3; exit}')
+if [ -n "$uid" ] && command -v wpctl >/dev/null 2>&1; then
+	run() { timeout 15 runuser -u "$user" -- env XDG_RUNTIME_DIR="/run/user/$uid" "$@" 2>&1; }
+	run wpctl status | sed -n '/Audio/,$p' | head -n 40 | sed 's/^/  /'
+	run wpctl get-volume @DEFAULT_AUDIO_SINK@ | sed 's/^/  sink volume: /'
+	if [ "$TONE" = 1 ]; then
+		wav=/run/sp11/audio-check.wav
+		mkdir -p /run/sp11
+		python3 - "$wav" <<'PY'
+import math, struct, sys, wave
+w = wave.open(sys.argv[1], "wb"); w.setnchannels(2); w.setsampwidth(2); w.setframerate(48000)
+n = 24000   # 0.5 s
+w.writeframes(b"".join(struct.pack("<hh", s, s) for s in
+                        (int(600 * math.sin(2 * math.pi * 440 * i / 48000)) for i in range(n))))
+w.close()
+PY
+		say "tone: 0.5 s, 440 Hz, low level, one shot"
+		run paplay "$wav" || run pw-play "$wav" || aplay -q -D plughw:0,0 "$wav" || say "playback command failed"
+		rm -f "$wav"
+		say "guard after the tone:"
+		timeout 5 cat /sys/kernel/debug/sp11/guard 2>&1 | sed 's/^/  /'
+	fi
+else
+	say "no user session or wpctl missing; PipeWire state not shown"
+fi
+say "kernel messages:"
+dmesg 2>/dev/null | grep -iE 'wsa884|sp11:|calibration|speaker' | tail -n 20 | sed 's/^/  /'
+exit 0

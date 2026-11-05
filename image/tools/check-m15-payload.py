@@ -69,6 +69,17 @@ def check(root, repo, record):
         assert needle in unit_text, f'sense unit lacks {needle}'
     assert (root / 'etc/systemd/system/multi-user.target.wants/sp11-closed-loop-sense.service').readlink() == \
         Path('/usr/lib/systemd/system/sp11-closed-loop-sense.service'), 'closed-loop sense unit not enabled'
+    # PipeWire defaults and the manual audio report: the V/I trigger must never be the
+    # default source, and the operator gets one command that prints the guard state.
+    for name in ('audio-defaults', 'audio-check'):
+        f = root / 'usr/libexec/sp11' / name
+        assert f.stat().st_mode & 0o111 and f.read_bytes() == \
+            (repo / 'image/overlay/usr/libexec/sp11' / name).read_bytes(), name
+    assert 'MultiMedia5' in (root / 'usr/libexec/sp11/audio-defaults').read_text(), 'defaults must skip the V/I trigger'
+    defaults_unit = root / 'usr/lib/systemd/user/sp11-audio-defaults.service'
+    assert 'ExecStart=/usr/libexec/sp11/audio-defaults' in defaults_unit.read_text(), 'audio defaults unit'
+    assert (root / 'etc/systemd/user/graphical-session.target.wants/sp11-audio-defaults.service').readlink() == \
+        Path('/usr/lib/systemd/user/sp11-audio-defaults.service'), 'audio defaults unit not enabled'
     # Installed-system finishing: the live ISO cannot run a kickstart, so the first boot of
     # the installed system runs the post-install steps once.
     fb = root / 'usr/libexec/sp11/first-boot'

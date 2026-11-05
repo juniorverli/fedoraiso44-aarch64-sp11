@@ -163,3 +163,16 @@ On `spk` nothing opened MultiMedia5: the holder was gated to
 holder now runs on any entry with `sp11.allow_nominal=1` (lines 24 and 5), and
 `speaker-first-test` stops the holder before it opens the trigger itself, so
 both the automatic path and the scripted tone test work.
+
+## Desktop defaults and one-command testing (image change)
+
+The closed-loop entries keep a root holder on the MultiMedia5 trigger. That PCM
+is a sense back end, not a microphone, and it must never become the desktop's
+default source. `sp11-audio-defaults` (user unit, after WirePlumber) selects the
+platform sound card's Speaker sink and Mic source by name and skips any node
+named MultiMedia5; it changes no volume, mute or route and logs each choice.
+
+`sp11-audio-check` is the manual report: entry, guard file, PipeWire status,
+sink volume and the last wm8962/sp11 kernel lines. With `--tone` it plays one
+0.5 s low-level 440 Hz tone and prints the guard again, so a sound test needs no
+browser or video. Nothing runs automatically and no mixer value is written.
