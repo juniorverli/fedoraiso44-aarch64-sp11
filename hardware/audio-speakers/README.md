@@ -2,7 +2,7 @@
 
 ## 1. Summary
 
-Two WSA8845 smart amplifiers on SoundWire, driven by the ADSP through AudioReach. Safe use requires speaker protection: a thermal and excursion model fed by voltage/current (VI) sense from the amplifiers. A closed-loop topology, calibration loader and fail-closed kernel guard are prepared and parser-checked, but ADSP graph start, live VI feedback and per-unit calibration remain unverified on the device. Status: `testing`; the 2026-11-03 safe boot installed D26 caps and showed PA 6, but Speaker enable failed and runtime sink level and fault semantics remain unverified. S1/D26 still requires a speaker-off fallback; closed-loop protection is not established.
+Two WSA8845 smart amplifiers on SoundWire are driven by the ADSP through AudioReach. The [muted VI diagnostic candidates](evidence/2026-11-04-muted-vi-implementation.md) provide fail-closed CPS policy, calibration/graph diagnostics, capture supervision and a GPU-off safe DT proposal. Kernel candidates 0011, 0024, audio 0026 and 0027 are integrated in series rev25 (audio 0025 remains excluded pending its cleanup review), the `m15-safe-cl` DTB variant is compiled and published, and the rev25c private image stages the CL topology, both supplements, the manual supervisor and the read-only reporter under a separate nondefault `safe, muted closed-loop VI` entry. None of it has been run on the device yet. Status remains `testing` for the broader D26 image. Closed-loop protection, physical mute and sound safety are not established; S1/D26 and the speaker-off fallback remain. The current requests and test plan supersede conflicting historical material.
 
 ## 2. Hardware
 
@@ -18,13 +18,13 @@ Two WSA8845 smart amplifiers on SoundWire, driven by the ADSP through AudioReach
 
 | Package (`sources/windows/DriverStore/<name>.inf_arm64_*`) | Role |
 |:--|:--|
-| `qcaudminiport_base8380` | TBD |
+| `qcaudminiport_base8380` | QCAUD service points to the catalogued miniport SYS; its protection/calibration flow was not decoded this session (`qcaudminiport_Base8380.inf:447,454`) |
 | `qcaudminiport_apo8380` | TBD |
-| `qcaucd8380` | TBD |
+| `qcaucd8380` | AUCD service points to the catalogued SYS (`qcaucd8380.inf:52,60`); historical amplifier analysis requires a forced-language repeat |
 | `surface_aucdext8380` | TBD |
-| `qcadcm8380` | TBD |
-| `surface_acsp8380` | TBD |
-| `surface_audiominiext8380` | TBD |
+| `qcadcm8380` | ADCM service and speaker-protection VI endpoint rate/width configuration (`qcadcm8380.inf:53,79-80,89`); runtime calibration-manager flow unverified |
+| `surface_acsp8380` | REV_0D ACDB path and calibration data (`surface_acsp8380.inf:131`) |
+| `surface_audiominiext8380` | Surface audio settings including speaker calibration cooldown (`surface_audiominiext8380.inf:175-176`); runtime semantics unverified |
 | `qcasd8380` | TBD |
 | `qcasd_apo8380` | TBD |
 | `surface_asdext8380` | TBD |
@@ -52,7 +52,9 @@ Two WSA8845 smart amplifiers on SoundWire, driven by the ADSP through AudioReach
 
 | Gap | Planned answer |
 |:--|:--|
-| protection graph and calibration | Closed-loop topology plus guard are prepared and parser-checked; ADSP acceptance, separate-graph ordering (H3), VI trigger graph start (H10), live feedback and calibration remain device TBD |
+| calibration state can survive an unstarted VI graph in the integrated kernel | Kernel 0011 plus 0024 are apply-checked candidates; integrate and test lifetime, acknowledgement and identity before capture |
+| Correct CL names and FE format are staged but supervisor liveness is not established | Integrate the revised MultiMedia5 supervisor with negotiated-parameter, RUNNING/XRUN/stall checks and no sample reads; device behavior remains unknown |
+| protection graph and calibration | VI-only diagnostic candidates require CPS in the guard, but have no CPS chain. ADSP acceptance, H3/H10, live feedback and per-unit calibration remain TBD |
 | per-unit calibration (ACDB REV_0D) to Linux format | TBD |
 | VI capture path | TBD |
 | amplifier reset GPIO and port map are reference-design values | TBD |
@@ -67,8 +69,8 @@ Two WSA8845 smart amplifiers on SoundWire, driven by the ADSP through AudioReach
 
 | # | Question | Grade | What answers it |
 |:--|:--|:--|:--|
-| Q1 | Which AudioReach modules and parameters does Windows use for SP and VI (module IDs, calibration blobs)? | TBD | REA of `qcadcm8380.sys`, `qcaudminiport8380.sys`; parse ACDB files of `surface_acsp8380` REV_0D |
-| Q2 | Speaker parameters: resistance, thermal constants, excursion limits | TBD | ACDB calibration for REV_0D (this unit is `REV_0d`) |
+| Q1 | Which AudioReach modules and parameters does Windows use for SP and VI (module IDs, calibration blobs)? | Partly verified as ACDB data; Windows runtime order TBD | Compliant REA of the catalogued drivers and workspace decoding |
+| Q2 | Speaker parameters: resistance, thermal constants, excursion limits | Nominal Re interpretation is an inference; per-unit values TBD | Independently establish ACDB semantics and a measured calibration path |
 | Q3 | Amplifier reset GPIO, SoundWire port mapping, gain limits | TBD | Compare DT values with Windows configuration; REA |
 | Q4 | Is there an upstream topology with speaker protection for any X1E laptop? | Verified for Surface Pro 11: no (PR 76 topology has no SP/VI module); other X1E boards not checked | rest of the audioreach-topology tree |
 | Q5 | Why does `APM_CMD_GET_SPF_STATE` time out with the Windows ADSP image? | Hypothesis H1 to H4 | late reload of `snd_q6apm`; REA R6 and R7 |
@@ -82,11 +84,27 @@ Two WSA8845 smart amplifiers on SoundWire, driven by the ADSP through AudioReach
 
 ## 8. Requests
 
-**2026-11-03 requests (supersede the conflicting Speaker sequence and L0 assertions below):** image: review the retained [candidate Speaker sequence](userspace/overlay-d28/usr/share/alsa/ucm2/Qualcomm/x1e80100/Surface11-SpeakerSeq.conf), remove only the redundant `Speakers Volume` cset from the canonical image input, retain both physical PA writes of 6 and both disable writes of 0, and change the L0 requirement to reject an alias cset while checking those physical writes. Keep the package's remapped mixer for PipeWire. The original failed cset is a strong source-backed inference, not traced in this boot; perform the muted A/B and capture error and route state as described in the [evidence](evidence/2026-11-03-speaker-enable-and-idle-fault.md). Synchronize the canonical and retained files after review. Keep default mute, caps, first-test policy, D26 and speaker-off fallback.
+**Current muted-only integration status, 2026-11-04:** [full evidence and exact owner steps](evidence/2026-11-04-muted-vi-implementation.md) supersede conflicting closed-loop requests below. Kernel series rev25 applies lifetime 0011, calibration/VI identity 0024, graph-open propagation audio 0026 and muted metadata/readback 0027 on top of audio 0023, keeps BTF (`vmlinux` and every module) and all guards, and compiles the [GPU-off safe CL DTB](patches/dtb-variants/x1p64100-microsoft-denali-m15-safe-cl.dts) as `m15-safe-cl`; audio 0025 stays out because its widget-error cleanup has no owner. The kernel adds no sample tap: it records OPEN and SET_CFG results, requested DMA/VI/SoundWire configuration and direct PA-enable reads when the device is attached. A register read is not a physical-silence guarantee.
+
+Image: rev25c keeps the public D26 `safe` default and adds the separate private, nondefault `safe, muted closed-loop VI` entry (`m15-safe-cl`, `sp11.entry=safe`, `sp11.nospk=1`, no `sp11.allow_nominal`). The CL files are generated with `SP11_TOPOLOGY=1 .../build-closedloop.sh --vi-only-diagnostic --nominal-cal`; the three model-matched `...-CL-...` names are staged privately, the public topology is never overwritten, and the CPS-required flag, CRC, one VI link and 36-byte calibration length are checked. The private supplement staged for the `spk` first test was restored byte-for-byte to the legacy flags-0 file (`2eb5a114…`) so that entry keeps the reviewed input; the flags-1 diagnostic file is not staged. The supervisor and reporter are installed as manually invoked tools only; no auto capture, playback or tone helper. The next planned operation is the one [capture-only muted test](test-plan.md), now that the code is built into the image; any failed graph or uncertain PA read is a stop/inconclusive result, and no device run has happened.
+
+Sources/REA: independently establish SP speaker count, codec-DMA packing and actual SoundWire slot assignments, CPS semantics/stream, gains, measured R0/T0 schema and workflow, DSP consumption/readback and cooldown policy. ACDB logical VI map `[1,2,3,4]` now matches Linux's two-speaker expansion, but does not prove DMA packing. The prior REA rejection remains; restore authorized catalog-forced access rather than bypassing it.
+
+**Earlier 2026-11-04 requests (superseded where conflicting):**
+
+**2026-11-04 priority, kernel:** review and integrate main `kernel/patches/0011-audio-speakers-guard-calibration-lifetime.patch` (SHA-256 `7fe2881bcebff5ec7fa823ec9de71e87c92d3369100629bd285e982cd9f80551`) immediately after audio 0023, then review [component candidate 0024](patches/0024-ASoC-qcom-validate-calibration-flags-report-VI-identity.patch) and [candidate 0025](patches/0025-ASoC-qcom-propagate-topology-widget-load-errors.patch). Candidate 0011 binds calibration to the VI graph, invalidates it on setup/start failure and close, and requests existing mute on invalidation; 0024 rejects unknown envelope flags/reserved fields and exposes graph match/ambiguity. None is in the current series or ISO. Candidate 0025 propagates widget parser errors; audit partial-allocation cleanup and retest public and malformed topologies because it may expose previously ignored failures. Apply-check the composed series, run strict checks and host tests, and validate graph-close/retry/concurrency on the actual kernel before any capture test. Preserve all gates and BTF; do not relax nominal, CPS or fault handling.
+
+**Kernel, evidence instrumentation:** report each graph OPEN/PREPARE/START/SET_CFG operation and return status, DSP module/parameter IDs, actual WSA TX0 DMA media count and format, VI operation speaker count and VI map, both SoundWire port/slot assignments, and the current graph identity match without exposing pointers. Do not infer sample validity from a running stream. Establish an independently verifiable physical-output inhibitor before proposing any playback graph test. The two-versus-four count cannot be changed safely without the evidence described in the completeness audit. Obtain a supported muted VI/CPS data or DSP readback path and document what it measures; do not invent mappings, gains or measurement values.
+
+**Image:** corrected CL names and S16_LE/48 kHz/stereo are staged in private f44ef and L0/L1 reported pass; runtime is unverified. Review [the candidate supervisor](userspace/closed-loop/speaker-supervisor) and [read-only guard reporter](userspace/closed-loop/guard-report), integrate only after review, and test MultiMedia5 identification, RUNNING/XRUN handling and signal cleanup. The existing `speaker-first-test` can generate tones and checks supervisor liveness only once; keep it unavailable for this muted investigation, and require any future playback helper to stop on supervisor/PCM loss and every guard refusal. Preserve private-only CL staging, public absence, default mute, S1/D26, caps and speaker-off fallback. Use the current [muted matrix](test-plan.md); the existing ISO is baseline-only for this investigation.
+
+**Calibration / sources:** the 36-byte SP11CA01 is a Linux envelope, not a demonstrated Windows ABI; the generated nominal R0 and assumed T0 are not unit measurements. Recover the DSP R0/T0 SET_CFG layout and measured calibration/event/readback workflow from documented sources or catalog-forced `AARCH64:LE:64:v8A` REA; cross-check the speaker count, VI map, sense gain and CPS requirement. Do not create measured values or a recalibration policy from inference. REA `binary_session` was rejected by automatic approval policy `never`; restore authorized access rather than working around it. Provide file hashes, function addresses and evidence IDs; the workspace format remains undecoded.
+
+**2026-11-03 UCM status:** the canonical and [retained Speaker sequence](userspace/overlay-d28/usr/share/alsa/ucm2/Qualcomm/x1e80100/Surface11-SpeakerSeq.conf) now match at SHA-256 `163cd2d165fb3a0e7003f7ec8b7e7801f5f23737e4274ef9efb1cf091478c179`; the image L0 checker rejects an alias cset and checks the physical PA writes. The original failed cset remains a strong inference, not traced on the device. Retain the remapped mixer, default mute, caps, D26 and the speaker-off fallback; the earlier request to make this source edit is complete, runtime validation is not.
 
 **Kernel:** retain the latch for unknown 0x0200, including PA-off events. Obtain authoritative bit semantics and safe diagnostics before classifying the event or proposing a filter. Handle register I/O errors fail-closed; capture timing and affected amplifier. No cap increase or latch bypass is requested.
 
-**Historical revision 20 image policy (superseded by the 2026-11-03 request above):** The canonical installed UCM source was `image/component-inputs/d28/audio`. Its Speaker enable writes left and right PA and stereo `Speakers Volume` to 6 after DAC/BOOST; disable writes both PAs to 0. At revision 20 both the retained sequence and canonical file had SHA-256 `73526c093294589554cad1326a46e2acaa7b4a83394b66af3048cca614312879`; the retained candidate now intentionally differs pending image-owner review. Verify on device that left/right PA and stereo alias read 6 after enable, verb re-selection and disable/enable, and 0 on disable; verify WsaInit BootSequence does not overwrite PA after enable.
+**Historical revision 20 image policy (superseded by the 2026-11-03 status above):** At revision 20 the canonical and retained Speaker sequences wrote left and right PA and stereo `Speakers Volume` to 6 after DAC/BOOST; both files then had SHA-256 `73526c093294589554cad1326a46e2acaa7b4a83394b66af3048cca614312879`. The canonical and retained files have since been synchronized to the candidate without the alias cset. Runtime PA values and WsaInit ordering still need the muted checks in the test plan.
 
 Global and per-device `device.routes.default-sink-volume = 0.0` provide the fail-safe. The helper mutes first, then sets 100% on normal boots or 5% with `sp11.audio_first_test=1`. Kernel caps are PA <= 6 (0 dB) and WSA RX/MIX <= 81 (-3 dB); UCM initializes digital volume to 72 (-12 dB). WirePlumber 0.5.19 does not implement `api.acp.max-volume`; it is not a ceiling. Measure digital values at 100% and require a real clamp before acceptance if they rise from 72 to 81. Retain cap readiness, open-loop policy and speaker-off fallback. Capture source/route controls and stereo microphone RMS/peak without retaining speech; no microphone UCM change without evidence. The operator must be present for audible tests; follow [test plan](test-plan.md).
 
@@ -111,6 +129,12 @@ Global and per-device `device.routes.default-sink-volume = 0.0` provide the fail
 - **image / audio-mics (M16 playback):** preserve the existing DP route layer when switching the speaker overlay; fix the collector to address the actual card with `amixer -c 0`, capture DP1 mixer switch state at MultiMedia4 open, active UCM devices, connector state and PCM opener with timestamps, plus topology hash and guard state; do not force routes. Preserve the previously requested speaker-off fallback. See [playback evidence](evidence/2026-11-02-m16-safe-playback.md).
 
 ## 9. Log
+
+- 2026-11-04 (muted VI implementation): matched the ACDB four-entry VI map to Linux's two-speaker map; added explicit CPS-required diagnostic generation, graph-open and metadata/readback candidates, no-read supervisor and safe CL DTB proposal. Host apply/checkpatch/tests pass; no kernel/image/ISO/device build or git write.
+
+- 2026-11-04: audited closed-loop completeness; confirmed the lifetime candidate is unintegrated; added calibration/guard and topology-error candidates, monitored capture supervisor, host checks and a muted-only matrix. No kernel/image build or device test.
+
+- 2026-11-03 (closed-loop audit): reproduced stale VI calibration across an unstarted graph in a host harness, found CL supplement-name and supervisor FE-format mismatches, parsed catalogued ACDB metadata, and requested one priority fail-closed kernel change. REA MCP approval was rejected; added a muted-only test delta. No device action, kernel/image/ISO build or git write.
 
 - 2026-11-03: analysed safe and debug boot audio, identified the raw-control versus remapped alias as the leading UCM failure cause, prepared a retained sequence candidate, and correlated the unknown PA-off latch with reboot; updated muted test and collection requests. No device test or commit.
 

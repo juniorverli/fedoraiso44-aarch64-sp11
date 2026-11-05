@@ -1,0 +1,186 @@
+From: SP11 audio worker <audio-worker@localhost>
+Subject: [PATCH candidate] ASoC: qcom: report speaker graph setup metadata
+
+Report graph-management return codes, private supplement SET_CFG parameter
+IDs and return codes, the VI graph DMA format and mask, VI speaker and map
+counts, map entries, each feedback slave's requested port and mask, and
+a direct PA-enable register read when the codec is already active.
+Do not log calibration values or capture samples. A successful SET_CFG is
+an APM command acknowledgment, not proof of the algorithm or sense data.
+
+These messages describe requested configuration, not SoundWire slot
+assignment on the wire. They add no route, value, mute or guard bypass.
+
+---
+--- a/sound/soc/qcom/qdsp6/q6apm.c
++++ b/sound/soc/qcom/qdsp6/q6apm.c
+@@ -114,7 +114,7 @@
+ 	struct apm_graph_mgmt_cmd *mgmt_cmd;
+ 	struct audioreach_sub_graph *sg;
+ 	struct q6apm *apm = graph->apm;
+-	int i = 0, payload_size = APM_GRAPH_MGMT_PSIZE(mgmt_cmd, num_sub_graphs);
++	int ret, i = 0, payload_size = APM_GRAPH_MGMT_PSIZE(mgmt_cmd, num_sub_graphs);
+ 
+ 	struct gpr_pkt *pkt __free(kfree) = audioreach_alloc_apm_cmd_pkt(payload_size, opcode, 0);
+ 	if (IS_ERR(pkt))
+@@ -132,7 +132,9 @@
+ 	list_for_each_entry(sg, &info->sg_list, node)
+ 		mgmt_cmd->sub_graph_id_list[i++] = sg->sub_graph_id;
+ 
+-	return q6apm_send_cmd_sync(apm, pkt, 0);
++	ret = q6apm_send_cmd_sync(apm, pkt, 0);
++	dev_info(apm->dev, "graph %u command=0x%08x rc=%d\n", graph->id, opcode, ret);
++	return ret;
+ }
+ 
+ static void q6apm_put_audioreach_graph(struct kref *ref)
+--- a/sound/soc/qcom/qdsp6/audioreach-sp11.c
++++ b/sound/soc/qcom/qdsp6/audioreach-sp11.c
+@@ -322,6 +322,7 @@
+ {
+ 	struct apm_module_param_data *param_data;
+ 	int payload_size = APM_MODULE_PARAM_DATA_SIZE + ALIGN(size, 8);
++	int ret;
+ 	void *p;
+ 
+ 	struct gpr_pkt *pkt __free(kfree) =
+@@ -337,7 +338,10 @@
+ 	param_data->param_size = size;
+ 	memcpy(p + APM_MODULE_PARAM_DATA_SIZE, data, size);
+ 
+-	return q6apm_send_cmd_sync(graph->apm, pkt, 0);
++	ret = q6apm_send_cmd_sync(graph->apm, pkt, 0);
++	dev_info(graph->dev, "sp11: graph %u SET_CFG iid=0x%x param=0x%08x size=%u rc=%d\n",
++		 graph->id, iid, param_id, size, ret);
++	return ret;
+ }
+ 
+ /* Apply the per-unit R0/T0 to the VI module, returns 0 and leaves the guard closed if absent */
+@@ -423,7 +427,7 @@
+ 		goto out;
+ 	}
+ 	dev_info(graph->dev, "speaker calibration applied (%s)\n",
+-		 nominal ? "nominal" : "measured");
++		 nominal ? "nominal" : "non-nominal");
+ out:
+ 	if (ret)
+ 		sp11_guard_calibration_reset();
+--- a/sound/soc/qcom/qdsp6/audioreach.c
++++ b/sound/soc/qcom/qdsp6/audioreach.c
+@@ -742,7 +742,7 @@
+ 	int pm_sz = APM_HW_EP_PMODE_CFG_PSIZE;
+ 	int size = ic_sz + ep_sz + fs_sz + pm_sz;
+ 	void *p;
+-	int i;
++	int i, ret;
+ 
+ 	struct gpr_pkt *pkt __free(kfree) = audioreach_alloc_apm_cmd_pkt(size, APM_CMD_SET_CFG, 0);
+ 	if (IS_ERR(pkt))
+@@ -797,7 +797,14 @@
+ 	param_data->param_size = pm_sz - APM_MODULE_PARAM_DATA_SIZE;
+ 	pm_cfg->power_mode.power_mode = 0;
+ 
+-	return q6apm_send_cmd_sync(graph->apm, pkt, 0);
++	ret = q6apm_send_cmd_sync(graph->apm, pkt, 0);
++	if (q6apm_find_module_by_mid(graph, MODULE_ID_SPEAKER_PROTECTION_VI))
++		dev_info(graph->dev,
++			 "sp11: graph %u DMA iid=0x%x mid=0x%x rate=%u width=%u channels=%u mask=0x%x rc=%d\n",
++			 graph->id, module->instance_id, module->module_id, cfg->sample_rate,
++			 cfg->bit_width, cfg->num_channels,
++			 intf_cfg->cfg.active_channels_mask, ret);
++	return ret;
+ }
+ 
+ int audioreach_send_u32_param(struct q6apm_graph *graph,
+@@ -1595,6 +1602,14 @@
+ 	ex_cfg->cfg.factory_mode = 0;
+ 
+ 	rc = q6apm_send_cmd_sync(graph->apm, pkt, 0);
++	dev_info(graph->dev,
++		 "sp11: graph %u VI iid=0x%x op=0x%x speakers=%u map=0x%x entries=%u rc=%d\n",
++		 graph->id, module->instance_id, PARAM_ID_SP_VI_OP_MODE_CFG,
++		 op_cfg->cfg.num_channels, PARAM_ID_SP_VI_CHANNEL_MAP_CFG,
++		 cm_cfg->cfg.num_channels, rc);
++	for (i = 0; i < cm_cfg->cfg.num_channels; i++)
++		dev_info(graph->dev, "sp11: graph %u VI map[%d]=%u\n", graph->id, i,
++			 cm_cfg->cfg.channel_mapping[i]);
+ 
+ 	kfree(pkt);
+ 
+--- a/sound/soc/codecs/wsa884x.c
++++ b/sound/soc/codecs/wsa884x.c
+@@ -1966,12 +1966,40 @@
+ 				    wsa884x->sruntime);
+ }
+ 
++/* A direct register read, never a cached value or a reason to resume the device. */
++static void wsa884x_log_pa_enable(struct wsa884x_priv *wsa884x, const char *stage)
++{
++	unsigned int value;
++	int ret;
++
++	if (!wsa884x->guarded)
++		return;
++	if (!READ_ONCE(wsa884x->hw_init)) {
++		dev_info(wsa884x->dev, "feedback %s PA enable unknown: device not attached\n",
++			 stage);
++		return;
++	}
++	ret = pm_runtime_get_if_in_use(wsa884x->dev);
++	if (ret <= 0) {
++		dev_info(wsa884x->dev, "feedback %s PA enable unknown: runtime=%d\n",
++			 stage, ret);
++		return;
++	}
++	ret = regmap_read_bypassed(wsa884x->regmap, WSA884X_PA_FSM_EN, &value);
++	pm_runtime_put(wsa884x->dev);
++	if (ret)
++		dev_info(wsa884x->dev, "feedback %s PA enable read failed: %d\n", stage, ret);
++	else
++		dev_info(wsa884x->dev, "feedback %s PA global enable=%u (register)\n",
++			 stage, !!(value & WSA884X_PA_FSM_EN_GLOBAL_PA_EN_MASK));
++}
++
+ static int wsa884x_fb_hw_params(struct snd_pcm_substream *substream,
+ 				struct snd_pcm_hw_params *params,
+ 				struct snd_soc_dai *dai)
+ {
+ 	struct wsa884x_priv *wsa884x = dev_get_drvdata(dai->dev);
+-	int idx = dai->id - WSA884X_DAI_VI;
++	int ret, idx = dai->id - WSA884X_DAI_VI;
+ 	int port = dai->id == WSA884X_DAI_VI ? WSA884X_PORT_VISENSE : WSA884X_PORT_CPS;
+ 
+ 	wsa884x->fb_pconfig[idx] = wsa884x_pconfig[port];
+@@ -1984,8 +2012,14 @@
+ 	wsa884x->fb_sconfig[idx].type = SDW_STREAM_PDM;
+ 	wsa884x->fb_sconfig[idx].direction = SDW_DATA_DIR_TX;
+ 
+-	return sdw_stream_add_slave(wsa884x->slave, &wsa884x->fb_sconfig[idx],
+-				    &wsa884x->fb_pconfig[idx], 1, wsa884x->fb_sruntime[idx]);
++	wsa884x_log_pa_enable(wsa884x, "before-add");
++	ret = sdw_stream_add_slave(wsa884x->slave, &wsa884x->fb_sconfig[idx],
++				   &wsa884x->fb_pconfig[idx], 1, wsa884x->fb_sruntime[idx]);
++	dev_info(dai->dev, "feedback %s port=%u mask=0x%x channels=%u rate=%u rc=%d\n",
++		 dai->id == WSA884X_DAI_VI ? "VI" : "CPS", wsa884x->fb_pconfig[idx].num,
++		 wsa884x->fb_pconfig[idx].ch_mask, wsa884x->fb_sconfig[idx].ch_count,
++		 wsa884x->fb_sconfig[idx].frame_rate, ret);
++	return ret;
+ }
+ 
+ static int wsa884x_hw_free(struct snd_pcm_substream *substream,
+@@ -1993,11 +2027,13 @@
+ {
+ 	struct wsa884x_priv *wsa884x = dev_get_drvdata(dai->dev);
+ 
+-	if (dai->id == WSA884X_DAI_SPKR)
++	if (dai->id == WSA884X_DAI_SPKR) {
+ 		sdw_stream_remove_slave(wsa884x->slave, wsa884x->sruntime);
+-	else
++	} else {
++		wsa884x_log_pa_enable(wsa884x, "before-free");
+ 		sdw_stream_remove_slave(wsa884x->slave,
+ 					wsa884x->fb_sruntime[dai->id - WSA884X_DAI_VI]);
++	}
+ 
+ 	return 0;
+ }

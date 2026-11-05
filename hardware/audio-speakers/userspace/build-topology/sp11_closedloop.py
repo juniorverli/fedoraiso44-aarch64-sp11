@@ -7,7 +7,7 @@ Outputs go to a private directory, normally out/firmware-private/audio/, and are
 installed only by the private image mode (D25, S5). Nothing here is public.
 
   sp11cl   <card>-sp11cl.bin    control links + calibration records of the model
-  sp11cal  <card>-sp11cal.bin   R0/T0 of this unit (measured, or nominal on request)
+  sp11cal  <card>-sp11cal.bin   test-only nominal R0/T0 (never a unit measurement)
   tplg     <card>-tplg.bin      the public topology plus the speaker protection chains; built by
                                 build-closedloop-topology.sh from m4/ (this script only writes the
                                 instance ids it needs, see --emit-ids)
@@ -184,18 +184,28 @@ def main():
     ap.add_argument("--acdb", type=Path, required=True)
     ap.add_argument("--out-dir", type=Path, required=True,
                     help="private output directory, for example out/firmware-private/audio")
-    ap.add_argument("--with-cps", action="store_true",
-                    help="require the CPS feedback (control link and stream)")
+    paths = ap.add_mutually_exclusive_group()
+    paths.add_argument("--vi-only-diagnostic", action="store_true",
+                       help="explicitly select the incomplete, muted VI diagnostic")
+    paths.add_argument("--with-cps", action="store_true",
+                       help="reserved: CPS topology is not implemented")
     cal = ap.add_mutually_exclusive_group()
     cal.add_argument("--nominal-cal", action="store_true",
-                     help="write a NOMINAL unit calibration: Re from the ACDB, T0 25 C")
+                     help="write test-only nominal R0/T0: Re from the ACDB, T0 assumed 25 C")
     cal.add_argument("--measured", nargs=4, type=float,
                      metavar=("R0_LEFT", "R0_RIGHT", "T0_LEFT", "T0_RIGHT"),
-                     help="write a measured unit calibration (ohm, degC)")
+                     help="reserved: measured calibration workflow is not established")
     ap.add_argument("--emit-ids", type=Path, metavar="FILE",
                     help="write the private m4 include with the instance ids for the topology and exit")
     ap.add_argument("--self-test", action="store_true", help="decode what was written")
     args = ap.parse_args()
+
+    if args.measured:
+        ap.error("measured calibration workflow is not established")
+    if args.with_cps:
+        ap.error("CPS topology is not implemented; no complete path can be generated")
+    if not args.emit_ids and not args.vi_only_diagnostic:
+        ap.error("select --vi-only-diagnostic; this topology lacks the CPS chain")
 
     acdb = acdb_inspect.Acdb(args.acdb.read_bytes())
     if args.emit_ids:
@@ -207,28 +217,30 @@ def main():
     records = acdb.calibration_payloads(CAL_INSTANCES)
     if not records:
         raise SystemExit("no calibration records")
-    links = build_links(modules, links, args.with_cps)
+    links = build_links(modules, links, False)
     nominal = nominal_re_q24(records)
 
     base = args.out_dir / "qcom" / DRIVER
+    cal_path = base / f"{CARD}-sp11cal.bin"
+    if not args.nominal_cal and cal_path.exists():
+        raise SystemExit("refusing to leave a stale calibration in the output directory; use a clean directory")
     out = {}
-    out["sp11cl"] = build_sp11cl(links, records, FLAG_CPS if args.with_cps else 0, nominal)
+    # This incomplete diagnostic has no CPS chain. Require CPS in the guard
+    # anyway, so a later SP graph cannot satisfy the unmute gate without it.
+    out["sp11cl"] = build_sp11cl(links, records, FLAG_CPS, nominal)
     write_private(base / f"{CARD}-sp11cl.bin", out["sp11cl"])
     if args.nominal_cal:
         out["sp11cal"] = build_sp11cal(nominal, [T0_NOMINAL_Q6] * 2, True)
-    elif args.measured:
-        r0l, r0r, t0l, t0r = args.measured
-        out["sp11cal"] = build_sp11cal([round(r0l * 2**24), round(r0r * 2**24)],
-                                       [round(t0l * 64), round(t0r * 64)], False)
     if "sp11cal" in out:
-        write_private(base / f"{CARD}-sp11cal.bin", out["sp11cal"])
+        write_private(cal_path, out["sp11cal"])
 
     if args.self_test:
         n_links, flags, re, dec_links, recs = decode_sp11cl(out["sp11cl"])
         assert dec_links == links and len(recs) == len(records)
         assert [bytes(r[2]) for r in recs] == [r[2] for r in records]
-        print(f"self-test ok: {n_links} links, {len(recs)} records, flags {flags}, "
-              f"Re {[x / 2**24 for x in re]}")
+        assert flags == FLAG_CPS and re == tuple(nominal)
+        print(f"self-test ok: {n_links} VI link, {len(recs)} records, CPS guard required; "
+              "CPS chain absent, muted diagnostic only")
 
     # Hashes only: the files are Windows-derived and private (S5)
     print(json.dumps({name: hashlib.sha256(blob).hexdigest() for name, blob in out.items()},

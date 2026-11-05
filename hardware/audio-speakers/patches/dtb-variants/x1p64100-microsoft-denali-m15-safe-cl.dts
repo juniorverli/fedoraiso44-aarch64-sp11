@@ -1,0 +1,15 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * Proposed private, muted-only VI diagnostic based on the existing GPU-off
+ * safe variant. It keeps all safe DT content and changes only the sound
+ * model so AudioReach requests the private CL topology and supplements.
+ *
+ * Use only with the reviewed fail-closed kernel, the explicit VI-only
+ * diagnostic supplement and a boot entry that always sets sp11.nospk=1.
+ * This DTB is not a speaker-off fallback and does not itself mute a PA.
+ */
+#include "x1p64100-microsoft-denali-m15-safe.dts"
+
+&{/sound} {
+	model = "X1E80100-Microsoft-Surface-Pro-11-CL";
+};

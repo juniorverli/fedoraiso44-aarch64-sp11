@@ -50,9 +50,11 @@ DEVICE_SG_ADD(audioreach/subgraph-sp11-wsa-playback.m4, `WSA_CODEC_DMA_RX_0', WS
 	LPAIF_INTF_TYPE_WSA, CODEC_INTF_IDX_RX0, 0, DATA_FORMAT_FIXED_POINT,
 	0x00004005, 0x00004005, 0x00006040)
 
-dnl WSA voltage/current sense: 8 kHz, 32 bit, 4 channels (parameters set by the machine driver)
+dnl WSA VI backend: the machine driver currently requests 8 kHz/S32 and two.
+dnl These arguments are unused by this subgraph; they do not establish the
+dnl codec DMA's physical channel packing or the four-entry DSP VI map.
 DEVICE_SG_ADD(audioreach/subgraph-sp11-vi-capture.m4, `WSA_CODEC_DMA_TX_0', WSA_CODEC_DMA_TX_0,
-	`S32_LE', 8000, 8000, 4, 4,
+	`S32_LE', 8000, 8000, 2, 2,
 	LPAIF_INTF_TYPE_WSA, CODEC_INTF_IDX_TX0, 0, DATA_FORMAT_FIXED_POINT,
 	0x00004009, 0x00004009, 0x00006090)
 
