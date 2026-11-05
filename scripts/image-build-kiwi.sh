@@ -102,25 +102,25 @@ if [ "$(rpm --eval "%{lua:print(rpm.vercmp('$newest_vr', '$min'))}")" -le 0 ]; t
 fi
 log "kernel $kver_full (newer than $min, the only kernel NEVRA at the top level of out/rpms)"
 
-# M15/M16 accepts revision-12..24 RPMs and all six atomically published DTB/JSON pairs (m15, m15-safe, m15-nosnd, m15-notouch, m15-spk, m15-spectra).
-[ "$kver_full" = 7.3.0-65.sp11.24.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.23.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.22.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.21.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.20.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.19.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.18.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.17.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.16.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.15.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.14.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.13.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.12.fc44.aarch64 ] || {
+# M15/M16 accepts revision-12..25 RPMs and all eight atomically published DTB/JSON pairs (m15, m15-safe, m15-nosnd, m15-notouch, m15-spk, m15-spectra, m15-safe-camrot, m15-safe-cl).
+[ "$kver_full" = 7.3.0-65.sp11.25.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.24.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.23.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.22.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.21.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.20.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.19.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.18.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.17.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.16.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.15.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.14.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.13.fc44.aarch64 ] || [ "$kver_full" = 7.3.0-65.sp11.12.fc44.aarch64 ] || {
 	log "REFUSED: M15/M16 requires kernel revision 12 through 21 (7.3.0-65.sp11.*.fc44.aarch64), found $kver_full"; exit 6;
 }
 patch_series_sha=$( . "$REPO/scripts/kernel-common.sh"; kernel_series_hash )
-for v in m15 m15-safe m15-nosnd m15-notouch m15-spk m15-spectra; do
+for v in m15 m15-safe m15-nosnd m15-notouch m15-spk m15-spectra m15-safe-camrot m15-safe-cl; do
 	vsrc=$OUT/dtb-variants/$kver_full/qcom/x1p64100-microsoft-denali-$v
 	[ -s "$vsrc.dtb" ] && [ -s "$vsrc.json" ] || {
 		log "REFUSED: $v DTB and JSON not yet published by the kernel worker"; exit 6;
 	}
 	[ "$(sha256sum "$vsrc.dtb" | cut -d' ' -f1)" = "$(jq -r .sha256 "$vsrc.json")" ] &&
 	[ "$(jq -r .kver "$vsrc.json")" = "$kver_full" ] &&
-	{ [ "$(jq -r .series_rev "$vsrc.json")" = 12 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 13 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 14 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 15 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 16 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 17 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 18 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 19 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 20 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 21 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 22 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 23 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 24 ]; } &&
+	{ [ "$(jq -r .series_rev "$vsrc.json")" = 12 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 13 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 14 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 15 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 16 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 17 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 18 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 19 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 20 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 21 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 22 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 23 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 24 ] || [ "$(jq -r .series_rev "$vsrc.json")" = 25 ]; } &&
 	[ "$(jq -r .series_hash_sha256 "$vsrc.json")" = "$patch_series_sha" ] || {
 		log "REFUSED: $v DTB hash/release/series differs from the kernel worker JSON"; exit 6;
 	}
 	case $v in
 		m15|m15-safe) expected_model=X1E80100-Microsoft-Surface-Pro-11 ;;
-		m15-spk) expected_model=X1E80100-Microsoft-Surface-Pro-11-CL ;;
+		m15-spk | m15-safe-cl) expected_model=X1E80100-Microsoft-Surface-Pro-11-CL ;;
 		*) expected_model= ;;
 	esac
 	if [ -n "$expected_model" ]; then
@@ -262,10 +262,10 @@ mkdir -p "$desc/root/etc/systemd/system/sysinit.target.wants" "$desc/root/etc/sy
 for u in sp11-sam-mode-rotor.service sp11-identity-switch.service sp11-wifi-identity.service; do
 	ln -sf "/usr/lib/systemd/system/$u" "$desc/root/etc/systemd/system/sysinit.target.wants/$u"
 done
-for u in sp11-cdsp-experiment.service sp11-cpufreq-cap.service; do
+for u in sp11-cdsp-experiment.service sp11-cpufreq-cap.service sp11-cl-validate.service; do
 	ln -sf "/usr/lib/systemd/system/$u" "$desc/root/etc/systemd/system/multi-user.target.wants/$u"
 done
-chmod 0755 "$desc/root/usr/libexec/sp11-touch-conf-select" "$desc/root/usr/libexec/sp11-boot-state" "$desc/root/usr/libexec/sp11/"{operator-notice,sam-mode-rotor,cdsp-experiment,cpufreq-cap,identity-switch,gpu-retry,speaker-supervisor,speaker-first-test}
+chmod 0755 "$desc/root/usr/libexec/sp11-touch-conf-select" "$desc/root/usr/libexec/sp11-boot-state" "$desc/root/usr/libexec/sp11/"{operator-notice,sam-mode-rotor,cdsp-experiment,cpufreq-cap,identity-switch,gpu-retry,speaker-supervisor,speaker-first-test,guard-report,post-install,post-install-boot,closed-loop-validate.py,closed-loop-report.sh}
 # M15: identity experiment of the wifi and bluetooth workers (hardware/wifi/image-request-identity.md, hardware/bluetooth/image-request.md), installed in every
 # ISO (inert without the private-mode marker /usr/share/sp11/image-mode). The switch sp11.identity=none is the boot-medium marker sp11/identity-none.
 install -m 0644 "$REPO/hardware/wifi/collector/identity.sh" "$desc/root/etc/sp11-log-collector.d/wifi-identity.sh"
@@ -358,7 +358,7 @@ rpm2cpio "$kcore" | cpio -i --quiet --to-stdout "./lib/modules/$kver/dtb/qcom/x1
 # M11: the kernel worker variants next to the packaged DTB. The build fails without
 # it; with --smoke a copy of the packaged DTB stands in (recorded, never for the device).
 variants_smoke_copy=0
-for v in m15 m15-safe m15-nosnd m15-notouch m15-spk m15-spectra; do
+for v in m15 m15-safe m15-nosnd m15-notouch m15-spk m15-spectra m15-safe-camrot m15-safe-cl; do
 	vf=x1p64100-microsoft-denali-$v.dtb
 	vsrc=$OUT/dtb-variants/$kver/qcom/$vf
 	if [ -s "$vsrc" ]; then
@@ -374,7 +374,8 @@ for v in m15 m15-safe m15-nosnd m15-notouch m15-spk m15-spectra; do
 		exit 6
 	fi
 done
-tar -C "$dtbtmp" -cf "$desc/config-cdroot.tar" boot
+install -m 0644 "$REPO/image/kiwi/install/ks-sp11.cfg" "$dtbtmp/ks-sp11.cfg"
+tar -C "$dtbtmp" -cf "$desc/config-cdroot.tar" boot ks-sp11.cfg
 
 # ---- 5. pins for the build record
 dnf -q repoinfo fedora updates --setopt=reposdir=/etc/yum.repos.d 2>/dev/null |
@@ -464,11 +465,12 @@ for f in "$chk"/_* "$chk/esp-grub.cfg"; do
 	# kernel arguments only: a menu title or a parameter value such as shutdown_mode=quiet is not the kernel argument `quiet`
 	if grep -E '^[[:space:]]*(linux|linuxefi)[[:space:]]' "$f" | tr -s ' \t' '\n\n' | grep -x -E 'quiet|rhgb|splash' >/dev/null; then log "FAIL: quiet/rhgb/splash argument in $f"; exit 1; fi
 done
-n=$(grep -c "^menuentry '" "$chk/_boot_grub2_grub.cfg"); [ "$n" = 12 ] || { log "FAIL: $n top-level menu entries, expected 12 (M15: flat static menu)"; exit 1; }
+n=$(grep -c "^menuentry '" "$chk/_boot_grub2_grub.cfg"); [ "$n" = 25 ] || { log "FAIL: $n top-level menu entries, expected 25 (M15: flat static menu, rev25/25b tests, two safe camera/audio tests and the installer)"; exit 1; }
 [ "$(grep -c -E '^[[:space:]]*submenu[[:space:]]' "$chk/_boot_grub2_grub.cfg")" = 0 ] || { log "FAIL: submenu command in the M15 menu"; exit 1; }
 for e in debug safe nosnd notouch spk usbdbg nodsp wifi-unblock nomodeset initramfs spectra vmtest; do grep -q "sp11.entry=$e\$" "$chk/_boot_grub2_grub.cfg" || { log "FAIL: no entry with sp11.entry=$e"; exit 1; }; done
+for e in test-multi-user test-ignore-unused test-pinoff test-acd-off test-preempt-off test-msm-off test-softgl test-safe-debug test-safe-pstore test-m15-safe test-safe-camrot test-safe-cl; do grep -q "sp11.test=$e " "$chk/_boot_grub2_grub.cfg" || { log "FAIL: no debug test entry with sp11.test=$e"; exit 1; }; done
 python3 -I "$REPO/image/tools/check-m8-menu.py" "$chk/_boot_grub2_grub.cfg"
-for f in x1p64100-microsoft-denali-m15 x1p64100-microsoft-denali-m15-safe x1p64100-microsoft-denali-m15-nosnd x1p64100-microsoft-denali-m15-notouch x1p64100-microsoft-denali-m15-spk x1p64100-microsoft-denali-m15-spectra; do
+for f in x1p64100-microsoft-denali-m15 x1p64100-microsoft-denali-m15-safe x1p64100-microsoft-denali-m15-nosnd x1p64100-microsoft-denali-m15-notouch x1p64100-microsoft-denali-m15-spk x1p64100-microsoft-denali-m15-spectra x1p64100-microsoft-denali-m15-safe-camrot x1p64100-microsoft-denali-m15-safe-cl; do
 	xorriso -indev "$iso" -find "/boot/dtb/qcom/$f.dtb" -type f 2>/dev/null | grep -q . || { log "FAIL: /boot/dtb/qcom/$f.dtb not on the ISO"; exit 1; }
 done
 
@@ -545,13 +547,20 @@ record = {
     "module_policy": {"qcom_battmgr": "blacklist + install false + dracut omit_drivers (D23)",
                       "ucsi_glink": "retained early", "ath12k.debug_mask": "0x70; CONFIG_ATH12K_DEBUG=y; output checked by L0",
                       "scmi_cpufreq": "modules-load.d/sp11-cpufreq.conf (soc-boot R-I2); cap by default, lifted only by the boot-medium marker sp11/cpufreq-uncapped"},
-    "menu": "M15 flat static menu, 12 entries, no GRUB function except load_video, no grubenv, no variable: debug (m15 with GPU and cameras), safe (m15-safe), nosnd, notouch, spk, usbdbg, nodsp, wifi-unblock, nomodeset, initramfs, spectra, vmtest",
+    "menu": "M15 flat static menu, 25 entries, no GRUB function except load_video, no grubenv, no variable: debug (m15 with GPU and cameras), safe (m15-safe), nosnd, notouch, spk, usbdbg, nodsp, wifi-unblock, nomodeset, initramfs, spectra, seven rev25 debug isolation tests (multi-user, ignore-unused, pinoff, acd-off, preempt-off, msm-off, softgl), three rev25b reset-axis tests (safe DTB + debug services, safe DTB + EFI pstore, m15 DTB + safe services), safe rear-rotation test, muted safe closed-loop VI test, interactive installer (keeps Windows, fixes the UEFI boot), vmtest; each test carries a unique sp11.test=<id> and its intended sp11.entry mark",
     "diagnostic_args_reason": {"debug": "M15 line 1: m15 DTB (microphones + rear/front/IR camera nodes + GPU/GMU/zap), no automatic GPU two-step (manually add sp11.gpu_diag=1; may reset the machine), USB dynamic debug (usb-typec R-I1), PDR dynamic debug, DSP trace string without power:power_domain_target; nothing variable",
                                "safe": "m15-safe: microphones only, camera and GPU nodes off (the M13/M14-safe content); the always-booting fallback, line 1 arguments except entry marker",
                                "nosnd": "m15-nosnd: sound card off", "notouch": "touch-pen section 8: m15-notouch, touch child disabled",
                                "spk": "private-only closed-loop experiment: m15-spk must select the CL sound model; public image omits the CL topology and fails closed; sp11.nospk kill switch",
                                "spectra": "Qualcomm Spectra camera test: m15-spectra DTB, the safe arguments plus module_blacklist=camera_x1e80100 (the kernel then refuses every load of that module); sp11-spectra-load.service loads it only with the marker sp11/spectra-load on the boot medium and without that argument",
                                "usbdbg": "M13 USB + DSP trace (8M buffer) on m15-safe", "nodsp": "qcom_q6v5_pas blacklisted (no early DSP) on m15-safe",
+                               "test-multi-user": "rev25 isolation test: line 1 plus systemd.unit=multi-user.target (no GNOME); sp11.entry=debug keeps the debug-only GPU pin and kmsg tail",
+                               "test-ignore-unused": "rev25 isolation test: line 1 (clk_ignore_unused pd_ignore_unused) plus regulator_ignore_unused; the archiso reference uses only the first two",
+                               "test-pinoff": "rev25 isolation test: line 1 plus sp11.gpu_pin=0 (the early udev and late service skip the runtime-PM pin)",
+                               "test-acd-off": "rev25 isolation test: line 1 plus msm.disable_acd=1 (module parameter; ACD forced off)",
+                               "test-preempt-off": "rev25 isolation test: line 1 plus msm.enable_preemption=0 (module parameter; preemption off)",
+                               "test-msm-off": "rev25 isolation test: line 1 plus module_blacklist=msm; the display driver is absent, so the screen may freeze or go blank and only the boot-medium logs report the result",
+                               "test-softgl": "rev25 isolation test: line 1 plus systemd.setenv=LIBGL_ALWAYS_SOFTWARE=1 (best effort; the session may not inherit PID1's environment, so compare with the multi-user entry)",
                                "wifi-unblock": "sp11.wifi_unblock=1 on m15-safe", "nomodeset": "nomodeset on m15-safe", "initramfs": "rd.break=pre-mount on m15-safe", "vmtest": "L1 only, no devicetree"},
     "linux_side_experiments": {"sam_mode_order": "silent, clean, quiet, default (sp11-sam-mode-rotor.service; counter sp11_sam_counter in sp11/state/ on the boot medium)",
                "cdsp_variants": ["fw=c1-00078 keep_proxy_pds=0 forced", "fw=c1-00046.1 keep_proxy_pds=default (-1: votes kept)", "fw=c1-00046.1 keep_proxy_pds=0 forced", "fw=c1-00078 keep_proxy_pds=default (-1: votes kept)"],

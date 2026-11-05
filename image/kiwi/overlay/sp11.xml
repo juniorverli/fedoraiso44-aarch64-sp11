@@ -77,4 +77,26 @@
 		     (root/etc/dracut.conf.d/90-sp11.conf), rd.plymouth=0 plymouth.enable=0 on every entry,
 		     and its units masked (scripts/image-build-kiwi.sh). -->
 	</packages>
+	<packages type="delete" profiles="Workstation-Live">
+		<!-- SP11: keep the live image basic; the office suite is not part of it. -->
+		<package name="libreoffice-calc"/>
+		<package name="libreoffice-core"/>
+		<package name="libreoffice-data"/>
+		<package name="libreoffice-emailmerge"/>
+		<package name="libreoffice-filters"/>
+		<package name="libreoffice-graphicfilter"/>
+		<package name="libreoffice-gtk3"/>
+		<package name="libreoffice-gtk4"/>
+		<package name="libreoffice-help-en"/>
+		<package name="libreoffice-impress"/>
+		<package name="libreoffice-langpack-en"/>
+		<package name="libreoffice-ogltrans"/>
+		<package name="libreoffice-opensymbol-fonts"/>
+		<package name="libreoffice-pdfimport"/>
+		<package name="libreoffice-pyuno"/>
+		<package name="libreoffice-ure"/>
+		<package name="libreoffice-ure-common"/>
+		<package name="libreoffice-writer"/>
+		<package name="libreoffice-xsltfilter"/>
+	</packages>
 </image>

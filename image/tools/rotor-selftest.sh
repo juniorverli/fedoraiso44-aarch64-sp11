@@ -239,4 +239,26 @@ EOF
 ) 2>&1 | tee "$T/gpu.out"
 fails=$((fails + $(grep -c '^FAIL' "$T/gpu.out")))
 bash "$L/sp11/gpu-retry" >/dev/null 2>&1; : 
+# --- WirePlumber wrapper: software rasteriser when the GPU is not usable
+WL=$L/sp11-wireplumber-safe; WLCMD=$T/wl-cmdline; WLFAKE=$T/wireplumber-fake
+cat >"$WLFAKE" <<'EOS'
+#!/bin/sh
+echo "GALLIUM_DRIVER=${GALLIUM_DRIVER:-unset} LIBGL_ALWAYS_SOFTWARE=${LIBGL_ALWAYS_SOFTWARE:-unset}"
+EOS
+chmod +x "$WLFAKE"
+wlrun() {
+	echo "$1" >"$WLCMD"
+	SP11_CMDLINE_FILE=$WLCMD SP11_WIREPLUMBER=$WLFAKE sh "$WL"
+}
+eq "wireplumber: safe entry uses softpipe" "GALLIUM_DRIVER=softpipe LIBGL_ALWAYS_SOFTWARE=1" "$(wlrun 'x sp11.entry=safe y')"
+eq "wireplumber: msm.skip_gpu=1 uses softpipe" "GALLIUM_DRIVER=softpipe LIBGL_ALWAYS_SOFTWARE=1" "$(wlrun 'x sp11.entry=debug y msm.skip_gpu=1 z')"
+eq "wireplumber: GPU-enabled debug keeps the GPU path" "GALLIUM_DRIVER=unset LIBGL_ALWAYS_SOFTWARE=unset" "$(wlrun 'x sp11.entry=debug y')"
+
+# --- muted closed-loop validator self-test (audio path; opt-in unit)
+if python3 -I "$L/sp11/closed-loop-validate.py" --self-test >"$T/clv.out" 2>&1; then
+	ok "closed-loop validator self-test"
+else
+	bad "closed-loop validator self-test ($(tail -1 "$T/clv.out"))"
+fi
+
 [ "$fails" = 0 ] && exit 0 || exit 1

@@ -75,7 +75,7 @@ if [ "$inside" = 0 ]; then
 		ls "$out"/rpms/kernel-core-*.rpm >/dev/null 2>&1 || { echo "image-build: no kernel-core RPM in $out/rpms/" >&2; exit 1; }
 		[ -d "$out/firmware-root/lib/firmware" ] || { echo "image-build: $out/firmware-root missing; run scripts/firmware-stage.sh" >&2; exit 1; }
 		kver_check=$( . "$here/scripts/kernel-common.sh"; echo "$KERNEL_KVER" )
-		for v in m15 m15-safe m15-nosnd m15-notouch m15-spk m15-spectra; do
+		for v in m15 m15-safe m15-nosnd m15-notouch m15-spk m15-spectra m15-safe-camrot m15-safe-cl; do
 			for ext in dtb json; do
 				[ -s "$out/dtb-variants/$kver_check/qcom/x1p64100-microsoft-denali-$v.$ext" ] || {
 					echo "image-build: REFUSED: kernel worker has not published the M15 $v $ext" >&2; exit 6;

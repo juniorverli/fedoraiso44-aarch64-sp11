@@ -27,7 +27,7 @@ USBDSP = set(BASE + USB + PDR + ["trace_event=:mod:qcom_glink", "trace_buf_size=
 
 # ident: (title, DTB variant or None, set of special arguments); order is the menu order
 ENTRIES = {
-    "debug": ("SP11 debug", "m15", DEFAULT | EFI_PSTORE),
+    "debug": ("SP11 debug", "m15", DEFAULT | EFI_PSTORE | {"msm.skip_gpu=1"}),
     "safe": ("SP11 debug, safe (no GPU)", "m15-safe", DEFAULT),
     "nosnd": ("SP11 debug, no sound", "m15-nosnd", DEFAULT),
     "notouch": ("SP11 debug, touch off", "m15-notouch", DEFAULT),
@@ -38,11 +38,32 @@ ENTRIES = {
     "nomodeset": ("SP11 debug nomodeset", "m15-safe", set(BASE) | {"nomodeset"}),
     "initramfs": ("SP11 debug, stop in initramfs", "m15-safe", set(BASE) | {"rd.break=pre-mount"}),
     "spectra": ("SP11 debug, Spectra camera test", "m15-spectra", DEFAULT | {"module_blacklist=camera_x1e80100"}),
+    # Rev25 debug isolation matrix: each entry is line 1 (sp11.entry=debug, m15, EFI pstore) plus one variable.
+    "test-multi-user": ("SP11 debug, test multi-user (no GNOME)", "m15", DEFAULT | EFI_PSTORE | {"systemd.unit=multi-user.target", "sp11.test=test-multi-user"}),
+    "test-ignore-unused": ("SP11 debug, test ignore unused (regulator)", "m15", DEFAULT | EFI_PSTORE | {"regulator_ignore_unused", "sp11.test=test-ignore-unused"}),
+    "test-pinoff": ("SP11 debug, test GPU pin off", "m15", DEFAULT | EFI_PSTORE | {"sp11.test=test-pinoff"}),
+    "test-acd-off": ("SP11 debug, test ACD off", "m15", DEFAULT | EFI_PSTORE | {"msm.disable_acd=1", "sp11.test=test-acd-off"}),
+    "test-preempt-off": ("SP11 debug, test preemption off", "m15", DEFAULT | EFI_PSTORE | {"msm.enable_preemption=0", "sp11.test=test-preempt-off"}),
+    "test-msm-off": ("SP11 debug, test msm off (display may be off; logs only)", "m15", DEFAULT | EFI_PSTORE | {"module_blacklist=msm", "sp11.test=test-msm-off"}),
+    "test-softgl": ("SP11 debug, test software GL", "m15", DEFAULT | EFI_PSTORE | {"systemd.setenv=LIBGL_ALWAYS_SOFTWARE=1", "sp11.test=test-softgl"}),
+    # Rev25b reset-axis isolation: one axis added to a surviving-safe base.
+    "test-safe-debug": ("SP11 debug, test safe DTB + msm off + debug", "m15-safe", DEFAULT | EFI_PSTORE | {"module_blacklist=msm", "sp11.test=test-safe-debug"}),
+    "test-safe-pstore": ("SP11 debug, test safe DTB + EFI pstore", "m15-safe", DEFAULT | EFI_PSTORE | {"sp11.test=test-safe-pstore"}),
+    "test-m15-safe": ("SP11 debug, test m15 DTB + safe services", "m15", DEFAULT | {"sp11.test=test-m15-safe"}),
+    "test-safe-camrot": ("SP11 debug, safe, rear rotation test", "m15-safe-camrot", DEFAULT | {"sp11.test=test-safe-camrot"}),
+    "test-safe-cl": ("SP11 debug, safe, muted closed-loop VI", "m15-safe-cl", DEFAULT | {"sp11.nospk=1", "sp11.test=test-safe-cl"}),
+    "install": ("SP11 install (keeps Windows; fixes UEFI boot)", "m15-safe", DEFAULT | {"inst.ks=hd:LABEL=Fedora-WS-Live-44:/ks-sp11.cfg"}),
     "vmtest": ("VM test (no devicetree)", None, {"console=ttyAMA0,115200"}),
 }
+# Test entries carry a unique sp11.test=<id>; their sp11.entry mark selects the intended service set.
+TEST_IDS = ("test-multi-user", "test-ignore-unused", "test-pinoff", "test-acd-off", "test-preempt-off", "test-msm-off", "test-softgl",
+            "test-safe-debug", "test-safe-pstore", "test-m15-safe", "test-safe-camrot", "test-safe-cl")
+TEST_MARK = {i: "debug" for i in TEST_IDS[:7]}
+TEST_MARK.update({"test-safe-debug": "debug", "test-safe-pstore": "safe", "test-m15-safe": "safe", "test-safe-camrot": "safe", "test-safe-cl": "safe", "install": "safe"})
+M15_TEST_IDS = TEST_IDS[:7] + ("test-m15-safe",)
 COMMON_KIWI = {"printk.devkmsg=on", "log_buf_len=16M", "console=tty0"}   # kiwi boot options (liveinstall.xml)
 FORBIDDEN_WORDS = {"quiet", "rhgb", "splash"}
-SPECIAL_PREFIX = ("module_blacklist=", "modprobe.blacklist=", "rd.driver.blacklist=", "trace_", "drm.debug=", "sp11.allow_nominal", "sp11.nospk", "sp11.gpu_diag", "sp11.gpu_pin", "sp11.wifi_unblock",
+SPECIAL_PREFIX = ("inst.ks=", "module_blacklist=", "modprobe.blacklist=", "rd.driver.blacklist=", "trace_", "drm.debug=", "sp11.allow_nominal", "sp11.nospk", "sp11.gpu_diag", "sp11.gpu_pin", "sp11.wifi_unblock", "sp11.test=",
                   "efi_pstore.", "printk.always_kmsg_dump=", "systemd.unit=", "nomodeset", "rd.break=", "console=")
 NEVER_PREFIX = ("surface_aggregator.", "qcom_q6v5_pas.", "firmware_class.", "sp11.gpu_dtb", "sp11.gpu_retry", "sp11.cdsp_", "sp11.ssam_", "sp11.identity", "sp11.cpufreq")
 DTB_RE = "($root)/boot/dtb/qcom/x1p64100-microsoft-denali-{}.dtb"
@@ -58,15 +79,16 @@ def check_entry(body, ident, variant, want):
     assert linux, f"{ident}: linux command missing"
     args = shlex.split(linux[1])
     pin_args = [a for a in args if a.startswith("sp11.gpu_pin")]
-    assert pin_args == [] or (ident == "debug" and pin_args == ["sp11.gpu_pin=0"]), f"{ident}: invalid GPU pin control"
+    assert pin_args == [] or (ident in {"debug", "test-pinoff", "test-msm-off", "test-safe-debug"} and pin_args == ["sp11.gpu_pin=0"]), f"{ident}: invalid GPU pin control"
     assert not FORBIDDEN_WORDS & set(args), f"{ident}: quiet/rhgb/splash argument"
     assert "debug" in args and "loglevel=8" in args and "ignore_loglevel" in args, f"{ident}: not verbose"
     spec = {a for a in args if a in want or a.startswith(SPECIAL_PREFIX) or ".dyndbg=" in a} - COMMON_KIWI - {"sp11.gpu_pin=0"}
     assert spec == want, f"{ident}: diagnostic args differ: {sorted(spec ^ want)}"
-    assert args.count("sp11.entry=" + ident) == 1 and sum(a.startswith("sp11.entry=") for a in args) == 1, f"{ident}: wrong entry mark"
+    mark = TEST_MARK.get(ident, ident)
+    assert args.count("sp11.entry=" + mark) == 1 and sum(a.startswith("sp11.entry=") for a in args) == 1, f"{ident}: wrong entry mark"
     assert not any(a.startswith(NEVER_PREFIX) for a in args), f"{ident}: rotor/GPU/SAM/firmware argument on the command line (Linux side owns it)"
     assert ("sp11.allow_nominal=1" in args) == (ident == "spk"), f"{ident}: sp11.allow_nominal must be on the speaker first-test entry only"
-    assert "sp11.nospk" not in args, f"{ident}: the kill switch is an operator edit, not a menu argument"
+    assert ("sp11.nospk=1" in args) == (ident == "test-safe-cl"), f"{ident}: sp11.nospk must be on the muted closed-loop test only"
     dtbs = re.findall(r"^\s*devicetree (.*)$", body, re.M)
     assert dtbs == ([] if variant is None else [DTB_RE.format(variant)]), f"{ident}: wrong DTB {dtbs}"
     # the only dollar signs of an entry are the template's ($root); no variable, no expansion in the arguments
@@ -103,10 +125,14 @@ def check(cfg):
         arglists[ident] = check_entry(body, ident, variant, want)
     # Compare shared arguments after removing debug-only diagnostics and the entry mark.
     strip = lambda ident: [a for a in arglists[ident] if not a.startswith("sp11.entry=")]
-    line1 = [a for a in strip("debug") if a not in EFI_PSTORE | {"sp11.gpu_pin=0"}]
+    line1 = [a for a in strip("debug") if a not in EFI_PSTORE | {"sp11.gpu_pin=0", "msm.skip_gpu=1"}]
     for i in ("safe", "nosnd", "notouch"):
         assert strip(i) == line1, f"{i}: arguments differ from line 1"
     assert [a for a in strip("spk") if a != "sp11.allow_nominal=1"] == line1, "spk: arguments differ beyond allow_nominal"
+    for ident in TEST_IDS:
+        rest = [a for a in strip(ident) if a not in EFI_PSTORE | {"sp11.gpu_pin=0"}]
+        assert set(rest) - set(line1) == set(ENTRIES[ident][2]) - DEFAULT - EFI_PSTORE, f"{ident}: not the debug baseline plus its one test variable"
+        assert ("sp11.gpu_pin=0" in arglists[ident]) == (ident in {"test-pinoff", "test-msm-off", "test-safe-debug"}), f"{ident}: wrong GPU pin control"
     assert not any(a.startswith("sp11.gpu_diag") for args in arglists.values() for a in args), "GPU diagnostic must be opt-in"
     # DTB placement: speakers only in spk, cameras only in line 1 (m15); no other DTB names
     used = {}
@@ -114,11 +140,11 @@ def check(cfg):
         for d in re.findall(r"denali-(m[0-9a-z-]+)\.dtb", body):
             used.setdefault(d, []).append(ident)
     assert used["m15-spk"] == ["spk"], f"m15-spk used by {used['m15-spk']}"
-    assert used["m15"] == ["debug"], f"m15 (GPU and camera nodes) used by {used['m15']}: only line 1"
+    assert used["m15"] == ["debug", *M15_TEST_IDS], f"m15 (GPU and camera nodes) used by {used['m15']}: line 1 and its test entries only"
     assert used["m15-spectra"] == ["spectra"], f"m15-spectra used by {used['m15-spectra']}"
     assert [i for i, a in arglists.items() if "module_blacklist=camera_x1e80100" in a] == ["spectra"], "module_blacklist=camera_x1e80100 only on the Spectra entry"
     assert sorted(strip("spectra")) == sorted(line1 + ["module_blacklist=camera_x1e80100"]), "spectra: arguments differ from safe beyond module_blacklist"
-    assert set(used) == {"m15", "m15-safe", "m15-nosnd", "m15-notouch", "m15-spk", "m15-spectra"}, f"DTB set differs: {sorted(used)}"
+    assert set(used) == {"m15", "m15-safe", "m15-nosnd", "m15-notouch", "m15-spk", "m15-spectra", "m15-safe-camrot", "m15-safe-cl"}, f"DTB set differs: {sorted(used)}"
     # the speaker entry keeps the first-test notice
     spk = [b for _, i, b in entries if i == "spk"][0]
     assert "kill switch" in spk.lower() and "sleep 3" in spk, "spk: first-test notice missing"

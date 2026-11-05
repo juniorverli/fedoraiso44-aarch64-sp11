@@ -29,12 +29,21 @@ def check(root, repo, record):
     assert not (root / 'usr/lib/systemd/system/sp11-speaker-ucm.service').exists(), 'obsolete post-probe selector service'
     cl_topology = root / 'usr/lib/firmware/qcom/x1e80100/X1E80100-Microsoft-Surface-Pro-11-CL-tplg.bin'
     legacy_topology = root / 'usr/lib/firmware/qcom/x1e80100/X1E80100-Microsoft-Surface-Pro-11-closed-loop-tplg.bin'
+    cl_supplements = [root / 'usr/lib/firmware/qcom/x1e80100' / name for name in
+                      ('X1E80100-Microsoft-Surface-Pro-11-CL-sp11cl.bin',
+                       'X1E80100-Microsoft-Surface-Pro-11-CL-sp11cal.bin')]
+    unsuffixed = [root / 'usr/lib/firmware/qcom/x1e80100' / name for name in
+                  ('X1E80100-Microsoft-Surface-Pro-11-sp11cl.bin',
+                   'X1E80100-Microsoft-Surface-Pro-11-sp11cal.bin')]
     private_audio = (record.get('private_m14') or {}).get('audio', {})
     if record.get('private'):
         assert cl_topology.is_file() and digest(cl_topology) == private_audio.get(cl_topology.name), 'private CL model topology/record'
+        assert all(f.is_file() and digest(f) == private_audio.get(f.name) for f in cl_supplements), 'CL model sp11cl/sp11cal missing or not recorded'
         assert not legacy_topology.exists(), 'old CL topology filename remains'
+        assert not any(f.exists() for f in unsuffixed), 'private ISO stages unsuffixed sp11cl/sp11cal the CL model cannot request'
     else:
         assert not cl_topology.exists() and not legacy_topology.exists(), 'public ISO contains a closed-loop topology'
+        assert not any(f.exists() for f in cl_supplements + unsuffixed), 'public ISO contains a closed-loop supplement'
     # speaker first-test tooling: present everywhere, manual, gated by the entry and its arguments, with the policy limits
     for name in ('speaker-supervisor', 'speaker-first-test'):
         f = root / 'usr/libexec/sp11' / name
@@ -44,7 +53,10 @@ def check(root, repo, record):
         assert needle in ft, f'first-test script lacks {needle}'
     subprocess.run(['bash', '-n', str(root / 'usr/libexec/sp11/speaker-first-test')], check=True)
     sup = (root / 'usr/libexec/sp11/speaker-supervisor').read_text()
-    assert 'snd_pcm_start' in sup and '.read' not in sup.replace('readi', 'X') and 'snd_pcm_readi' not in sup, 'supervisor reads the capture or never starts it'
+    # Any PCM sample read is refused; Path.read_text() and friends are not sample reads.
+    assert ('snd_pcm_start' in sup and 'snd_pcm_forward' in sup
+            and not any(token in sup for token in ('snd_pcm_readi', 'snd_pcm_readn', 'snd_pcm_mmap_read',
+                                                   'snd_pcm_mmap_begin'))), 'supervisor reads the capture or never starts it'
     for u in ('sp11-speaker-first-test.service',):
         assert not (root / 'usr/lib/systemd/system' / u).exists(), 'the first test must never be a unit'
     # GPU two-step: owner unit byte for byte, installed script = owner + the three image changes, nothing else
@@ -87,7 +99,7 @@ def check(root, repo, record):
     assert not any('sp11.gpu_dtb' in (e['linux_args'] or '') for e in record['grub_entries']), 'GPU DTB argument in the M15 menu'
     assert 'RESET THE MACHINE' in hooks.read_text() and 'line 2' in hooks.read_text(), 'GPU hooks lack the plain reset warning'
     assert 'sp11-boot-state' in hooks.read_text() and 'grubenv' not in hooks.read_text().replace('no grubenv', ''), 'GPU hooks must use the boot-state helper only'
-    assert not any('denali-m1' in str(e) for e in record['grub_entries']) and len(record['grub_entries']) == 12, 'M15 menu is 12 flat entries'
+    assert not any('denali-m1' in str(e) for e in record['grub_entries']) and len(record['grub_entries']) == 25, 'M15 menu is 25 flat entries'
     assert not any(re.search(r'cdsp_variant|firmware_class|keep_proxy_pds|surface_aggregator|sp11\.identity|cpufreq', e['linux_args'] or '') for e in record['grub_entries']), 'experiment argument on a static line'
     assert all('sp11.allow_nominal' not in e['linux_args'] for e in record['grub_entries'] if 'speakers' not in e['title']), 'allow_nominal outside the speaker entry'
     # rotors, notices, helper

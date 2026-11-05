@@ -1,42 +1,162 @@
 #!/usr/bin/python3
-"""Hold the V/I trigger capture open (MultiMedia5 capture, PCM device index 4) so the speaker-protection graph exists before any playback.
+"""Hold the MultiMedia5 trigger capture; skip frames, fail on PCM loss or stall.
 
-audio-speakers evidence 2026-10-31-topology-rfc.md section 4: design A needs a front end that makes DPCM open the sense back end. The
-capture is opened, configured and started, and NEVER read: its input is unconnected by design, nothing arrives. Playback must only start
-while this process runs. If the open fails the process exits non-zero and the first-test script refuses to play. Kill: SIGTERM or SIGINT.
-No sound is produced here. Unproven on the device (H3 cross-graph control link, H10 capture graph with an unconnected input).
+This is a candidate image input. It does not play sound, interpret samples,
+change controls, or establish that the VI backend carries real sense data.
 """
+
 import ctypes
+import errno
+import re
 import signal
 import sys
 import time
+from pathlib import Path
 
-CARD = sys.argv[1] if len(sys.argv) > 1 else "hw:0,4"
-SND_PCM_STREAM_CAPTURE = 1
-SND_PCM_FORMAT_S32_LE = 10
-SND_PCM_ACCESS_RW_INTERLEAVED = 3
-try:
+DEVICE_RE = re.compile(r"hw:(\d+),(\d+)\Z")
+PCM_RUNNING = 3
+PCM_CAPTURE = 1
+PCM_NONBLOCK = 1
+PCM_S16_LE = 2
+PCM_RW_INTERLEAVED = 3
+CHANNELS = 2
+RATE = 48000
+MAX_FRAMES = 2048
+STALL_SECONDS = 2.0
+
+
+def bind(lib, name, restype, *argtypes):
+    fn = getattr(lib, name)
+    fn.restype = restype
+    fn.argtypes = list(argtypes)
+    return fn
+
+
+def verify_frontend(device):
+    match = DEVICE_RE.fullmatch(device)
+    if not match:
+        raise RuntimeError("expected an explicit hw:CARD,DEVICE capture PCM")
+    card, number = map(int, match.groups())
+    info = Path(f"/proc/asound/card{card}/pcm{number}c/info").read_text()
+    fields = [line.partition(":")[2].strip() for line in info.splitlines()
+              if line.partition(":")[0].strip() in ("id", "name")]
+    if not any(re.search(r"\bMultiMedia5\b", value) for value in fields):
+        raise RuntimeError("capture PCM is not identified as MultiMedia5")
+
+
+def verify_hw_params(lib, pcm):
+    voidp = ctypes.c_void_p
+    alloc = bind(lib, "snd_pcm_hw_params_malloc", ctypes.c_int, ctypes.POINTER(voidp))
+    free = bind(lib, "snd_pcm_hw_params_free", None, voidp)
+    current = bind(lib, "snd_pcm_hw_params_current", ctypes.c_int, voidp, voidp)
+    get_format = bind(lib, "snd_pcm_hw_params_get_format", ctypes.c_int, voidp,
+                      ctypes.POINTER(ctypes.c_int))
+    get_access = bind(lib, "snd_pcm_hw_params_get_access", ctypes.c_int, voidp,
+                      ctypes.POINTER(ctypes.c_int))
+    get_channels = bind(lib, "snd_pcm_hw_params_get_channels", ctypes.c_int, voidp,
+                        ctypes.POINTER(ctypes.c_uint))
+    get_rate = bind(lib, "snd_pcm_hw_params_get_rate", ctypes.c_int, voidp,
+                    ctypes.POINTER(ctypes.c_uint), ctypes.POINTER(ctypes.c_int))
+    params = voidp()
+    rc = alloc(ctypes.byref(params))
+    if rc < 0:
+        raise RuntimeError(f"hardware parameter allocation failed: ALSA error {rc}")
+    try:
+        fmt, access, channels, rate, direction = (ctypes.c_int(), ctypes.c_int(),
+                                                   ctypes.c_uint(), ctypes.c_uint(),
+                                                   ctypes.c_int())
+        for name, call in (("current", lambda: current(pcm, params)),
+                           ("format", lambda: get_format(params, ctypes.byref(fmt))),
+                           ("access", lambda: get_access(params, ctypes.byref(access))),
+                           ("channels", lambda: get_channels(params, ctypes.byref(channels))),
+                           ("rate", lambda: get_rate(params, ctypes.byref(rate),
+                                                     ctypes.byref(direction)))):
+            rc = call()
+            if rc < 0:
+                raise RuntimeError(f"hardware {name} read failed: ALSA error {rc}")
+        if (fmt.value, access.value, channels.value, rate.value, direction.value) != (
+                PCM_S16_LE, PCM_RW_INTERLEAVED, CHANNELS, RATE, 0):
+            raise RuntimeError(f"unexpected negotiated PCM: format={fmt.value}, "
+                               f"access={access.value}, channels={channels.value}, "
+                               f"rate={rate.value}, direction={direction.value}")
+    finally:
+        free(params)
+
+
+def run(device):
+    verify_frontend(device)
     lib = ctypes.CDLL("libasound.so.2")
-except OSError as e:
-    sys.exit(f"supervisor: no libasound: {e}")
-pcm = ctypes.c_void_p()
-rc = lib.snd_pcm_open(ctypes.byref(pcm), CARD.encode(), SND_PCM_STREAM_CAPTURE, 0)
-if rc < 0:
-    sys.exit(f"supervisor: cannot open {CARD}: error {rc}")
-# 8 kHz, 4 channels, 32 bit: what the machine driver sets for the V/I back end (patch 0015); half a second of buffer, it is never read
-rc = lib.snd_pcm_set_params(pcm, SND_PCM_FORMAT_S32_LE, SND_PCM_ACCESS_RW_INTERLEAVED, 4, 8000, 0, 500000)
-if rc < 0:
-    sys.exit(f"supervisor: snd_pcm_set_params failed ({rc}) on {CARD}")
-rc = lib.snd_pcm_prepare(pcm)
-if rc < 0:
-    sys.exit(f"supervisor: snd_pcm_prepare failed ({rc})")
-rc = lib.snd_pcm_start(pcm)
-if rc < 0:
-    sys.exit(f"supervisor: snd_pcm_start failed ({rc})")
-print(f"supervisor: holding {CARD} open, never reading; stop with SIGTERM", flush=True)
-stop = []
-for s in (signal.SIGTERM, signal.SIGINT):
-    signal.signal(s, lambda *a: stop.append(1))
-while not stop:
-    time.sleep(1)
-lib.snd_pcm_close(pcm)
+    voidp = ctypes.c_void_p
+    open_pcm = bind(lib, "snd_pcm_open", ctypes.c_int, ctypes.POINTER(voidp), ctypes.c_char_p,
+                    ctypes.c_int, ctypes.c_int)
+    set_params = bind(lib, "snd_pcm_set_params", ctypes.c_int, voidp, ctypes.c_int, ctypes.c_int,
+                      ctypes.c_uint, ctypes.c_uint, ctypes.c_int, ctypes.c_uint)
+    prepare = bind(lib, "snd_pcm_prepare", ctypes.c_int, voidp)
+    start = bind(lib, "snd_pcm_start", ctypes.c_int, voidp)
+    state = bind(lib, "snd_pcm_state", ctypes.c_int, voidp)
+    avail_update = bind(lib, "snd_pcm_avail_update", ctypes.c_long, voidp)
+    forward = bind(lib, "snd_pcm_forward", ctypes.c_long, voidp, ctypes.c_ulong)
+    close_pcm = bind(lib, "snd_pcm_close", ctypes.c_int, voidp)
+    pcm = voidp()
+    rc = open_pcm(ctypes.byref(pcm), device.encode(), PCM_CAPTURE, PCM_NONBLOCK)
+    if rc < 0:
+        raise RuntimeError(f"cannot open {device}: ALSA error {rc}")
+    stop = False
+
+    def request_stop(_signum, _frame):
+        nonlocal stop
+        stop = True
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(sig, request_stop)
+    try:
+        rc = set_params(pcm, PCM_S16_LE, PCM_RW_INTERLEAVED, CHANNELS, RATE, 0, 500000)
+        if rc < 0:
+            raise RuntimeError(f"set_params failed: ALSA error {rc}")
+        verify_hw_params(lib, pcm)
+        for stage, call in (("prepare", lambda: prepare(pcm)),
+                            ("start", lambda: start(pcm))):
+            rc = call()
+            if rc < 0:
+                raise RuntimeError(f"{stage} failed: ALSA error {rc}")
+        if state(pcm) != PCM_RUNNING:
+            raise RuntimeError("PCM did not enter RUNNING")
+        print(f"supervisor: holding {device} MultiMedia5 S16_LE/48000/2; "
+              "skipping trigger frames, not VI evidence", flush=True)
+        last_progress = time.monotonic()
+        skipped = 0
+        while not stop:
+            current = state(pcm)
+            if current != PCM_RUNNING:
+                raise RuntimeError(f"capture lost RUNNING state: ALSA state {current}")
+            available = avail_update(pcm)
+            if available < 0 and available != -errno.EAGAIN:
+                raise RuntimeError(f"capture availability failed: ALSA error {available}")
+            if available > 0:
+                count = min(available, MAX_FRAMES)
+                rc = forward(pcm, count)
+                if rc < 0 and rc != -errno.EAGAIN:
+                    raise RuntimeError(f"capture forward failed: ALSA error {rc}")
+                if rc > 0:
+                    skipped += rc
+                    last_progress = time.monotonic()
+                    continue
+            if time.monotonic() - last_progress >= STALL_SECONDS:
+                raise RuntimeError("capture stalled: no trigger frame progress for 2 seconds")
+            time.sleep(0.05)
+        print(f"supervisor: stopping trigger capture; skipped_frames={skipped}", flush=True)
+    finally:
+        close_pcm(pcm)
+
+
+def main():
+    if len(sys.argv) > 2:
+        sys.exit("usage: speaker-supervisor [hw:CARD,DEVICE]")
+    try:
+        run(sys.argv[1] if len(sys.argv) == 2 else "hw:0,4")
+    except (OSError, AttributeError, RuntimeError) as exc:
+        sys.exit(f"supervisor: {exc}")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,109 @@
+#!/usr/bin/python3
+"""Print every observable SP11 guard precondition without changing device state."""
+
+import argparse
+import re
+import sys
+from pathlib import Path
+
+
+def parse(text):
+    fields = {}
+    for line in text.splitlines():
+        key, sep, value = line.partition(":")
+        if sep:
+            key = key.strip()
+            if key in fields:
+                raise ValueError(f"duplicate guard field: {key}")
+            fields[key] = value.strip()
+    return fields
+
+
+def number(fields, key):
+    value = fields.get(key, "")
+    if not re.fullmatch(r"(?:0x[0-9a-fA-F]+|[0-9]+)(?:\s+\(.*\))?", value):
+        return None
+    return int(value.split()[0], 0)
+
+
+def report(fields):
+    unknown = False
+
+    def item(label, state, detail):
+        nonlocal unknown
+        if state == "UNKNOWN":
+            unknown = True
+        print(f"{label}: {state} ({detail})")
+
+    def eq(label, key, expected):
+        value = number(fields, key)
+        item(label, "UNKNOWN" if value is None else "MET" if value == expected else "UNMET",
+             f"{key}={fields.get(key, '<missing>')}")
+
+    mode = fields.get("mode")
+    item("closed-loop mode", "UNKNOWN" if mode is None else "MET" if mode == "closed-loop" else "UNMET",
+         f"mode={mode if mode is not None else '<missing>'}")
+    for label, key, expected in (("caps installed", "caps_ready", 1),
+                                  ("kill switch clear", "nospk", 0),
+                                  ("no fault latch", "fault", 0),
+                                  ("supplement loaded", "loaded", 1),
+                                  ("SP graph up", "graph_up", 1),
+                                  ("SP enabled", "sp_enabled", 1)):
+        eq(label, key, expected)
+    vi = number(fields, "vi_streams")
+    item("VI stream callback", "UNKNOWN" if vi is None else "MET" if vi > 0 else "UNMET",
+         f"vi_streams={fields.get('vi_streams', '<missing>')}; samples unverified")
+    cps_required = number(fields, "cps_required")
+    cps = number(fields, "cps_streams")
+    if cps_required not in (0, 1):
+        cps_status = "UNKNOWN"
+    elif not cps_required:
+        cps_status = "NOT REPORTED REQUIRED"
+    else:
+        cps_status = "UNKNOWN" if cps is None else "MET" if cps > 0 else "UNMET"
+    item("CPS stream callback", cps_status,
+         f"cps_required={fields.get('cps_required', '<missing>')}, "
+         f"cps_streams={fields.get('cps_streams', '<missing>')}; graph-down also reports 0; "
+         "hardware need unverified")
+    mask = number(fields, "cal_mask")
+    item("both calibration channels", "UNKNOWN" if mask is None else "MET" if mask & 3 == 3 else "UNMET",
+         f"cal_mask={fields.get('cal_mask', '<missing>')}; requires successful SET_CFG "
+         "in the lifetime-fixed kernel; per-unit validity unverified")
+    eq("calibration matches running VI graph", "cal_graph_matches_vi", 1)
+    eq("VI identity unambiguous", "vi_ambiguous", 0)
+    nominal, allow, degraded = (number(fields, key) for key in
+                                ("cal_nominal", "allow_nominal", "diagnostics_degraded"))
+    if nominal not in (0, 1):
+        policy = "UNKNOWN"
+    elif nominal == 0:
+        policy = "MET"
+    elif allow not in (0, 1) or degraded not in (0, 1):
+        policy = "UNKNOWN"
+    else:
+        policy = "MET" if allow == 1 and degraded == 0 else "UNMET"
+    item("nominal policy", policy, f"cal_nominal={fields.get('cal_nominal', '<missing>')}, "
+         f"allow_nominal={fields.get('allow_nominal', '<missing>')}, "
+         f"diagnostics_degraded={fields.get('diagnostics_degraded', '<missing>')}")
+    eq("no degraded prerequisite failure", "degraded_fault", 0)
+    print(f"diagnostics registration and event coverage: UNVERIFIED (degraded={fields.get('diagnostics_degraded', '<missing>')})")
+    for key in ("open_allowed", "allowed", "reason"):
+        if key not in fields:
+            unknown = True
+        print(f"kernel {key}: {fields.get(key, '<missing>')}")
+    print("Snapshot only; it does not authorize unmute or prove physical mute, DSP protection, or VI/CPS data.")
+    return 2 if unknown else 0
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("path", nargs="?", type=Path, default=Path("/sys/kernel/debug/sp11/guard"))
+    args = ap.parse_args()
+    try:
+        return report(parse(args.path.read_text()))
+    except (OSError, ValueError) as exc:
+        print(f"guard-report: {exc}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

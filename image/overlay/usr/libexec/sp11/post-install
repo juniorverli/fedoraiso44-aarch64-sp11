@@ -1,0 +1,58 @@
+#!/bin/bash
+# Post-install configuration inside the installed system (kickstart %post or a
+# manual run as root). It never touches the Windows partitions.
+#
+#   * keeps the Windows entry visible in the Fedora GRUB menu (os-prober);
+#   * appends msm.skip_gpu=1 to the installed kernel command line: this machine
+#     hard-resets at the first GPU use, and the display works without the
+#     Adreno driver (device-confirmed);
+#   * removes the identity overrides copied from a private live image
+#     (/etc/sp11/bt-address, the Wi-Fi MAC conf and .link), so the installed
+#     system uses the machine's own addresses;
+#   * regenerates the boot configuration, best effort.
+#
+# Vendor firmware and tuning are NOT installed here: they are generated on the
+# user's own machine from their Windows data (scripts/sp11-local-stage.sh) and
+# never redistributed.
+
+set -uo pipefail
+log=/var/log/sp11-post-install.log
+
+say() { echo "sp11-post-install: $*" | tee -a "$log"; }
+
+if [ "${1:-}" != "--installed" ]; then
+	echo "sp11-post-install: run with --installed from the installer %post" >&2
+	exit 2
+fi
+
+mkdir -p /etc/default/grub.d
+printf 'GRUB_DISABLE_OS_PROBER=false\n' >/etc/default/grub.d/40-sp11-dualboot.cfg
+say "os-prober enabled so the Windows entry stays visible"
+
+cat >/etc/default/grub.d/41-sp11-gpu.cfg <<'EOF'
+GRUB_CMDLINE_LINUX="$GRUB_CMDLINE_LINUX msm.skip_gpu=1"
+EOF
+say "msm.skip_gpu=1 appended to the installed kernel command line"
+
+removed=0
+for f in /etc/sp11/bt-address /etc/NetworkManager/conf.d/90-sp11-wifi-mac.conf \
+	 /etc/systemd/network/10-sp11-wifi.link; do
+	if [ -e "$f" ]; then
+		rm -f "$f"
+		say "removed the private identity override $f"
+		removed=$((removed + 1))
+	fi
+done
+[ "$removed" = 0 ] && say "no private identity override present"
+
+if command -v grub2-mkconfig >/dev/null 2>&1; then
+	if grub2-mkconfig -o /boot/grub2/grub.cfg >>"$log" 2>&1; then
+		say "boot configuration regenerated"
+	else
+		say "grub2-mkconfig failed; the installed configuration is unchanged"
+	fi
+else
+	say "grub2-mkconfig missing; the installed configuration is unchanged"
+fi
+say "done $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+exit 0

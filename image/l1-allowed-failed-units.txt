@@ -52,3 +52,10 @@ rtkit-daemon.service
 # are up. The VM has no usable network time source.
 # Boot 41443915-ca14-4414-a42e-a96093391e51: journal-warnings.txt.gz 877.739; units-failed.txt.gz lists it.
 chronyd.service
+
+# Fedora stock (not SP11-owned) virtual machine and container registration daemon; under TCG its
+# start operation times out, the same startup-timeout class as chronyd/tuned above. Boot, GDM and
+# both session snapshots passed before the timeout.
+# Boot 6c971b92-db2f-4997-9805-98a7cf1e2048: journal.txt.gz 541.568 "systemd-machined.service: start
+# operation timed out. Terminating."; units-failed.txt.gz lists it failed.
+systemd-machined.service

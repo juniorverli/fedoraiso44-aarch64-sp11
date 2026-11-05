@@ -189,14 +189,14 @@ else
 fi
 titles=$(grep -o -E "^[[:space:]]*(menuentry|submenu) '[^']*'" "$cfg_esp" | sed -E "s/^[[:space:]]*(menuentry|submenu) '//;s/'\$//")
 if [ "$builder" = kiwi ]; then
-	# M15: one FLAT static menu (M13 style), twelve entries, no submenu
-	expect=$'SP11 debug\nSP11 debug, safe (no GPU)\nSP11 debug, no sound\nSP11 debug, touch off\nSP11 debug, speakers (closed-loop experiment; private)\nSP11 debug, USB + DSP trace\nSP11 debug, no early DSP\nSP11 debug, Wi-Fi unblock probe\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nSP11 debug, Spectra camera test\nVM test (no devicetree)'
-	nentries=12
+	# Rev25: one FLAT static menu (M13 style), nineteen entries, no submenu
+	expect=$'SP11 debug\nSP11 debug, safe (no GPU)\nSP11 debug, no sound\nSP11 debug, touch off\nSP11 debug, speakers (closed-loop experiment; private)\nSP11 debug, USB + DSP trace\nSP11 debug, no early DSP\nSP11 debug, Wi-Fi unblock probe\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nSP11 debug, Spectra camera test\nSP11 debug, test multi-user (no GNOME)\nSP11 debug, test ignore unused (regulator)\nSP11 debug, test GPU pin off\nSP11 debug, test ACD off\nSP11 debug, test preemption off\nSP11 debug, test msm off (display may be off; logs only)\nSP11 debug, test software GL\nSP11 debug, test safe DTB + msm off + debug\nSP11 debug, test safe DTB + EFI pstore\nSP11 debug, test m15 DTB + safe services\nSP11 debug, safe, rear rotation test\nSP11 debug, safe, muted closed-loop VI\nSP11 install (keeps Windows; fixes UEFI boot)\nVM test (no devicetree)'
+	nentries=25
 else
 	expect=$'SP11 debug\nSP11 debug + DRM trace\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)'
 	nentries=5
 fi
-[ "$titles" = "$expect" ] && pass 2.5 "exactly the M16 flat menu in order: debug, safe (no GPU, cameras enabled), no sound, touch off, speakers, USB + DSP trace, no early DSP, Wi-Fi unblock, nomodeset, stop in initramfs, Spectra camera test, VM test" || fail 2.5 "entries differ: $(echo "$titles" | tr '\n' '|')"
+[ "$titles" = "$expect" ] && pass 2.5 "exactly the M16 flat menu in order: debug, safe (no GPU, cameras enabled), no sound, touch off, speakers, USB + DSP trace, no early DSP, Wi-Fi unblock, nomodeset, stop in initramfs, Spectra camera test, seven rev25 debug isolation tests, three rev25b reset-axis tests, rear rotation and muted closed-loop safe tests, VM test" || fail 2.5 "entries differ: $(echo "$titles" | tr '\n' '|')"
 [ "$(grep -c '^set default=1$' "$cfg_esp")" = 1 ] && pass 2.6 "default entry is the second (SP11 safe)" || fail 2.6 "default is not entry 1 (safe)"
 bad=0
 # M15: every devicetree line is a fixed path (no GRUB variable anywhere); the file must exist on the ISO
@@ -209,14 +209,21 @@ done <"$W/dt-lines.txt"
 sp11_entries=$(grep -c -E "^[[:space:]]*menuentry 'SP11" "$cfg_esp")
 [ "$(cut -f2- "$W/dt-lines.txt" | sort -u | wc -l)" -eq "$sp11_entries" ] && [ "$sp11_entries" -gt 0 ] || { bad=1; fail 2.7 "not every SP11 entry has a devicetree line"; }
 [ "$bad" = 0 ] && pass 2.7 "every SP11 entry has a devicetree line to a file that exists"
+# Installation path: the kickstart lives at the ISO root and both post-install
+# scripts are installed and executable in the live root.
+if xorriso -indev "$iso" -find "/ks-sp11.cfg" -type f 2>/dev/null | grep -q .; then
+	pass 2.20 "installer kickstart /ks-sp11.cfg is on the ISO root"
+else fail 2.20 "installer kickstart /ks-sp11.cfg is missing from the ISO root"; fi
 # D15 / D9: every entry names itself on the command line; only the VM entry has the serial console
 ids_ok=1
 awk '/^[ \t]*menuentry /{t=$0} /^[[:space:]]+linux /{print t "\t" $0}' "$cfg_esp" >"$W/linux-lines.txt"
 while IFS=$'\t' read -r t l; do
 	id=$(echo "$t" | sed -n "s/.*--id sp11-\([a-z0-9-]*\).*/\1/p")
-	case $id in debug | safe | nosnd | notouch | spk | usbdbg | nodsp | wifi-unblock | nomodeset | initramfs | spectra | vmtest) ;; *) ids_ok=0; fail 2.12 "unknown entry id '$id' ($t)" ;; esac
-	want=$id
+	case $id in debug | safe | nosnd | notouch | spk | usbdbg | nodsp | wifi-unblock | nomodeset | initramfs | spectra | install | vmtest | test-*) ;; *) ids_ok=0; fail 2.12 "unknown entry id '$id' ($t)" ;; esac
+	# The rev25 test entries carry a unique sp11.test=<id>; sp11.entry selects the service set.
+	case $id in test-safe-pstore | test-m15-safe | test-safe-camrot | test-safe-cl | install) want=safe ;; test-*) want=debug ;; *) want=$id ;; esac
 	case $l in *" sp11.entry=$want"*) ;; *) ids_ok=0; fail 2.12 "entry '$t' lacks sp11.entry=$want" ;; esac
+	case $id in test-*) case $l in *" sp11.test=$id"*) ;; *) ids_ok=0; fail 2.12 "test entry '$t' lacks sp11.test=$id" ;; esac ;; esac
 	case $l in *console=ttyAMA0*) [ "$id" = vmtest ] || { ids_ok=0; fail 2.12 "serial console on a device entry: $t"; } ;; *) [ "$id" != vmtest ] || { ids_ok=0; fail 2.12 "VM entry lacks the serial console"; } ;; esac
 	case $l in *" debug "*loglevel=8*ignore_loglevel*) ;; *) ids_ok=0; fail 2.12 "entry '$t' is not verbose (debug loglevel=8 ignore_loglevel)" ;; esac
 done <"$W/linux-lines.txt"
@@ -226,7 +233,7 @@ vm=$(awk '/^[ \t]*menuentry /{f=0} /^[ \t]*menuentry .VM test/{f=1} f&&/^[[:spac
 [ "$(grep -c -E "^[[:space:]]*menuentry '" "$cfg_esp")" = "$nentries" ] && [ "$(grep '^set default' "$cfg_esp")" = "set default=1" ] && pass 2.9 "VM test entry is not the default"
 if [ "$builder" = kiwi ]; then
 	if python3 -I "$REPO/image/tools/check-m8-menu.py" "$cfg_esp" >"$W/m8-menu.txt" 2>&1; then
-		pass 2.17 "M15 flat static menu: 12 entries, no function except load_video, no load_env/save_env/grubenv/variable/submenu, fixed DTB per entry (line 1 m15 with GPU and cameras and no automatic sp11.gpu_diag, line 2 m15-safe fallback), exact diagnostic arguments, allow_nominal on spk only, no rotor/GPU/SAM/firmware_class argument on any line"
+		pass 2.17 "M15 flat static menu: 25 entries, no function except load_video, no load_env/save_env/grubenv/variable/submenu, fixed DTB per entry (line 1 m15 with GPU and cameras and no automatic sp11.gpu_diag, line 2 m15-safe fallback, rev25/rev25b test entries add one axis), exact diagnostic arguments, allow_nominal on spk only, no rotor/GPU/SAM/firmware_class argument on any line"
 	else
 		fail 2.17 "M15 menu: $(cat "$W/m8-menu.txt")"
 	fi
@@ -251,7 +258,7 @@ if [ "$builder" = kiwi ]; then
 		nsel=$((nsel + 1))
 		if [ ! -s "$df" ] || ! dtc -I dtb -O dts -o "$df.dts" "$df" 2>/dev/null; then s1ok=0; fail 2.18 "cannot decompile $dp for the sound check"; continue; fi
 		profile=default
-		case $dp in *denali-m15-spk.dtb|*denali-m15.dtb|*denali-m15-safe.dtb|*denali-m15-notouch.dtb) profile=d26 ;; esac
+		case $dp in *denali-m15-spk.dtb|*denali-m15.dtb|*denali-m15-safe.dtb|*denali-m15-notouch.dtb|*denali-m15-safe-camrot.dtb|*denali-m15-safe-cl.dtb) profile=d26 ;; esac
 		python3 -I "$REPO/scripts/kernel-dtb-safety.py" "$df.dts" --profile "$profile" >"$df.s1.json" 2>&1 && res=OK || res="profile $profile failed: $(tr -d '\n ' <"$df.s1.json" | cut -c1-300)"
 		[ "$res" = OK ] || { s1ok=0; fail 2.18 "S1: $dp ($id): $res"; }
 		if [ "$profile" = d26 ]; then
@@ -345,7 +352,7 @@ fi
 if [ "$builder" = kiwi ]; then
 	# D19: DTB variants next to the packaged one. Same SoC and board (root compatible), different from the
 	# packaged DTB, hashes as in the build record and as in out/dtb-variants (the kernel worker's output).
-	m13v="m15 m15-safe m15-nosnd m15-notouch m15-spk m15-spectra"
+	m13v="m15 m15-safe m15-nosnd m15-notouch m15-spk m15-spectra m15-safe-camrot m15-safe-cl"
 	for v in $m13v; do x "/boot/dtb/qcom/x1p64100-microsoft-denali-$v.dtb" "$W/x1p64100-microsoft-denali-$v.dtb"; done
 	m12dir=$OUT/dtb-variants/7.3.0-65.sp11.9.fc44.aarch64/qcom   # the M12 DTBs the M15 variants are compared with (kernel worker scripts/kernel-dtb-m15.sh)
 	for v in $m13v; do
@@ -356,7 +363,7 @@ if [ "$builder" = kiwi ]; then
 			continue
 		fi
 		dtc -I dtb -O dts -o "$vd.dts" "$vd" 2>"$vd.err" && pass 3.6 "variant $v decompiles with dtc" || fail 3.6 "variant $v: dtc failed: $(head -n2 "$vd.err")"
-		case $v in m15|m15-safe) expected_audio_model=X1E80100-Microsoft-Surface-Pro-11 ;; m15-spk) expected_audio_model=X1E80100-Microsoft-Surface-Pro-11-CL ;; *) expected_audio_model= ;; esac
+		case $v in m15|m15-safe|m15-safe-camrot) expected_audio_model=X1E80100-Microsoft-Surface-Pro-11 ;; m15-spk|m15-safe-cl) expected_audio_model=X1E80100-Microsoft-Surface-Pro-11-CL ;; *) expected_audio_model= ;; esac
 		if [ -n "$expected_audio_model" ]; then
 			actual_audio_model=$(fdtget -t s "$vd" /sound model 2>/dev/null || true)
 			[ "$actual_audio_model" = "$expected_audio_model" ] && pass 3.17 "$v sound model selects $expected_audio_model firmware" || fail 3.17 "$v sound model '$actual_audio_model', expected $expected_audio_model (kernel patch 0022)"
@@ -370,7 +377,7 @@ if [ "$builder" = kiwi ]; then
 		# the exact baselines and M12 comparison DTBs of scripts/kernel-dtb-m13.sh
 		base=$dtbf extra=()
 		case $v in
-		m15 | m15-notouch | m15-spectra) base=$W/x1p64100-microsoft-denali-m15-safe.dtb ;;
+		m15 | m15-notouch | m15-spectra | m15-safe-camrot | m15-safe-cl) base=$W/x1p64100-microsoft-denali-m15-safe.dtb ;;
 		esac
 		case $v in
 		m15-nosnd) extra=(--previous-m12 "$m12dir/x1p64100-microsoft-denali-m12.dtb") ;;
@@ -379,9 +386,10 @@ if [ "$builder" = kiwi ]; then
 		if python3 -I "$REPO/scripts/kernel-m8-check.py" "$vd" --variant "$v" --cma-dma32 --parity-in-base --baseline "$base" "${extra[@]}" >"$W/$v-wiring.json" 2>"$W/$v-wiring.err"; then
 			pass 3.13 "$v: S1 profile, parity, wiring, QSPI touch, camera and GPU placement (kernel-m8-check)"
 		else fail 3.13 "$v: $(cat "$W/$v-wiring.err")"; fi
-		# usb-typec 0003 (M15 experiment): the QMP PHY orientation-switch property is ABSENT in m15 only and present in every other variant
-		if [ "$v" = m15 ]; then want_os=false; else want_os=true; fi
-		[ "$(jq -c '[.usb_orientation_switch[]] | unique' "$W/$v-wiring.json" 2>/dev/null)" = "[$want_os]" ] && pass 3.16 "USB-C property rule: $v has orientation-switch $([ "$want_os" = false ] && echo absent || echo present) on both QMP combo PHYs (absent in m15 only)" || fail 3.16 "USB-C property rule: $v orientation-switch state differs from the rule (absent in m15 only)"
+		# rev25 reset isolation: the m15 variant now keeps the QMP PHY orientation-switch (the usb-typec 0003
+		# experiment is not promoted); every published variant must carry it on both PHYs.
+		want_os=true
+		[ "$(jq -c '[.usb_orientation_switch[]] | unique' "$W/$v-wiring.json" 2>/dev/null)" = "[$want_os]" ] && pass 3.16 "USB-C property rule: $v has orientation-switch present on both QMP combo PHYs" || fail 3.16 "USB-C property rule: $v orientation-switch state differs from the rule (present on both PHYs)"
 		rc=$(fdtget "$vd" / compatible 2>/dev/null)
 		case " $rc " in *" microsoft,denali-lcd "*) pass 3.7 "variant $v root compatible has microsoft,denali-lcd" ;; *) fail 3.7 "variant $v root compatible is '$rc'" ;; esac
 		vsha=$(sha256sum "$vd" | cut -d' ' -f1)
@@ -410,7 +418,7 @@ if [ "$builder" = kiwi ]; then
 		if [ -n "$rsha" ]; then [ "$vsha" = "$rsha" ] && pass 3.11 "variant $v SHA-256 equals the kernel worker's JSON record" || fail 3.11 "variant $v SHA-256 differs from the kernel worker's JSON record ($rsha)"; else fail 3.11 "no JSON record of the kernel worker for variant $v in the build record"; fi
 		vr=$OUT/dtb-variants/$kver/qcom/${vf%.dtb}.json
 		if [ -f "$vr" ] && [ "$vsha" = "$(jq -r .sha256 "$vr")" ] &&
-		   [ "$(jq -r .kver "$vr")" = "$kver" ] && { [ "$(jq -r .series_rev "$vr")" = 12 ] || [ "$(jq -r .series_rev "$vr")" = 13 ] || [ "$(jq -r .series_rev "$vr")" = 14 ] || [ "$(jq -r .series_rev "$vr")" = 15 ] || [ "$(jq -r .series_rev "$vr")" = 16 ] || [ "$(jq -r .series_rev "$vr")" = 17 ] || [ "$(jq -r .series_rev "$vr")" = 18 ] || [ "$(jq -r .series_rev "$vr")" = 19 ] || [ "$(jq -r .series_rev "$vr")" = 20 ] || [ "$(jq -r .series_rev "$vr")" = 21 ] || [ "$(jq -r .series_rev "$vr")" = 22 ] || [ "$(jq -r .series_rev "$vr")" = 23 ] || [ "$(jq -r .series_rev "$vr")" = 24 ]; } &&
+		   [ "$(jq -r .kver "$vr")" = "$kver" ] && { [ "$(jq -r .series_rev "$vr")" = 12 ] || [ "$(jq -r .series_rev "$vr")" = 13 ] || [ "$(jq -r .series_rev "$vr")" = 14 ] || [ "$(jq -r .series_rev "$vr")" = 15 ] || [ "$(jq -r .series_rev "$vr")" = 16 ] || [ "$(jq -r .series_rev "$vr")" = 17 ] || [ "$(jq -r .series_rev "$vr")" = 18 ] || [ "$(jq -r .series_rev "$vr")" = 19 ] || [ "$(jq -r .series_rev "$vr")" = 20 ] || [ "$(jq -r .series_rev "$vr")" = 21 ] || [ "$(jq -r .series_rev "$vr")" = 22 ] || [ "$(jq -r .series_rev "$vr")" = 23 ] || [ "$(jq -r .series_rev "$vr")" = 24 ] || [ "$(jq -r .series_rev "$vr")" = 25 ]; } &&
 		   [ "$(jq -r .series_hash_sha256 "$vr")" = "$(jq_ .kernel_patch_series_sha256)" ] &&
 		   jq -e --arg f "$vf.json" --slurpfile source "$vr" '.dtb_variant_records[$f] == $source[0]' "$rec" >/dev/null; then
 			pass 3.14 "variant $v matches published JSON hash/release/series and embedded record"
@@ -445,8 +453,8 @@ if [ "$smoke" = false ]; then
 	ls "$OUT"/rpms/kernel-core-*.rpm >/dev/null 2>&1 && { rpm -qp --qf '%{name}-%{version}-%{release}.%{arch}\n' "$OUT"/rpms/kernel-core-*.rpm | grep -qx "$got_nevra" && pass 4.2 "kernel-core is the RPM of out/rpms" || fail 4.2 "kernel-core is not in out/rpms"; }
 fi
 if [ "$builder" = kiwi ] && [ "$smoke" = false ]; then
-	if { [ "$kver" = 7.3.0-65.sp11.12.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.13.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.14.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.15.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.16.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.17.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.18.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.19.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.24.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.23.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.22.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.21.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.20.fc44.aarch64 ]; } && \
-	   { [ "$got_nevra" = kernel-core-7.3.0-65.sp11.12.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.13.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.14.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.15.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.16.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.17.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.18.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.19.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.24.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.23.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.22.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.21.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.20.fc44.aarch64 ]; } && \
+	if { [ "$kver" = 7.3.0-65.sp11.12.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.13.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.14.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.15.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.16.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.17.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.18.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.19.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.25.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.24.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.23.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.22.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.21.fc44.aarch64 ] || [ "$kver" = 7.3.0-65.sp11.20.fc44.aarch64 ]; } && \
+	   { [ "$got_nevra" = kernel-core-7.3.0-65.sp11.12.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.13.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.14.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.15.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.16.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.17.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.18.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.19.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.25.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.24.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.23.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.22.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.21.fc44.aarch64 ] || [ "$got_nevra" = kernel-core-7.3.0-65.sp11.20.fc44.aarch64 ]; } && \
 	   { [ "$(jq_ .milestone)" = M15 ] || [ "$(jq_ .milestone)" = M16 ]; }; then
 		pass 4.9 "M15/M16: required kernel release ($kver) and milestone"
 	else fail 4.9 "M15/M16 requires the revision-12/13/14/15/16/17/18/19/20 kernel and milestone (found $kver / $got_nevra)"; fi
@@ -549,7 +557,7 @@ if [ "$builder" = kiwi ]; then
 	if python3 -I "$REPO/image/tools/check-m15-payload.py" "$ROOT" "$LREPO" "$rec" >"$W/m15-payload.txt" 2>&1; then
 		pass 8.37 "M15 payload: owner collectors as built from source, GPU two-step enabled only through manually supplied sp11.gpu_diag=1 (owner script plus the recorded image changes, Before=gdm drop-in), SAM rotor/CDSP experiment/cpufreq cap/identity switch units and scripts, sp11-boot-state, touch profile B default and marker A, identity collectors, modules-load scmi_cpufreq, speaker first-test tooling (manual, entry- and argument-gated), D28 driver-level DMI UCM with Speaker/Mic/DP profiles on safe and debug, power-thermal overlay, FastRPC (root:fastrpc 0640), libcamera"
 	else fail 8.37 "M15 payload validation failed ($(tail -n1 "$W/m15-payload.txt" | cut -c1-200))"; fi
-	if systemd-analyze --root="$ROOT" verify sp11-gpu-two-step.service sp11-sam-mode-rotor.service sp11-cdsp-experiment.service sp11-cpufreq-cap.service sp11-identity-switch.service sp11-wifi-identity.service sp11-identity-bt-pre.service sp11-suspend-diag.service sp11-suspend-policy.service sp11-wakeup-policy.service sp11-thermal-sample.service >"$W/m15-units.txt" 2>&1; then
+	if systemd-analyze --root="$ROOT" verify sp11-gpu-two-step.service sp11-cl-validate.service sp11-sam-mode-rotor.service sp11-cdsp-experiment.service sp11-cpufreq-cap.service sp11-identity-switch.service sp11-wifi-identity.service sp11-identity-bt-pre.service sp11-suspend-diag.service sp11-suspend-policy.service sp11-wakeup-policy.service sp11-thermal-sample.service >"$W/m15-units.txt" 2>&1; then
 		pass 8.38 "GPU two-step (enabled, runs only with sp11.gpu_diag=1, with the gdm drop-in), SAM rotor, CDSP experiment, cpufreq cap, identity switch and identity units, suspend and thermal units validate"
 	else fail 8.38 "M15 unit validation failed (m15-units.txt)"; fi
 	# M14: the rotor and notice scripts run against a fake sysfs/boot medium: order, counter, wrap-around, command-line override, notices
@@ -570,6 +578,9 @@ if [ "$builder" = kiwi ]; then
 	if python3 -I "$REPO/image/tools/check-m15-integration.py" "$ROOT" "$LREPO" "$rec" >"$W/m15-integration.txt" 2>&1; then
 		pass 8.44 "M15 integration: current sensor collector and sensor RPMs (hexagonrpcd -s as user hexagonrpcd, ADSP node fastrpc 0660, no 0666, adsprpcd not masked, iio-sensor-proxy with ssc-accel), audio route layer (D28 Speaker/Mic/HDMI0/HDMI1, gain step 98 capped, WirePlumber, dconf, alsaucm), camera and Spectra collectors, Spectra module for the image kernel (vermagic), libcamera ($(jq_ .libcamera_source)), volume tool on demand, CDSP variants for the tri-state keep_proxy_pds"
 	else fail 8.44 "M15 integration validation failed ($(tail -n1 "$W/m15-integration.txt" | cut -c1-200))"; fi
+if [ -x "$ROOT/usr/libexec/sp11/post-install-boot" ] && [ -x "$ROOT/usr/libexec/sp11/post-install" ]; then
+	pass 8.50 "installer post-install scripts are installed and executable"
+else fail 8.50 "installer post-install scripts missing or not executable"; fi
 	# Historical audio-mics fixture tests and the shipped gain file; active D28 routes are checked in 8.44.
 	if cmp -s "$ROOT/usr/share/alsa/ucm2/Qualcomm/x1e80100/SP11-MicGain.conf" "$LREPO/hardware/audio-mics/userspace/overlay-audio-routes/usr/share/alsa/ucm2/Qualcomm/x1e80100/SP11-MicGain.conf" &&
 	   sh "$LREPO/hardware/audio-mics/userspace/tests/mic-gain-check.sh" >"$W/mic-gain.txt" 2>&1; then
@@ -1134,6 +1145,9 @@ if [ "$builder" = kiwi ]; then
 	if [[ "$av" =~ ^[0-9]+$ ]] && [ "$av" -ge 20261019 ]; then pass 9.5 "Wi-Fi atheros-firmware version $av >= 20261019"; else fail 9.5 "atheros-firmware '$av' is too old or missing"; fi
 fi
 rpm --root "$ROOT" -q qcom-firmware >/dev/null 2>&1 && pass 9.3 "qcom-firmware is installed" || fail 9.3 "qcom-firmware is not installed"
+if jq -e '[.packages[]? | select(startswith("libreoffice-"))] | length == 0' "$rec" >/dev/null 2>&1; then
+	pass 9.6 "no LibreOffice package is installed (basic live image)"
+else fail 9.6 "the image record still lists a LibreOffice package"; fi
 for p in pd-mapper; do rpm --root "$ROOT" -q "$p" >/dev/null 2>&1 && fail 9.4 "$p is installed (obsolete in Fedora 44)"; done
 
 say "SUMMARY: $npass passed, $nfail failed, $nskip skipped  ($name)"

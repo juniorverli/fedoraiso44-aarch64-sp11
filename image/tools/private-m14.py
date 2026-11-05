@@ -8,7 +8,7 @@
 Contents (all Windows-derived or generated from Windows data, never in git, never in a public ISO):
   cameras   ov13858/imx681/vd55g0 register blobs -> /usr/lib/firmware/updates/ (verified with the owner's verify_blob and MANIFEST.json)
   cdsp46    the CDSP c1-00046.1 pair -> /usr/lib/firmware-sp11-cdsp46/qcom/x1e80100/microsoft/Denali/ and the initramfs (dracut conf)
-  audio     closed-loop topology -> <CARD>-CL-tplg.bin, sp11cl, sp11cal -> /usr/lib/firmware/qcom/x1e80100/
+  audio     closed-loop topology -> <CARD>-CL-tplg.bin, <CARD>-CL-sp11cl.bin, <CARD>-CL-sp11cal.bin -> /usr/lib/firmware/qcom/x1e80100/
   sensors   the staged sensor tree out/firmware-private/sensors (sp11-sensors-stage.sh) installed by sp11-sensors-install-private.sh
             -> /usr/share/qcom/x1e80100/Microsoft/Surface-Pro-11/{sensors,socinfo}/; root-only private registry seeds are copied at first service start only into an empty StateDirectory child
   tuning    libcamera tuning YAMLs of the cameras owner -> /usr/share/libcamera/ipa/simple/ (hashes against libcamera-tuning.manifest.json)
@@ -40,10 +40,16 @@ AUDIO_DEST = "usr/lib/firmware/qcom/x1e80100"
 CARD = "X1E80100-Microsoft-Surface-Pro-11"
 AUDIO = {f"{CARD}-tplg.bin": None, f"{CARD}-sp11cl.bin": "2eb5a1144d7718422210fd634d2b29f3c318025d56959b501e2c7a7c501ab280", f"{CARD}-sp11cal.bin": None}
 PRIVATE_TPLG = f"{CARD}-CL-tplg.bin"
+PRIVATE_CL = {f"{CARD}-sp11cl.bin": f"{CARD}-CL-sp11cl.bin",
+              f"{CARD}-sp11cal.bin": f"{CARD}-CL-sp11cal.bin"}
 LEGACY_TPLG = f"{CARD}-closed-loop-tplg.bin"
 
 def audio_dest(name):
-    return PRIVATE_TPLG if name == f"{CARD}-tplg.bin" else name
+    # The CL DTB selects card name <CARD>-CL; qdsp6/topology.c requests <card>-sp11cl.bin and
+    # <card>-sp11cal.bin, so both supplements must carry the CL prefix as well.
+    if name == f"{CARD}-tplg.bin":
+        return PRIVATE_TPLG
+    return PRIVATE_CL.get(name, name)
 
 PUBLIC_TPLG = "b192044f01e97eabe7f6df9ae0d394086badb3c30124573210bc781093da8c03"
 SENSORS = "usr/share/qcom/x1e80100/Microsoft/Surface-Pro-11/sensors"
@@ -191,7 +197,7 @@ def cmd_stage(a):
     put(icp, root / ICP_DEST)
     put(fp / ICP_LIC_FP, root / ICP_LIC_DEST)
     rec["spectra_icp"] = {"CAMERA_ICP.mbn": sha(icp), "LICENSE.qcom-2": sha(fp / ICP_LIC_FP)}
-    # audio quality files: sp11q and sp11q-dyn next to sp11cl; sp11q-spk is GATED and never installed; PipeWire configs
+    # audio quality files: sp11q and sp11q-dyn next to the CL supplements; sp11q-spk is GATED and never installed; PipeWire configs
     for name in QUALITY:
         src = fp / AUDIO_FP / name
         if not src.is_file():
@@ -245,7 +251,7 @@ def cmd_verify(a):
     chk("audio: private closed-loop topology, sp11cl, sp11cal equal the private tree", all(same(fp / AUDIO_FP / n, root / AUDIO_DEST / audio_dest(n)) for n in AUDIO))
     chk("audio: the private topology is installed under the CL sound model", sha(root / AUDIO_DEST / PRIVATE_TPLG) != sha(root / AUDIO_DEST / f"{CARD}-tplg.bin"))
     chk("audio: former closed-loop filename is absent", not (root / AUDIO_DEST / LEGACY_TPLG).exists())
-    chk("audio: sp11cl equals the evidence hash", sha(root / AUDIO_DEST / f"{CARD}-sp11cl.bin") == AUDIO[f"{CARD}-sp11cl.bin"])
+    chk("audio: sp11cl equals the evidence hash", sha(root / AUDIO_DEST / audio_dest(f"{CARD}-sp11cl.bin")) == AUDIO[f"{CARD}-sp11cl.bin"])
     rec = json.loads(Path(a.record).read_text()).get("private_m14", {})
     chk("record: hashes of the private files equal the installed ones", rec.get("cameras") == {n: sha(root / CAM_DEST / n) for n in CAM.values()}
         and rec.get("cdsp46") == {f: sha(root / CDSP_ROOT / CDSP_DIR / f) for f in CDSP_FILES}

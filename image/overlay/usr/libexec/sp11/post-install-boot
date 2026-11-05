@@ -1,0 +1,51 @@
+#!/bin/bash
+# Installer-side boot fix (runs with --nochroot; target root as $1).
+#
+# This firmware does not execute shim, but Anaconda points the UEFI entry at
+# it. Copy grubaa64.efi to the fallback path and, when no entry points at it,
+# create one for \EFI\fedora\grubaa64.efi. Shim stays in place; the Windows
+# ESP content and the Windows boot entry are not touched.
+#
+# Safe to run more than once. Prints a line per action; the kickstart log keeps
+# the output under /root on the installed system.
+
+set -uo pipefail
+root=${1:-/mnt/sysroot}
+esp=$root/boot/efi
+grub=$esp/EFI/fedora/grubaa64.efi
+
+say() { echo "sp11-post-install-boot: $*"; }
+
+[ -d "$root" ] || { say "target root $root missing"; exit 1; }
+[ -f "$grub" ] || { say "$grub not found; nothing to fix"; exit 0; }
+
+mkdir -p "$esp/EFI/BOOT"
+if cp -f "$grub" "$esp/EFI/BOOT/BOOTAA64.EFI"; then
+	say "fallback copied to EFI/BOOT/BOOTAA64.EFI"
+else
+	say "failed to copy the fallback"
+	exit 1
+fi
+
+src=$(findmnt -n -o SOURCE --target "$esp" 2>/dev/null || true)
+[ -n "$src" ] || src=$(awk -v t="$esp" '$2 == t { print $1; exit }' /proc/mounts 2>/dev/null)
+disk= part=
+if [ -b "$src" ]; then
+	disk=/dev/$(lsblk -no PKNAME "$src" 2>/dev/null | head -n1)
+	part=$(lsblk -no PARTNUM "$src" 2>/dev/null | head -n1)
+fi
+
+if command -v efibootmgr >/dev/null 2>&1 && [ -n "$disk" ] && [ -n "$part" ]; then
+	if efibootmgr -v 2>/dev/null | grep -qi 'grubaa64.efi'; then
+		say "a UEFI entry already points at grubaa64.efi"
+	else
+		if efibootmgr -c -d "$disk" -p "$part" -L "Fedora" -l '\EFI\fedora\grubaa64.efi' >/dev/null 2>&1; then
+			say "UEFI entry created for grubaa64.efi on $disk partition $part"
+		else
+			say "efibootmgr failed; the fallback copy still lets the firmware boot grub"
+		fi
+	fi
+else
+	say "efibootmgr or the ESP block device unavailable; fallback only"
+fi
+exit 0

@@ -6,7 +6,7 @@ serial console on a pty, waits for the GRUB menu, selects "VM test (no devicetre
 the boot, waits until the collector has written logs to the SP11LOGS disk, shuts the VM down
 and reads the logs back with mtools. Exit status 0 = pass.
 
-Pass (image/README.md "L1 emulated boot"): GRUB menu lists the eleven flat entries (the VM test is the last line); GDM started;
+Pass (image/README.md "L1 emulated boot"): GRUB menu lists the nineteen flat entries (the VM test is the last line); GDM started;
 /sys/kernel/btf/vmlinux exists; the collector wrote a complete <boot-id>/ to SP11LOGS;
 no unit failed except the allow-list (image/l1-allowed-failed-units.txt).
 """
@@ -33,6 +33,19 @@ ENTRIES = [   # M16: one flat static menu (M13 style); the VM entry is the LAST 
     "SP11 debug nomodeset",
     "SP11 debug, stop in initramfs",
     "SP11 debug, Spectra camera test",
+    "SP11 debug, test multi-user (no GNOME)",
+    "SP11 debug, test ignore unused (regulator)",
+    "SP11 debug, test GPU pin off",
+    "SP11 debug, test ACD off",
+    "SP11 debug, test preemption off",
+    "SP11 debug, test msm off (display may be off; logs only)",
+    "SP11 debug, test software GL",
+    "SP11 debug, test safe DTB + msm off + debug",
+    "SP11 debug, test safe DTB + EFI pstore",
+    "SP11 debug, test m15 DTB + safe services",
+    "SP11 debug, safe, rear rotation test",
+    "SP11 debug, safe, muted closed-loop VI",
+    "SP11 install (keeps Windows; fixes UEFI boot)",
     "VM test (no devicetree)",
 ]
 # GRUB shows only the first entries of a long menu on a 24-row serial terminal; the rest appears while scrolling.

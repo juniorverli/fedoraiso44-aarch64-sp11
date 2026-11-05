@@ -18,8 +18,8 @@ def out(s):
 
 out("UEFI firmware (fake)\r\n")
 time.sleep(1)
-MENU = ["SP11 debug", "SP11 debug, safe (no GPU)", "SP11 debug, no sound", "SP11 debug, touch off", "SP11 debug, speakers (closed-loop experiment; private)", "SP11 debug, USB + DSP trace", "SP11 debug, no early DSP", "SP11 debug, Wi-Fi unblock probe", "SP11 debug nomodeset", "SP11 debug, stop in initramfs", "SP11 debug, Spectra camera test", "VM test (no devicetree)"]
-IDS = ["debug", "safe", "nosnd", "notouch", "spk", "usbdbg", "nodsp", "wifi-unblock", "nomodeset", "initramfs", "spectra", "vmtest"]
+MENU = ["SP11 debug", "SP11 debug, safe (no GPU)", "SP11 debug, no sound", "SP11 debug, touch off", "SP11 debug, speakers (closed-loop experiment; private)", "SP11 debug, USB + DSP trace", "SP11 debug, no early DSP", "SP11 debug, Wi-Fi unblock probe", "SP11 debug nomodeset", "SP11 debug, stop in initramfs", "SP11 debug, Spectra camera test", "SP11 debug, test multi-user (no GNOME)", "SP11 debug, test ignore unused (regulator)", "SP11 debug, test GPU pin off", "SP11 debug, test ACD off", "SP11 debug, test preemption off", "SP11 debug, test msm off (display may be off; logs only)", "SP11 debug, test software GL", "SP11 debug, test safe DTB + msm off + debug", "SP11 debug, test safe DTB + EFI pstore", "SP11 debug, test m15 DTB + safe services", "SP11 debug, safe, rear rotation test", "SP11 debug, safe, muted closed-loop VI", "SP11 install (keeps Windows; fixes UEFI boot)", "VM test (no devicetree)"]
+IDS = ["debug", "safe", "nosnd", "notouch", "spk", "usbdbg", "nodsp", "wifi-unblock", "nomodeset", "initramfs", "spectra", "debug", "debug", "debug", "debug", "debug", "debug", "debug", "debug", "safe", "safe", "safe", "safe", "safe", "vmtest"]
 for e in MENU[:8]:   # M15: one flat menu; a 24-row terminal shows the first eight lines, the rest appears while scrolling
     out(f"\x1b[1;1H  {e}\r\n")
 tty.setraw(0)  # QEMU puts the terminal in raw mode for -serial stdio
@@ -39,7 +39,7 @@ while True:
         choice = buf.split(b"\r")[0].count(b"\x1b[B")
         break
     time.sleep(0.2)
-entry = IDS[choice]
+entry = IDS[(choice + 1) % len(MENU)]   # GRUB starts on the safe entry (index 1); Down count is relative to it
 out(f"Booting entry {choice}\r\n")
 out(f"[    0.000000] Kernel command line: root=live:CDLABEL=X debug sp11.entry={entry}\r\n")
 time.sleep(1)

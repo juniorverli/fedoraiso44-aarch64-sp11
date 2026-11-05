@@ -73,7 +73,11 @@ def main():
         rendered.write_text(cfg)
     p, detail = policy(cfg)
     ok("policy checker accepts the menu", p, detail)
-    ok("shipped menu has no GPU pin marker", not re.search(r"(?m)^\s*linux\s+.*\bsp11\.gpu_pin", cfg))
+    pin_lines = [l for l in cfg.splitlines() if l.lstrip().startswith("linux ") and "sp11.gpu_pin=" in l]
+    ok("shipped menu has the GPU pin opt-out only on the pin-off, msm-off and safe-debug test entries",
+       len(pin_lines) == 3 and all("sp11.gpu_pin=0" in l for l in pin_lines)
+       and all(any(t in l for t in ("sp11.test=test-pinoff", "sp11.test=test-msm-off", "sp11.test=test-safe-debug")) for l in pin_lines),
+       f"{len(pin_lines)} linux lines carry sp11.gpu_pin")
     opt_out = cfg.replace("sp11.entry=debug", "sp11.gpu_pin=0 sp11.entry=debug", 1)
     ok("policy checker accepts the manual debug GPU pin opt-out", opt_out != cfg and policy(opt_out)[0])
     mutants = {
