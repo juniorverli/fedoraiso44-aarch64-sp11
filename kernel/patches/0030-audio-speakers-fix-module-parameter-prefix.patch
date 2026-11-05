@@ -1,0 +1,40 @@
+From: Audio speakers <audio-speakers@localhost>
+Subject: [PATCH candidate] ASoC: qcom: keep the guard boot parameters visible to the module loader
+
+The guard is built as a module (CONFIG_SND_SOC_SP11_GUARD=m). With
+MODULE_PARAM_PREFIX set to "sp11." the stored parameter names became
+"sp11.allow_nominal" and "sp11.nospk"; the module loader splits
+"sp11.allow_nominal=1" at the dot, takes "sp11" as the module name and looks
+for the bare name, so the boot parameters were ignored. The device boot of
+2026-11-05 logged "sp11: unknown parameter 'allow_nominal' ignored" and the
+guard snapshot reported allow_nominal: 0, which is why the nominal calibration
+could never unmute. The kill switch sp11.nospk was silently ineffective for
+the same reason.
+
+Use an empty prefix for the module build and keep "sp11." for built-in builds.
+
+Assisted-by: Claude Code
+---
+--- a/sound/soc/qcom/sp11-guard.c
++++ b/sound/soc/qcom/sp11-guard.c
+@@ -30,8 +30,20 @@
+ #include <linux/workqueue.h>
+ #include <sound/sp11-guard.h>
+ 
++/*
++ * This file is a module (CONFIG_SND_SOC_SP11_GUARD=m). The module loader splits
++ * "sp11.allow_nominal=1" at the dot, matches "sp11" as the module name and looks
++ * for the bare parameter name; a non-empty prefix here made the stored name
++ * "sp11.allow_nominal" and the loader ignored the boot parameter ("sp11: unknown
++ * parameter 'allow_nominal' ignored", device boot 2026-11-05). Built-in builds
++ * keep the prefix so "sp11.nospk" still works on the kernel command line.
++ */
+ #undef MODULE_PARAM_PREFIX
++#ifdef MODULE
++#define MODULE_PARAM_PREFIX ""
++#else
+ #define MODULE_PARAM_PREFIX "sp11."
++#endif
+ 
+ static bool nospk;
+ module_param(nospk, bool, 0444);

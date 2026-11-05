@@ -178,3 +178,5 @@ kernel/patches/0026-ASoC-qcom-propagate-graph-open-errors.patch
 kernel/patches/0027-ASoC-qcom-report-muted-speaker-graph-metadata.patch
 kernel/patches/0028-audio-speakers-consume-vi-calibration-event.patch
 hardware/cameras/patches/0026-candidate-arm64-dts-qcom-denali-rear-camera-rotation.patch
+kernel/patches/0029-audio-speakers-register-events-windows-payload.patch
+kernel/patches/0030-audio-speakers-fix-module-parameter-prefix.patch
