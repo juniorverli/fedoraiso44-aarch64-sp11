@@ -1,0 +1,11 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * Private test variant: the existing m15-safe graph and GPU-off policy, with
+ * rear mounting metadata only. Inferred from an unverified visual report;
+ * retain m15-safe as a separate rollback entry. See cameras/test-plan.md.
+ */
+#include "x1p64100-microsoft-denali-m15-safe.dts"
+
+&rear_camera {
+	rotation = <180>;
+};

@@ -120,6 +120,11 @@ Against the packaged DTB (`/lib/modules/<kver>/dtb/qcom/x1p64100-microsoft-denal
 
 ## Requests
 
+- orchestrator / kernel release (revision 25): extend the existing release and DTB-publisher revision gates to 25 before building; otherwise `kernel-check` silently skips the packaged M16 checks and the M15 publisher rejects the release. Preserve the main checkout's restored M15 USB-C orientation behavior and its existing historical packaged-DTB comparison. The exact gates and commands are in [revision 25 preparation](evidence/2026-11-04-rev25-integration-preparation.md).
+- audio-speakers (revision 25): inspect and fix or otherwise resolve the partially allocated AudioReach topology state on widget-load failures, then exercise real public, closed-loop, duplicate-ID and truncated topologies, including cleanup and retry. Candidate 0025 is staged but its error paths are not validated on a built kernel; see the revision 25 preparation evidence.
+- cameras (separate request): candidate 0026 applies but adds rear 180-degree metadata only. The camera dossier requires physical confirmation first; identify the lens with an asymmetric target and establish userspace handling before requesting its inclusion. It is not in revision 25.
+- image (revision 25): extend the kernel NEVRA and DTB-record revision allow-lists in the existing Kiwi builder and L0 checks, without relaxing their hashes, models or safety checks. Exact locations and values are in the revision 25 preparation evidence; wait for checked revision 25 artifacts.
+
 - image / GPU (revision 20): Fedora's generated config retains `CONFIG_EFI_VARS_PSTORE_DEFAULT_DISABLE=y`; add `efi_pstore.pstore_disable=0` to the diagnostic boot if EFI pstore is to register. The v7.3 EFI backend supports only dmesg records, so the planned pmsg sentinel and persistent console cannot work through it; choose a non-destructive backend validation and retain the immediate kmsg-sync fallback. Do not add unverified ramoops memory.
 
 - image (M11): consume revision-8 RPMs and the `m11`, `m11-notouch`, `m11-audio` DTBs only after the release/variant checks below pass. Default remains touch on, GPU off, speakers and `/sound` off; microphone entry alone enables the card with no WSA link and `swr0` off. Keep D19–D24, the fixed/touch module chain, D23 blacklist and image L0/L1 gates. Adapt the image S1 check to the same narrow microphone exception; speaker-enabled entries must fail. No `m11-audio-spk` build or boot is authorized by this delivery.
@@ -820,7 +825,13 @@ Revision 21 integrates camera 0023 and four applicable upstream GPU PM/RPMh fixe
 
 Revision 24 appends three independent changes: active-trio-only legacy C-PHY programming, CSID-680 RDI drop/crop disable, and VFE-680 RDI MIPI_RAW mode. The first is a source-level front-stream reset candidate; the other two are frame-path candidates and do not establish a reset fix. No device result is claimed. The release passed `kernel-check` with BTF in vmlinux and all 5935 modules, all 105 config symbols, and `CHECK_DTBS=y`; the six DTBs passed their gates and Spectra was rebuilt with matching vermagic and BTF. Build results, review, hashes, limitations, and the image-owner request are recorded in [revision 24 evidence](evidence/2026-11-03-rev24-camera-candidate.md). The rev23 control ISO remains unchanged.
 
+## Revision 25 integration preparation (2026-11-04)
+
+The unbuilt series appends the calibration-lifetime guard, calibration flag/VI-identity checks and topology widget error propagation in that order. All 96 patches apply with zero fuzz on pinned v7.3. The 0024/0025 integration copies preserve the component candidates byte for byte. Camera rotation candidate 0026 is a separate request pending physical confirmation. Release is **not ready**: revision allow-lists need updating and the topology error cleanup needs resolution. The [preparation evidence](evidence/2026-11-04-rev25-integration-preparation.md) records the full review, current-DTB checks, and build handoff. No compile or device test was run.
+
 ## Log
+
+- 2026-11-04: prepared revision 25 with three audio candidates and checked their ordering, current DTBs, safety/config, gate coverage and topology cleanup. No kernel build; release gates and topology error cleanup remain open.
 
 - 2026-11-03: built revision 24 camera candidates in 3086 s; kernel-check PASS with BTF in vmlinux/all 5935 modules and CHECK_DTBS=y; six DTB variants published and identical to rev23; Spectra rebuilt for rev24 with BTF. No device test, no ISO and no Git write. See revision 24 evidence.
 

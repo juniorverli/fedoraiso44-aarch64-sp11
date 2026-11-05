@@ -9,18 +9,12 @@
 #include "x1p64100-microsoft-denali-m15-safe.dts"
 
 /*
- * USB-C experiment (usb-typec patch 0003, hardware/usb-typec/evidence/2026-10-31-double-flip-verdict.md): only this
- * variant runs without the QMP PHY orientation switches, as the packaged board DT does. m15-safe (and every other
- * M15 variant) re-adds them, so the fallbacks keep the old behaviour.
+ * Rev25 reset isolation: the m15 debug variant previously carried the unproven usb-typec 0003 experiment that
+ * deletes `orientation-switch` from both QMP combo PHYs. Every debug GRUB variant reset (including msm-off,
+ * pinoff, ACD-off, preemption-off and multi-user), while every m15-safe boot survived; the m15-vs-m15-safe DTB
+ * diff is the GPU node plus this deletion. Keep the safe orientation-switch behaviour in m15 and test the GPU
+ * difference independently. The USB-C double-flip experiment is not promoted; see the rev25 evidence.
  */
-&usb_1_ss0_qmpphy {
-	/delete-property/ orientation-switch;
-};
-
-&usb_1_ss1_qmpphy {
-	/delete-property/ orientation-switch;
-};
-
 &gpu {
 	status = "okay";
 };

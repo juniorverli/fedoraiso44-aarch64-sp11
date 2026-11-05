@@ -1,0 +1,390 @@
+From: SP11 kernel worker <kernel-worker@localhost>
+Subject: [PATCH candidate] ASoC: qcom: bind SP11 calibration to the VI graph
+
+The guard marks R0/T0 after SET_CFG, before a VI graph is prepared or
+started. Closing an unstarted graph skips the stream-stop path, so its
+calibration mask can survive and satisfy a later graph whose calibration
+file is missing or invalid.
+
+Invalidate calibration before VI setup and calibration, after setup or
+start failures, and when a VI graph closes, including before start. Clear
+it on every calibration error. A successful R0/T0 send is accepted only if
+its generation has not been invalidated. Match the calibration's shared
+AudioReach graph to the running VI graph before permitting unmute.
+
+Serialize VI calibration sends. Multiple distinct running VI graphs are
+ambiguous to the global guard and remain refused until all VI graphs stop;
+closing a shared graph can likewise conservatively mute a remaining user.
+When a reset turns an allowed state into a refused one, queue the existing
+mute work. Preserve all existing protection and speaker policy checks.
+
+---
+diff --git a/include/sound/sp11-guard.h b/include/sound/sp11-guard.h
+--- a/include/sound/sp11-guard.h
++++ b/include/sound/sp11-guard.h
+@@ -43,8 +43,11 @@
+ void sp11_guard_caps_ready(bool ready);
+ void sp11_guard_loaded(bool loaded);
+ void sp11_guard_graph(bool up, bool cps_required);
+-void sp11_guard_stream(enum sp11_guard_stream stream, bool start);
+-void sp11_guard_calibrated(unsigned int ch_mask, bool nominal);
++void sp11_guard_stream(enum sp11_guard_stream stream, bool start, const void *graph);
++void sp11_guard_calibration_reset(void);
++void sp11_guard_vi_closed(const void *graph);
++u64 sp11_guard_calibration_begin(const void *graph);
++bool sp11_guard_calibrated(u64 generation, unsigned int ch_mask, bool nominal);
+ void sp11_guard_sp_enabled(bool enabled);
+ void sp11_guard_diagnostics_degraded(bool degraded);
+ void sp11_guard_fault(const char *src, u32 code);
+@@ -61,8 +64,15 @@
+ static inline void sp11_guard_caps_ready(bool ready) { }
+ static inline void sp11_guard_loaded(bool loaded) { }
+ static inline void sp11_guard_graph(bool up, bool cps_required) { }
+-static inline void sp11_guard_stream(enum sp11_guard_stream stream, bool start) { }
+-static inline void sp11_guard_calibrated(unsigned int ch_mask, bool nominal) { }
++static inline void sp11_guard_stream(enum sp11_guard_stream stream, bool start,
++				     const void *graph) { }
++static inline void sp11_guard_calibration_reset(void) { }
++static inline void sp11_guard_vi_closed(const void *graph) { }
++static inline u64 sp11_guard_calibration_begin(const void *graph) { return 0; }
++static inline bool sp11_guard_calibrated(u64 generation, unsigned int ch_mask, bool nominal)
++{
++	return true;
++}
+ static inline void sp11_guard_sp_enabled(bool enabled) { }
+ static inline void sp11_guard_diagnostics_degraded(bool degraded) { }
+ static inline void sp11_guard_fault(const char *src, u32 code) { }
+diff --git a/sound/soc/qcom/sp11-guard.c b/sound/soc/qcom/sp11-guard.c
+--- a/sound/soc/qcom/sp11-guard.c
++++ b/sound/soc/qcom/sp11-guard.c
+@@ -56,6 +56,10 @@
+ 	unsigned int streams[SP11_STREAM_MAX];
+ 	unsigned int cal_mask;
+ 	bool cal_nominal;
++	const void *cal_graph;
++	const void *vi_graph;
++	u64 cal_generation;
++	bool vi_ambiguous;
+ 	bool loaded;
+ 	bool graph_up;
+ 	bool cps_required;
+@@ -127,6 +131,12 @@
+ 		return "the closed-loop data is not loaded";
+ 
+ 	return NULL;
++}
++
++/* The graph identities are compared only; the guard never dereferences them. */
++static bool sp11_guard_cal_matches_vi(void)
++{
++	return !guard.vi_ambiguous && guard.vi_graph && guard.vi_graph == guard.cal_graph;
+ }
+ 
+ /* Reason the amplifier may not be unmuted, NULL when it may. Called with guard.lock held. */
+@@ -152,6 +162,8 @@
+ 		return "the V/I sense stream is not running";
+ 	if (guard.cps_required && !guard.streams[SP11_STREAM_CPS])
+ 		return "the CPS stream is not running";
++	if (!sp11_guard_cal_matches_vi())
++		return "calibration does not match the running V/I graph";
+ 	if ((guard.cal_mask & SP11_CAL_ALL_MASK) != SP11_CAL_ALL_MASK)
+ 		return "no R0/T0 calibration was applied";
+ 	if (guard.cal_nominal && !allow_nominal)
+@@ -215,7 +227,16 @@
+ }
+ EXPORT_SYMBOL_GPL(sp11_guard_graph);
+ 
+-void sp11_guard_stream(enum sp11_guard_stream stream, bool start)
++/* Called with guard.lock held. Also invalidates an in-flight SET_CFG. */
++static void sp11_guard_calibration_reset_locked(void)
++{
++	guard.cal_mask = 0;
++	guard.cal_nominal = false;
++	guard.cal_graph = NULL;
++	guard.cal_generation++;
++}
++
++void sp11_guard_stream(enum sp11_guard_stream stream, bool start, const void *graph)
+ {
+ 	unsigned long flags;
+ 	bool was_allowed;
+@@ -226,26 +247,90 @@
+ 	spin_lock_irqsave(&guard.lock, flags);
+ 	was_allowed = !sp11_guard_reason();
+ 	if (start) {
++		if (stream == SP11_STREAM_VI) {
++			if (!guard.streams[stream])
++				guard.vi_graph = graph;
++			else if (guard.vi_graph != graph)
++				guard.vi_ambiguous = true;
++			if (!graph)
++				guard.vi_ambiguous = true;
++		}
+ 		guard.streams[stream]++;
+-	} else if (guard.streams[stream] && !--guard.streams[stream] &&
+-		   stream == SP11_STREAM_VI) {
+-		/* The calibration lives in the V/I module of the graph that just stopped */
+-		guard.cal_mask = 0;
+-		guard.cal_nominal = false;
++	} else if (guard.streams[stream]) {
++		if (stream == SP11_STREAM_VI && guard.vi_graph != graph)
++			guard.vi_ambiguous = true;
++		if (!--guard.streams[stream] && stream == SP11_STREAM_VI) {
++			guard.vi_graph = NULL;
++			guard.vi_ambiguous = false;
++			sp11_guard_calibration_reset_locked();
++		}
+ 	}
+ 	sp11_guard_mute_if_refused(was_allowed);
+ 	spin_unlock_irqrestore(&guard.lock, flags);
+ }
+ EXPORT_SYMBOL_GPL(sp11_guard_stream);
+ 
+-void sp11_guard_calibrated(unsigned int ch_mask, bool nominal)
+-{
+-	unsigned long flags;
+-
+-	spin_lock_irqsave(&guard.lock, flags);
+-	guard.cal_mask |= ch_mask & SP11_CAL_ALL_MASK;
+-	guard.cal_nominal = nominal;
+-	spin_unlock_irqrestore(&guard.lock, flags);
++void sp11_guard_calibration_reset(void)
++{
++	unsigned long flags;
++	bool was_allowed;
++
++	spin_lock_irqsave(&guard.lock, flags);
++	was_allowed = !sp11_guard_reason();
++	sp11_guard_calibration_reset_locked();
++	sp11_guard_mute_if_refused(was_allowed);
++	spin_unlock_irqrestore(&guard.lock, flags);
++}
++EXPORT_SYMBOL_GPL(sp11_guard_calibration_reset);
++
++void sp11_guard_vi_closed(const void *graph)
++{
++	unsigned long flags;
++	bool was_allowed;
++
++	spin_lock_irqsave(&guard.lock, flags);
++	was_allowed = !sp11_guard_reason();
++	/* A close without a matching stop must not leave a usable graph identity. */
++	if (guard.streams[SP11_STREAM_VI] && guard.vi_graph == graph)
++		guard.vi_ambiguous = true;
++	sp11_guard_calibration_reset_locked();
++	sp11_guard_mute_if_refused(was_allowed);
++	spin_unlock_irqrestore(&guard.lock, flags);
++}
++EXPORT_SYMBOL_GPL(sp11_guard_vi_closed);
++
++u64 sp11_guard_calibration_begin(const void *graph)
++{
++	unsigned long flags;
++	bool was_allowed;
++	u64 generation;
++
++	spin_lock_irqsave(&guard.lock, flags);
++	was_allowed = !sp11_guard_reason();
++	sp11_guard_calibration_reset_locked();
++	guard.cal_graph = graph;
++	generation = guard.cal_generation;
++	sp11_guard_mute_if_refused(was_allowed);
++	spin_unlock_irqrestore(&guard.lock, flags);
++
++	return generation;
++}
++EXPORT_SYMBOL_GPL(sp11_guard_calibration_begin);
++
++bool sp11_guard_calibrated(u64 generation, unsigned int ch_mask, bool nominal)
++{
++	unsigned long flags;
++	bool accepted;
++
++	spin_lock_irqsave(&guard.lock, flags);
++	accepted = guard.cal_graph && guard.cal_generation == generation;
++	if (accepted) {
++		guard.cal_mask |= ch_mask & SP11_CAL_ALL_MASK;
++		guard.cal_nominal = nominal;
++	}
++	spin_unlock_irqrestore(&guard.lock, flags);
++
++	return accepted;
+ }
+ EXPORT_SYMBOL_GPL(sp11_guard_calibrated);
+ 
+@@ -377,7 +462,7 @@
+ {
+ 	return guard.diagnostics_degraded &&
+ 	       (!guard.loaded || !guard.graph_up || !guard.sp_enabled ||
+-		!guard.streams[SP11_STREAM_VI] ||
++		!guard.streams[SP11_STREAM_VI] || !sp11_guard_cal_matches_vi() ||
+ 		(guard.cps_required && !guard.streams[SP11_STREAM_CPS]) ||
+ 		((guard.cal_mask & SP11_CAL_ALL_MASK) != SP11_CAL_ALL_MASK) ||
+ 		guard.cal_nominal);
+diff --git a/sound/soc/qcom/qdsp6/audioreach-sp11.c b/sound/soc/qcom/qdsp6/audioreach-sp11.c
+--- a/sound/soc/qcom/qdsp6/audioreach-sp11.c
++++ b/sound/soc/qcom/qdsp6/audioreach-sp11.c
+@@ -103,6 +103,8 @@
+  */
+ static struct sp11cl *sp11cl;
+ static DEFINE_MUTEX(sp11cl_lock);
++/* Serialize VI record and R0/T0 sends across graph preparation attempts. */
++static DEFINE_MUTEX(sp11_vi_cal_lock);
+ 
+ static void sp11cl_free(struct kref *ref)
+ {
+@@ -346,12 +348,15 @@
+ 	} __packed cfg = { };
+ 	bool nominal;
+ 	u32 crc, i;
++	u64 generation;
+ 	int ret;
+ 
++	generation = sp11_guard_calibration_begin(graph->ar_graph);
+ 	ret = firmware_request_nowarn(&fw, cl->cal_name, graph->dev);
+ 	if (ret) {
+ 		dev_warn(graph->dev, "no speaker calibration (%s), speakers stay muted\n",
+ 			 cl->cal_name);
++		sp11_guard_calibration_reset();
+ 		return 0;
+ 	}
+ 
+@@ -396,10 +401,16 @@
+ 	}
+ 
+ 	nominal = le32_to_cpu(hdr->flags) & SP11CAL_FLAG_NOMINAL;
+-	sp11_guard_calibrated(SP11_CAL_ALL_MASK, nominal);
++	if (!sp11_guard_calibrated(generation, SP11_CAL_ALL_MASK, nominal)) {
++		dev_warn(graph->dev, "speaker calibration was invalidated during setup\n");
++		ret = -ECANCELED;
++		goto out;
++	}
+ 	dev_info(graph->dev, "speaker calibration applied (%s)\n",
+ 		 nominal ? "nominal" : "measured");
+ out:
++	if (ret)
++		sp11_guard_calibration_reset();
+ 	release_firmware(fw);
+ 
+ 	return ret;
+@@ -409,12 +420,19 @@
+ int audioreach_sp11_graph_params(struct q6apm_graph *graph,
+ 				 const struct audioreach_module *module)
+ {
+-	struct sp11cl *cl = sp11cl_get();
++	bool vi = module->module_id == MODULE_ID_SPEAKER_PROTECTION_VI;
++	struct sp11cl *cl;
+ 	u32 off = 0, i;
+ 	int ret = 0;
+ 
++	if (vi) {
++		mutex_lock(&sp11_vi_cal_lock);
++		/* Records can fail before sp11_apply_r0t0() is reached. */
++		sp11_guard_calibration_reset();
++	}
++	cl = sp11cl_get();
+ 	if (!cl)
+-		return 0;
++		goto out;
+ 
+ 	for (i = 0; i < cl->n_cal; i++) {
+ 		const struct sp11cl_cal_rec *rec = (const void *)(cl->cal + off);
+@@ -433,9 +451,14 @@
+ 		}
+ 	}
+ 
+-	if (!ret && module->module_id == MODULE_ID_SPEAKER_PROTECTION_VI)
++	if (!ret && vi)
+ 		ret = sp11_apply_r0t0(graph, module, cl);
++	if (ret && vi)
++		sp11_guard_calibration_reset();
+ 	sp11cl_put(cl);
++out:
++	if (vi)
++		mutex_unlock(&sp11_vi_cal_lock);
+ 
+ 	return ret;
+ }
+@@ -499,7 +522,7 @@
+ 		sp11_guard_diagnostics_degraded(false);
+ 	}
+ 	if (q6apm_find_module_by_mid(graph, MODULE_ID_SPEAKER_PROTECTION_VI))
+-		sp11_guard_stream(SP11_STREAM_VI, started);
++		sp11_guard_stream(SP11_STREAM_VI, started, graph->ar_graph);
+ 	if (q6apm_find_module_by_mid(graph, MODULE_ID_CPS_DATA_ROUTER))
+-		sp11_guard_stream(SP11_STREAM_CPS, started);
+-}
++		sp11_guard_stream(SP11_STREAM_CPS, started, graph->ar_graph);
++}
+diff --git a/sound/soc/qcom/qdsp6/q6apm.c b/sound/soc/qcom/qdsp6/q6apm.c
+--- a/sound/soc/qcom/qdsp6/q6apm.c
++++ b/sound/soc/qcom/qdsp6/q6apm.c
+@@ -15,6 +15,7 @@
+ #include <sound/soc.h>
+ #include <sound/soc-dapm.h>
+ #include <sound/pcm.h>
++#include <sound/sp11-guard.h>
+ #include "audioreach.h"
+ #include "q6apm.h"
+ 
+@@ -446,8 +447,11 @@
+ 	struct audioreach_sub_graph *sgs;
+ 	struct audioreach_container *container;
+ 	struct audioreach_module *module;
++	bool vi = q6apm_find_module_by_mid(graph, MODULE_ID_SPEAKER_PROTECTION_VI);
+ 	int ret;
+ 
++	if (vi)
++		sp11_guard_calibration_reset();
+ 	list_for_each_entry(sgs, &info->sg_list, node) {
+ 		list_for_each_entry(container, &sgs->container_list, node) {
+ 			list_for_each_entry(module, &container->modules_list, node) {
+@@ -458,8 +462,11 @@
+ 					continue;
+ 
+ 				ret = audioreach_set_media_format(graph, module, cfg);
+-				if (ret)
++				if (ret) {
++					if (vi)
++						sp11_guard_calibration_reset();
+ 					return ret;
++				}
+ 			}
+ 		}
+ 	}
+@@ -788,6 +795,8 @@
+ {
+ 	struct audioreach_graph *ar_graph = graph->ar_graph;
+ 
++	if (q6apm_find_module_by_mid(graph, MODULE_ID_SPEAKER_PROTECTION_VI))
++		sp11_guard_vi_closed(ar_graph);
+ 	graph->ar_graph = NULL;
+ 	kref_put(&ar_graph->refcount, q6apm_put_audioreach_graph);
+ 	gpr_free_port(graph->port);
+@@ -799,7 +808,12 @@
+ 
+ int q6apm_graph_prepare(struct q6apm_graph *graph)
+ {
+-	return audioreach_graph_mgmt_cmd(graph->ar_graph, APM_CMD_GRAPH_PREPARE);
++	int ret = audioreach_graph_mgmt_cmd(graph->ar_graph, APM_CMD_GRAPH_PREPARE);
++
++	if (ret && q6apm_find_module_by_mid(graph, MODULE_ID_SPEAKER_PROTECTION_VI))
++		sp11_guard_calibration_reset();
++
++	return ret;
+ }
+ EXPORT_SYMBOL_GPL(q6apm_graph_prepare);
+ 
+@@ -810,8 +824,11 @@
+ 
+ 	if (ar_graph->start_count == 0) {
+ 		ret = audioreach_graph_mgmt_cmd(ar_graph, APM_CMD_GRAPH_START);
+-		if (ret)
++		if (ret) {
++			if (q6apm_find_module_by_mid(graph, MODULE_ID_SPEAKER_PROTECTION_VI))
++				sp11_guard_calibration_reset();
+ 			return ret;
++		}
+ 
+ 		/* Once per run, like the stop below: the guard counts streams */
+ 		audioreach_sp11_graph_state(graph, true);

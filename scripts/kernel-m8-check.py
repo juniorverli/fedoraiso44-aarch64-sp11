@@ -52,7 +52,8 @@ def main():
     parser.add_argument('--variant', choices=['packaged', 'm8', 'm8-notouch', 'm9', 'm9-notouch', 'm10', 'm10-notouch', 'm11', 'm11-notouch', 'm11-audio', 'm12', 'm12-notouch', 'm12-audio',
                                  'm13', 'm13-nosnd', 'm13-notouch', 'm13-spk', 'm13-gpu', 'm13-cam',
                                  'm14', 'm14-safe', 'm14-nosnd', 'm14-notouch', 'm14-spk',
-                                 'm15', 'm15-safe', 'm15-nosnd', 'm15-notouch', 'm15-spk', 'm15-spectra'],
+                                 'm15', 'm15-safe', 'm15-nosnd', 'm15-notouch', 'm15-spk', 'm15-spectra',
+                                 'm15-safe-cl', 'm15-safe-camrot'],
                         required=True)
     parser.add_argument('--baseline', type=Path)
     parser.add_argument('--previous', type=Path, help='M8 DTB: require only the CMA range addition')
@@ -80,7 +81,9 @@ def main():
     if args.variant.startswith('m15') or args.usb_orientation_dropped:
         phys = ['usb_1_ss0_qmpphy', 'usb_1_ss1_qmpphy']
         usb_orientation = {l: 'orientation-switch' in nodes[symbols[l]] for l in phys}
-        keep_experiment = args.variant == 'm15' or (args.variant == 'packaged' and args.usb_orientation_dropped)
+        # Rev25 reset isolation restored the property in the m15 variant; only the already-built packaged
+        # kernel RPM (series_rev 12..24) still carries the usb-typec 0003 deletion.
+        keep_experiment = args.variant == 'packaged' and args.usb_orientation_dropped
         require(all(v == (not keep_experiment) for v in usb_orientation.values()),
                 f'{args.variant}: orientation-switch state {usb_orientation}, expected '
                 + ('absent (USB-C experiment)' if keep_experiment else 'present (old behaviour)'))
@@ -117,7 +120,7 @@ def main():
         return cells(node(label)['phandle'])[0]
 
     # The only enabled-card exceptions are the microphone DTs and, under the d26 profile, speaker DTBs.
-    spk = args.variant in ('m13-spk', 'm14-spk', 'm15-spk', 'm15', 'm15-safe', 'm15-notouch')
+    spk = args.variant in ('m13-spk', 'm14-spk', 'm15-spk', 'm15', 'm15-safe', 'm15-notouch', 'm15-safe-cl', 'm15-safe-camrot')
     profile = 'd26' if spk else 'default'
     safety_tool = str(Path(__file__).with_name('kernel-dtb-safety.py'))
     safety = subprocess.run(['python3', '-I', safety_tool, '/dev/stdin', '--profile', profile],
@@ -153,7 +156,7 @@ def main():
     # Every other DTB keeps the public model, which selects the public open-loop topology.
     sound_model = nodes.get('/sound', {}).get('model')
     expected_model = ('"X1E80100-Microsoft-Surface-Pro-11-CL"'
-                      if args.variant == 'm15-spk' else '"X1E80100-Microsoft-Surface-Pro-11"')
+                      if args.variant in ('m15-spk', 'm15-safe-cl') else '"X1E80100-Microsoft-Surface-Pro-11"')
     require(sound_model == expected_model,
             f'{args.variant}: /sound model is {sound_model}, expected {expected_model}')
 
@@ -247,7 +250,7 @@ def main():
             require(enabled(symbols[label]), f'{args.variant}: {label} disabled')
         require(enabled('/camera-leds'), f'{args.variant}: indicator LED bank disabled')
         require(not enabled(symbols['cci1_i2c0']), f'{args.variant}: cci1_i2c0 must stay disabled')
-    elif args.variant in ('m15', 'm15-safe', 'm15-notouch'):
+    elif args.variant in ('m15', 'm15-safe', 'm15-notouch', 'm15-safe-cl', 'm15-safe-camrot'):
         # M16.2 (cameras 0022): the unbound IR sensor is excluded from the CAMSS graph so the async
         # notifier completes for the two RGB sensors. The IR node and its CCI0 bus stay described
         # but disabled; CAMSS must no longer carry the IR endpoint at all (OF graph iteration

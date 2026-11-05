@@ -1,0 +1,35 @@
+From: SP11 audio worker <audio-worker@localhost>
+Subject: [PATCH candidate] ASoC: qcom: propagate topology widget load errors
+
+AudioReach detects duplicate module instance IDs and returns an error from
+the module parser, but widget_ready discards errors for several widget
+types. A malformed topology can therefore appear to load successfully.
+Return the widget loader result so the topology core can reject the error.
+
+This changes failure handling, not a hardware setting. Review error-path
+cleanup and validate both good and malformed topologies before integration.
+
+---
+diff --git a/sound/soc/qcom/qdsp6/topology.c b/sound/soc/qcom/qdsp6/topology.c
+--- a/sound/soc/qcom/qdsp6/topology.c
++++ b/sound/soc/qcom/qdsp6/topology.c
+@@ -1024,16 +1024,13 @@
+ 	switch (w->id) {
+ 	case snd_soc_dapm_aif_in:
+ 	case snd_soc_dapm_aif_out:
+-		audioreach_widget_load_buffer(component, index, w, tplg_w);
+-		break;
++		return audioreach_widget_load_buffer(component, index, w, tplg_w);
+ 	case snd_soc_dapm_decoder:
+ 	case snd_soc_dapm_encoder:
+ 	case snd_soc_dapm_src:
+-		audioreach_widget_load_enc_dec_cnv(component, index, w, tplg_w);
+-		break;
++		return audioreach_widget_load_enc_dec_cnv(component, index, w, tplg_w);
+ 	case snd_soc_dapm_buffer:
+-		audioreach_widget_load_buffer(component, index, w, tplg_w);
+-		break;
++		return audioreach_widget_load_buffer(component, index, w, tplg_w);
+ 	case snd_soc_dapm_mixer:
+ 		return audioreach_widget_load_mixer(component, index, w, tplg_w);
+ 	case snd_soc_dapm_pga:
