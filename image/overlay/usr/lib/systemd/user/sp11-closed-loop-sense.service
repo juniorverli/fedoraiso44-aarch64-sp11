@@ -2,7 +2,11 @@
 Description=SP11 closed-loop V/I sense trigger (closed-loop boot entries)
 ConditionKernelCommandLine=sp11.allow_nominal=1
 ConditionKernelCommandLine=!sp11.nospk
-After=wireplumber.service pipewire.service
+# sp11-audio-defaults returns only after PipeWire created the platform Speaker
+# and Mic nodes; starting after it guarantees the card profile exists before
+# MultiMedia5 is taken, or ACP drops the whole card.
+After=wireplumber.service pipewire.service sp11-audio-defaults.service
+Wants=sp11-audio-defaults.service
 PartOf=graphical-session.target
 
 [Service]
