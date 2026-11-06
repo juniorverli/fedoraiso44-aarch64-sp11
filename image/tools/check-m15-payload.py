@@ -76,6 +76,8 @@ def check(root, repo, record):
         assert f.stat().st_mode & 0o111 and f.read_bytes() == \
             (repo / 'image/overlay/usr/libexec/sp11' / name).read_bytes(), name
     assert 'MultiMedia5' in (root / 'usr/libexec/sp11/audio-defaults').read_text(), 'defaults must skip the V/I trigger'
+    assert (root / 'usr/sbin/sp11-audio-check').readlink() == Path('/usr/libexec/sp11/audio-check'), \
+        'sp11-audio-check must be callable through sudo secure_path'
     vi_rule = root / 'usr/share/wireplumber/wireplumber.conf.d/54-sp11-vi-trigger.conf'
     assert vi_rule.is_file() and 'MultiMedia5' in vi_rule.read_text() and 'node.disabled' in vi_rule.read_text(), \
         'the V/I trigger must be hidden from PipeWire'

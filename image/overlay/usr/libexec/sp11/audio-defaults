@@ -41,10 +41,15 @@ def names_of(p):
 
 
 def candidates(objects, media_class):
+    """Only nodes backed by an ALSA device; virtual echo-cancel/dsp nodes are not hardware."""
     out = []
     for o in objects:
         p = props(o)
         if p.get("media.class") != media_class or o.get("id") is None:
+            continue
+        if not (str(p.get("api.alsa.pcm.card", "")).isdigit() or
+                "alsa_card" in str(p.get("device.name", "")) or
+                str(p.get("device.api", "")) == "alsa"):
             continue
         out.append((o["id"], names_of(p), p))
     return out

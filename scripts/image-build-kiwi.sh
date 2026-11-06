@@ -236,6 +236,8 @@ ln -sf /usr/lib/systemd/user/sp11-audio-safety.service "$desc/root/etc/systemd/u
 mkdir -p "$desc/root/etc/systemd/user/graphical-session.target.wants"
 install -m 0755 "$REPO/image/overlay/usr/libexec/sp11/audio-defaults" "$desc/root/usr/libexec/sp11/audio-defaults"
 install -m 0755 "$REPO/image/overlay/usr/libexec/sp11/audio-check" "$desc/root/usr/libexec/sp11/audio-check"
+	mkdir -p "$desc/root/usr/sbin"
+	ln -sf /usr/libexec/sp11/audio-check "$desc/root/usr/sbin/sp11-audio-check"
 install -m 0644 "$REPO/image/overlay/usr/lib/systemd/user/sp11-audio-defaults.service" "$desc/root/usr/lib/systemd/user/sp11-audio-defaults.service"
 ln -sf /usr/lib/systemd/user/sp11-audio-defaults.service "$desc/root/etc/systemd/user/graphical-session.target.wants/sp11-audio-defaults.service"
 install -m 0755 "$REPO/image/overlay/usr/libexec/sp11-post-session-collect" "$desc/root/usr/libexec/sp11-post-session-collect"
