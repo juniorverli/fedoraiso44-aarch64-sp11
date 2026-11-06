@@ -29,4 +29,5 @@ enable sp11-gpu-no-runtime-pm.service
 # (Fedora 90-default.preset is `disable *`). Keep them enabled by preset as well.
 enable sp11-cl-validate.service
 enable sp11-closed-loop-sense.service
+enable sp11-closed-loop-selftest.service
 enable sp11-first-boot.service

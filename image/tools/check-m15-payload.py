@@ -88,6 +88,18 @@ def check(root, repo, record):
     assert 'ExecStart=/usr/libexec/sp11/audio-defaults' in defaults_unit.read_text(), 'audio defaults unit'
     assert (root / 'etc/systemd/user/graphical-session.target.wants/sp11-audio-defaults.service').readlink() == \
         Path('/usr/lib/systemd/user/sp11-audio-defaults.service'), 'audio defaults unit not enabled'
+    # Silent closed-loop self-test: proves the guard on hardware without audible output.
+    st = root / 'usr/libexec/sp11/closed-loop-selftest'
+    assert st.stat().st_mode & 0o111 and st.read_bytes() == \
+        (repo / 'image/overlay/usr/libexec/sp11/closed-loop-selftest').read_bytes(), 'self-test script'
+    st_unit = root / 'usr/lib/systemd/system/sp11-closed-loop-selftest.service'
+    st_text = st_unit.read_text()
+    for needle in ('ConditionKernelCommandLine=sp11.allow_nominal=1',
+                   'ConditionKernelCommandLine=!sp11.nospk',
+                   'ExecStart=/usr/libexec/sp11/closed-loop-selftest'):
+        assert needle in st_text, f'self-test unit lacks {needle}'
+    assert (root / 'etc/systemd/system/multi-user.target.wants/sp11-closed-loop-selftest.service').readlink() == \
+        Path('/usr/lib/systemd/system/sp11-closed-loop-selftest.service'), 'self-test unit not enabled'
     # Installed-system finishing: the live ISO cannot run a kickstart, so the first boot of
     # the installed system runs the post-install steps once.
     fb = root / 'usr/libexec/sp11/first-boot'

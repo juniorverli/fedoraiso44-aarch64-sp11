@@ -239,6 +239,7 @@ install -m 0755 "$REPO/image/overlay/usr/libexec/sp11/audio-check" "$desc/root/u
 	# /usr/sbin is a usrmerge symlink to bin: creating a real directory there
 	# hides every /usr/sbin binary (atd, irqbalance, vgimportdevices...). The
 	# tool goes to /usr/bin, which is also reachable as /usr/sbin.
+	mkdir -p "$desc/root/usr/bin"
 	ln -sf /usr/libexec/sp11/audio-check "$desc/root/usr/bin/sp11-audio-check"
 install -m 0644 "$REPO/image/overlay/usr/lib/systemd/user/sp11-audio-defaults.service" "$desc/root/usr/lib/systemd/user/sp11-audio-defaults.service"
 ln -sf /usr/lib/systemd/user/sp11-audio-defaults.service "$desc/root/etc/systemd/user/graphical-session.target.wants/sp11-audio-defaults.service"
@@ -281,10 +282,10 @@ mkdir -p "$desc/root/etc/systemd/system/sysinit.target.wants" "$desc/root/etc/sy
 for u in sp11-sam-mode-rotor.service sp11-identity-switch.service sp11-wifi-identity.service; do
 	ln -sf "/usr/lib/systemd/system/$u" "$desc/root/etc/systemd/system/sysinit.target.wants/$u"
 done
-for u in sp11-cdsp-experiment.service sp11-cpufreq-cap.service sp11-cl-validate.service sp11-closed-loop-sense.service sp11-first-boot.service; do
+for u in sp11-cdsp-experiment.service sp11-cpufreq-cap.service sp11-cl-validate.service sp11-closed-loop-sense.service sp11-closed-loop-selftest.service sp11-first-boot.service; do
 	ln -sf "/usr/lib/systemd/system/$u" "$desc/root/etc/systemd/system/multi-user.target.wants/$u"
 done
-chmod 0755 "$desc/root/usr/libexec/sp11-touch-conf-select" "$desc/root/usr/libexec/sp11-boot-state" "$desc/root/usr/libexec/sp11/"{operator-notice,sam-mode-rotor,cdsp-experiment,cpufreq-cap,identity-switch,gpu-retry,speaker-supervisor,speaker-first-test,guard-report,post-install,post-install-boot,closed-loop-validate.py,closed-loop-report.sh,closed-loop-sense,first-boot,audio-defaults,audio-check}
+chmod 0755 "$desc/root/usr/libexec/sp11-touch-conf-select" "$desc/root/usr/libexec/sp11-boot-state" "$desc/root/usr/libexec/sp11/"{operator-notice,sam-mode-rotor,cdsp-experiment,cpufreq-cap,identity-switch,gpu-retry,speaker-supervisor,speaker-first-test,guard-report,post-install,post-install-boot,closed-loop-validate.py,closed-loop-report.sh,closed-loop-sense,first-boot,audio-defaults,audio-check,closed-loop-selftest}
 # M15: identity experiment of the wifi and bluetooth workers (hardware/wifi/image-request-identity.md, hardware/bluetooth/image-request.md), installed in every
 # ISO (inert without the private-mode marker /usr/share/sp11/image-mode). The switch sp11.identity=none is the boot-medium marker sp11/identity-none.
 install -m 0644 "$REPO/hardware/wifi/collector/identity.sh" "$desc/root/etc/sp11-log-collector.d/wifi-identity.sh"

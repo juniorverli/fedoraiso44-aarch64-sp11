@@ -1,0 +1,70 @@
+#!/bin/bash
+# Silent closed-loop self-test on the closed-loop entries (no audible output).
+#
+# Runs once per boot from sp11-closed-loop-selftest.service, only when the
+# kernel command line carries sp11.allow_nominal=1 and not sp11.nospk.
+# It waits for the V/I stream and the calibration, plays ONE second of digital
+# silence to the speaker (the mixer stays as the session left it; silence is
+# inaudible and no control is written), and reports whether the guard allowed
+# the unmute, then opens the microphone for one second to /dev/null.
+#
+# No sample is stored, no volume is raised, and the kernel caps, guard, fault
+# latch and speaker-off fallback stay in force. The journal carries the result:
+#   RESULT: unmute allowed (no guard refusal)
+#   RESULT: refused or failed (see dmesg)
+#   RESULT: microphone capture OK / FAILED ...
+set -u
+export LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin
+say() { echo "sp11-closed-loop-selftest: $*"; }
+
+case " $(cat /proc/cmdline) " in
+*" sp11.allow_nominal=1 "*) ;;
+*) exit 0 ;;
+esac
+case " $(cat /proc/cmdline) " in
+*" sp11.nospk"*) exit 0 ;;
+esac
+
+G=/sys/kernel/debug/sp11/guard
+[ -r "$G" ] || { say "no guard file; nothing to test"; exit 0; }
+
+# Wait for the running V/I graph and a full calibration (the holder starts 20 s
+# after graphical.target; this script is ordered after it and waits anyway).
+for _ in $(seq 1 90); do
+	g=$(cat "$G" 2>/dev/null || true)
+	case $g in
+	*"vi_streams: 0"*) sleep 1; continue ;;
+	*"cal_mask: 0x3"*) break ;;
+	esac
+	sleep 1
+done
+say "guard before: $(tr '\n' ' ' <"$G" 2>/dev/null)"
+
+before=$(dmesg 2>/dev/null | grep -c 'speaker stays muted' || true)
+wav=/run/sp11/selftest-silence.wav
+mkdir -p /run/sp11
+python3 - "$wav" <<'PY'
+import sys, wave
+w = wave.open(sys.argv[1], "wb"); w.setnchannels(2); w.setsampwidth(2); w.setframerate(48000)
+w.writeframes(b"\x00\x00\x00\x00" * 48000)   # 1 s stereo silence
+w.close()
+PY
+timeout 10 aplay -q -D hw:0,0 "$wav" 2>&1
+rc=$?
+rm -f "$wav"
+sleep 1
+after=$(dmesg 2>/dev/null | grep -c 'speaker stays muted' || true)
+if [ "$rc" = 0 ] && [ "$after" = "$before" ]; then
+	say "RESULT: unmute allowed (no guard refusal)"
+else
+	say "RESULT: refused or failed (aplay rc=$rc, refusals before=$before after=$after)"
+fi
+say "guard after: $(tr '\n' ' ' <"$G" 2>/dev/null)"
+
+if timeout 10 arecord -q -D hw:0,1 -f S16_LE -r 48000 -c 2 -d 1 /dev/null 2>/run/sp11/selftest-mic.err; then
+	say "RESULT: microphone capture OK"
+else
+	say "RESULT: microphone capture FAILED: $(tail -n1 /run/sp11/selftest-mic.err 2>/dev/null)"
+fi
+rm -f /run/sp11/selftest-mic.err
+exit 0
