@@ -50,27 +50,40 @@ w.writeframes(b"\x00\x00\x00\x00" * 48000)   # 1 s stereo silence
 w.close()
 PY
 rc=1
+err=""
 for _ in 1 2 3 4 5; do
-	timeout 10 aplay -q -D hw:0,0 "$wav" 2>/tmp/sp11-selftest-aplay.err
+	err=$(timeout 10 aplay -q -D hw:0,0 "$wav" 2>&1)
 	rc=$?
 	[ "rc=$rc" = "rc=0" ] && break
-	grep -qi 'busy' /tmp/sp11-selftest-aplay.err || break
 	sleep 2
 done
-rm -f "$wav" /tmp/sp11-selftest-aplay.err
+rm -f "$wav"
 sleep 1
 after=$(dmesg 2>/dev/null | grep -c 'speaker stays muted' || true)
 if [ "$rc" = 0 ] && [ "$after" = "$before" ]; then
 	say "RESULT: unmute allowed (no guard refusal)"
 else
-	say "RESULT: refused or failed (aplay rc=$rc, refusals before=$before after=$after)"
+	say "RESULT: refused or failed (aplay rc=$rc, refusals before=$before after=$after, aplay: ${err:-none})"
 fi
 say "guard after: $(tr '\n' ' ' <"$G" 2>/dev/null)"
 
-if timeout 10 arecord -q -D hw:0,1 -f S16_LE -r 48000 -c 2 -d 1 /dev/null 2>/run/sp11/selftest-mic.err; then
-	say "RESULT: microphone capture OK"
+# The VA capture PCM accepts the UCM's format, not necessarily S16/2ch; try the
+# usual combinations and report which one opens.
+mic_ok=""
+mic_err=""
+for fmt in S16_LE S32_LE; do
+	for ch in 2 1 4; do
+		if timeout 10 arecord -q -D hw:0,1 -f $fmt -r 48000 -c $ch -d 1 /dev/null 2>/run/sp11/selftest-mic.err; then
+			mic_ok="$fmt/${ch}ch"; break 2
+		fi
+		mic_err=$(tail -n1 /run/sp11/selftest-mic.err 2>/dev/null)
+	done
+done
+if [ -n "$mic_ok" ]; then
+	say "RESULT: microphone capture OK ($mic_ok)"
 else
-	say "RESULT: microphone capture FAILED: $(tail -n1 /run/sp11/selftest-mic.err 2>/dev/null)"
+	say "RESULT: microphone capture FAILED: ${mic_err:-unknown}"
+	say "microphone hardware parameters: $(timeout 5 arecord -D hw:0,1 --dump-hw-params /dev/null 2>&1 | tr '\n' ' ' | cut -c1-400)"
 fi
 rm -f /run/sp11/selftest-mic.err
 exit 0

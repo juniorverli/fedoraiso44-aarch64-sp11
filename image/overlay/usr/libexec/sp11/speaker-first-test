@@ -38,7 +38,7 @@ user=$(loginctl list-sessions --no-legend 2>/dev/null | awk '$3 != "root" {print
 	systemctl --user stop sp11-closed-loop-sense.service >/dev/null 2>&1 || true
 /usr/libexec/sp11/speaker-supervisor hw:0,4 >>"$LOG" 2>&1 &
 sup=$!
-trap 'kill "$sup" 2>/dev/null' EXIT
+trap 'kill "$sup" 2>/dev/null; [ -n "${uid:-}" ] && [ -n "${user:-}" ] && timeout 10 runuser -u "$user" -- env XDG_RUNTIME_DIR="/run/user/$uid" systemctl --user start sp11-closed-loop-sense.service >/dev/null 2>&1' EXIT
 sleep 3
 kill -0 "$sup" 2>/dev/null || { say "supervisor did not stay up (see $LOG): no playback; the guard stays closed"; exit 1; }
 say "guard with the V/I capture held open: $(guard | tr '\n' ' ')"
