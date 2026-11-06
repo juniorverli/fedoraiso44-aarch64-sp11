@@ -1,0 +1,16 @@
+[Unit]
+Description=SP11 closed-loop V/I sense trigger (closed-loop boot entries)
+ConditionKernelCommandLine=sp11.allow_nominal=1
+ConditionKernelCommandLine=!sp11.nospk
+After=wireplumber.service pipewire.service
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/sp11/closed-loop-sense
+Restart=always
+RestartSec=3
+TimeoutStopSec=5
+
+[Install]
+WantedBy=graphical-session.target

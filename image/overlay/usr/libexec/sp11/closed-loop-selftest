@@ -28,9 +28,9 @@ esac
 G=/sys/kernel/debug/sp11/guard
 [ -r "$G" ] || { say "no guard file; nothing to test"; exit 0; }
 
-# Wait for the running V/I graph and a full calibration (the holder starts 20 s
-# after graphical.target; this script is ordered after it and waits anyway).
-for _ in $(seq 1 90); do
+# The holder is a user unit that starts with the session, after WirePlumber;
+# this system unit only polls the guard for it.
+for _ in $(seq 1 300); do
 	g=$(cat "$G" 2>/dev/null || true)
 	case $g in
 	*"vi_streams: 0"*) sleep 1; continue ;;
@@ -49,9 +49,15 @@ w = wave.open(sys.argv[1], "wb"); w.setnchannels(2); w.setsampwidth(2); w.setfra
 w.writeframes(b"\x00\x00\x00\x00" * 48000)   # 1 s stereo silence
 w.close()
 PY
-timeout 10 aplay -q -D hw:0,0 "$wav" 2>&1
-rc=$?
-rm -f "$wav"
+rc=1
+for _ in 1 2 3 4 5; do
+	timeout 10 aplay -q -D hw:0,0 "$wav" 2>/tmp/sp11-selftest-aplay.err
+	rc=$?
+	[ "rc=$rc" = "rc=0" ] && break
+	grep -qi 'busy' /tmp/sp11-selftest-aplay.err || break
+	sleep 2
+done
+rm -f "$wav" /tmp/sp11-selftest-aplay.err
 sleep 1
 after=$(dmesg 2>/dev/null | grep -c 'speaker stays muted' || true)
 if [ "$rc" = 0 ] && [ "$after" = "$before" ]; then

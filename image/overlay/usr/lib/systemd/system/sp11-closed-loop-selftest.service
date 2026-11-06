@@ -2,13 +2,12 @@
 Description=SP11 silent closed-loop self-test (no audible output)
 ConditionKernelCommandLine=sp11.allow_nominal=1
 ConditionKernelCommandLine=!sp11.nospk
-After=sp11-closed-loop-sense.service graphical.target sound.target
-Wants=sp11-closed-loop-sense.service
+After=sound.target
 
 [Service]
 Type=oneshot
 ExecStart=/usr/libexec/sp11/closed-loop-selftest
-TimeoutStartSec=240
+TimeoutStartSec=420
 
 [Install]
 WantedBy=multi-user.target

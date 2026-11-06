@@ -243,6 +243,10 @@ install -m 0755 "$REPO/image/overlay/usr/libexec/sp11/audio-check" "$desc/root/u
 	ln -sf /usr/libexec/sp11/audio-check "$desc/root/usr/bin/sp11-audio-check"
 install -m 0644 "$REPO/image/overlay/usr/lib/systemd/user/sp11-audio-defaults.service" "$desc/root/usr/lib/systemd/user/sp11-audio-defaults.service"
 ln -sf /usr/lib/systemd/user/sp11-audio-defaults.service "$desc/root/etc/systemd/user/graphical-session.target.wants/sp11-audio-defaults.service"
+# The V/I holder runs in the user session, after WirePlumber: as a system unit an
+# ordering vs graphical.target cycled with multi-user.target and systemd deleted the
+# job (device log 2026-11-06). It opens the codec PCM as liveuser through the logind ACL.
+ln -sf /usr/lib/systemd/user/sp11-closed-loop-sense.service "$desc/root/etc/systemd/user/graphical-session.target.wants/sp11-closed-loop-sense.service"
 install -m 0755 "$REPO/image/overlay/usr/libexec/sp11-post-session-collect" "$desc/root/usr/libexec/sp11-post-session-collect"
 ln -sf /usr/lib/systemd/user/sp11-post-session-collect.service "$desc/root/etc/systemd/user/graphical-session.target.wants/sp11-post-session-collect.service"
 # Compile the locked distro dconf database after kiwi has installed dconf,
@@ -282,7 +286,7 @@ mkdir -p "$desc/root/etc/systemd/system/sysinit.target.wants" "$desc/root/etc/sy
 for u in sp11-sam-mode-rotor.service sp11-identity-switch.service sp11-wifi-identity.service; do
 	ln -sf "/usr/lib/systemd/system/$u" "$desc/root/etc/systemd/system/sysinit.target.wants/$u"
 done
-for u in sp11-cdsp-experiment.service sp11-cpufreq-cap.service sp11-cl-validate.service sp11-closed-loop-sense.service sp11-closed-loop-selftest.service sp11-first-boot.service; do
+for u in sp11-cdsp-experiment.service sp11-cpufreq-cap.service sp11-cl-validate.service sp11-closed-loop-selftest.service sp11-first-boot.service; do
 	ln -sf "/usr/lib/systemd/system/$u" "$desc/root/etc/systemd/system/multi-user.target.wants/$u"
 done
 chmod 0755 "$desc/root/usr/libexec/sp11-touch-conf-select" "$desc/root/usr/libexec/sp11-boot-state" "$desc/root/usr/libexec/sp11/"{operator-notice,sam-mode-rotor,cdsp-experiment,cpufreq-cap,identity-switch,gpu-retry,speaker-supervisor,speaker-first-test,guard-report,post-install,post-install-boot,closed-loop-validate.py,closed-loop-report.sh,closed-loop-sense,first-boot,audio-defaults,audio-check,closed-loop-selftest}

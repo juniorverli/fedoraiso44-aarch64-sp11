@@ -1,0 +1,2 @@
+enable sp11-closed-loop-sense.service
+enable sp11-audio-defaults.service

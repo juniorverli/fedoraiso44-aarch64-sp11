@@ -61,14 +61,14 @@ def check(root, repo, record):
     # The closed-loop sense holder runs only on the closed-loop entry and never on the D26 entries.
     sense = (root / 'usr/libexec/sp11/closed-loop-sense').read_text()
     assert 'sp11.allow_nominal=1' in sense and 'sp11.nospk' in sense, 'sense holder gates'
-    sense_unit = root / 'usr/lib/systemd/system/sp11-closed-loop-sense.service'
+    sense_unit = root / 'usr/lib/systemd/user/sp11-closed-loop-sense.service'
     assert sense_unit.is_file(), 'closed-loop sense unit missing'
     unit_text = sense_unit.read_text()
     for needle in ('ConditionKernelCommandLine=sp11.allow_nominal=1',
                    'ConditionKernelCommandLine=!sp11.nospk', 'ExecStart=/usr/libexec/sp11/closed-loop-sense'):
         assert needle in unit_text, f'sense unit lacks {needle}'
-    assert (root / 'etc/systemd/system/multi-user.target.wants/sp11-closed-loop-sense.service').readlink() == \
-        Path('/usr/lib/systemd/system/sp11-closed-loop-sense.service'), 'closed-loop sense unit not enabled'
+    assert (root / 'etc/systemd/user/graphical-session.target.wants/sp11-closed-loop-sense.service').readlink() == \
+        Path('/usr/lib/systemd/user/sp11-closed-loop-sense.service'), 'closed-loop sense unit not enabled'
     # PipeWire defaults and the manual audio report: the V/I trigger must never be the
     # default source, and the operator gets one command that prints the guard state.
     for name in ('audio-defaults', 'audio-check'):
@@ -100,6 +100,9 @@ def check(root, repo, record):
         assert needle in st_text, f'self-test unit lacks {needle}'
     assert (root / 'etc/systemd/system/multi-user.target.wants/sp11-closed-loop-selftest.service').readlink() == \
         Path('/usr/lib/systemd/system/sp11-closed-loop-selftest.service'), 'self-test unit not enabled'
+    user_preset = root / 'usr/lib/systemd/user-preset/80-sp11-user.preset'
+    assert user_preset.is_file() and 'enable sp11-closed-loop-sense.service' in user_preset.read_text(), \
+        'the user preset must keep the sense holder enabled'
     # Installed-system finishing: the live ISO cannot run a kickstart, so the first boot of
     # the installed system runs the post-install steps once.
     fb = root / 'usr/libexec/sp11/first-boot'

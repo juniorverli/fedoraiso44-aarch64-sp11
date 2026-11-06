@@ -32,7 +32,10 @@ n = 48000 * 2   # 2 s
 w.writeframes(b"".join(struct.pack("<hh", s, s) for s in (int(1500 * math.sin(2 * math.pi * 1000 * i / 48000)) for i in range(n))))
 w.close()
 PY
-systemctl stop sp11-closed-loop-sense.service >/dev/null 2>&1 || true
+uid=$(loginctl list-sessions --no-legend 2>/dev/null | awk '$3 != "root" {print $2; exit}')
+user=$(loginctl list-sessions --no-legend 2>/dev/null | awk '$3 != "root" {print $3; exit}')
+[ -n "$uid" ] && [ -n "$user" ] && timeout 10 runuser -u "$user" -- env XDG_RUNTIME_DIR="/run/user/$uid" \
+	systemctl --user stop sp11-closed-loop-sense.service >/dev/null 2>&1 || true
 /usr/libexec/sp11/speaker-supervisor hw:0,4 >>"$LOG" 2>&1 &
 sup=$!
 trap 'kill "$sup" 2>/dev/null' EXIT
