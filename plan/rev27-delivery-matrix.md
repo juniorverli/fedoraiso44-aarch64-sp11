@@ -6,7 +6,7 @@ Userland: Fedora 45. The kernel did not move to the F45 build; only the image di
 | Item | State | Evidence / gap |
 |:--|:--|:--|
 | Sound, public D26 | Works on device, capped | Operator playback on safe/debug; the volume caps are unchanged |
-| Sound, closed loop | Delivered path, device test pending | Live line 24 (`m15-cl`, `-CL` model, `sp11.allow_nominal=1`) loads the private CL topology and supplements; `sp11-closed-loop-sense.service` holds the V/I trigger so the guard's sense-stream gate holds before playback; every other gate stays. Installed systems get a non-default `Fedora (SP11 closed-loop audio)` entry from post-installation |
+| Sound, closed loop | ISO delivers it; hardware evidence pending the operator boot | Live line 24 (`m15-cl`, `-CL` model, `sp11.allow_nominal=1`) loads the private CL topology and supplements; `sp11-closed-loop-sense.service` holds the V/I trigger so the guard's sense-stream gate holds before playback; every other gate stays. Installed systems get a non-default `Fedora (SP11 closed-loop audio)` entry from post-installation |
 | Microphone | Works on device | D28 UCM HiFi, DMIC clock patch, unity gain |
 | LCD | Works on device | DPU panel on safe/debug |
 | USB 3 / USB-C DP Alt Mode | Works (ports) | Type-C and orientation switches restored |
@@ -49,3 +49,14 @@ latch, caps, SP module, calibration identity and CPS policy all remain.
   flag.
 - Measured R0/T0 comes from kernel patch 0028 events when the DSP sends them;
   the nominal file is the fallback.
+
+## Closed-loop self-test (2026-11-06)
+
+The ISO now proves the loop on hardware without any manual step and without
+audible output: `sp11-closed-loop-selftest.service` runs on the closed-loop
+entries, waits for the V/I stream and the calibration, plays one second of
+digital silence to the speaker, and logs either
+`RESULT: unmute allowed (no guard refusal)` or the refusal; it then opens the
+microphone for one second to /dev/null and logs `RESULT: microphone capture
+OK/FAILED`. No sample is stored and no control is written. The next device log
+carries the evidence; no browser, tone or manual playback is needed.
