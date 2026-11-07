@@ -176,3 +176,27 @@ named MultiMedia5; it changes no volume, mute or route and logs each choice.
 sink volume and the last wsa884x/sp11 kernel lines. With `--tone` it plays one
 0.5 s low-level 440 Hz tone and prints the guard again, so a sound test needs no
 browser or video. Nothing runs automatically and no mixer value is written.
+
+## Delivered on hardware (2026-11-07, boot 6d2e9c8f)
+
+Boot `6d2e9c8f-7d5e-4691-9f56-ac742a41eea4`, entry `spk`, kernel
+`7.3.0-65.sp11.30.fc44.aarch64`, ISO `sp11-fedora45-...-20261107T180928Z`
+(sha256 `a9e598e3...a7ff`):
+
+    sp11-closed-loop-selftest: guard before: ... vi_streams: 1 ... sp_enabled: 1
+      ... cal_mask: 0x3 cal_nominal: 1 cal_graph_matches_vi: 1 ... allow_nominal: 1
+    RESULT: unmute allowed (no guard refusal)
+    RESULT: microphone capture OK (S16_LE/2ch)
+
+The guard allowed the amplifier with the speaker protection module enabled, the
+V/I sense stream running and a matching nominal calibration; the microphone
+captures. The operator confirmed audible output. The earlier failures were two
+systemd ordering cycles that deleted the holder (system unit ordered after
+graphical.target; then audio-defaults ordered after graphical-session.target
+while the target wanted the holder) and the ACP card race; all three are fixed
+and the reconstructed unit graph has zero cycles.
+
+The remaining work item is level: the sound is quieter than Windows, so the
+volume ceiling must be raised for the closed-loop mode only (S1 keeps the D26
+open-loop ceiling unchanged). That work is tracked separately with REA/ACDB
+evidence.

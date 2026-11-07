@@ -6,8 +6,8 @@ Userland: Fedora 45. The kernel did not move to the F45 build; only the image di
 | Item | State | Evidence / gap |
 |:--|:--|:--|
 | Sound, public D26 | Works on device, capped | Operator playback on safe/debug; the volume caps are unchanged |
-| Sound, closed loop | ISO delivers it; hardware evidence pending the operator boot | Live line 24 (`m15-cl`, `-CL` model, `sp11.allow_nominal=1`) loads the private CL topology and supplements; `sp11-closed-loop-sense.service` holds the V/I trigger so the guard's sense-stream gate holds before playback; every other gate stays. Installed systems get a non-default `Fedora (SP11 closed-loop audio)` entry from post-installation |
-| Microphone | Works on device | D28 UCM HiFi, DMIC clock patch, unity gain |
+| Sound, closed loop | **Delivered on hardware 2026-11-07** | `RESULT: unmute allowed (no guard refusal)` with SP enabled, V/I stream and matching calibration; operator heard output; microphone capture OK; level tuning (Windows parity) is the remaining item | Live line 24 (`m15-cl`, `-CL` model, `sp11.allow_nominal=1`) loads the private CL topology and supplements; `sp11-closed-loop-sense.service` holds the V/I trigger so the guard's sense-stream gate holds before playback; every other gate stays. Installed systems get a non-default `Fedora (SP11 closed-loop audio)` entry from post-installation |
+| Microphone | Works on device, closed-loop boot included | D28 UCM HiFi, DMIC clock patch, unity gain; `RESULT: microphone capture OK (S16_LE/2ch)` on 2026-11-07 |
 | LCD | Works on device | DPU panel on safe/debug |
 | USB 3 / USB-C DP Alt Mode | Works (ports) | Type-C and orientation switches restored |
 | USB4 / Thunderbolt | Not deliverable today | No Qualcomm USB4 host-router glue in Linux |
