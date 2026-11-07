@@ -60,3 +60,11 @@ digital silence to the speaker, and logs either
 microphone for one second to /dev/null and logs `RESULT: microphone capture
 OK/FAILED`. No sample is stored and no control is written. The next device log
 carries the evidence; no browser, tone or manual playback is needed.
+
+## Final ISO (2026-11-07)
+
+`sp11-fedora45-aarch64-kiwi-20261107T204954Z-private.iso`, SHA-256
+`e575758d...cab6`, kernel `7.3.0-65.sp11.32.fc44`: closed-loop speakers only
+(open-loop removed), Windows-level ceiling in that mode, line 1 and line 24 on
+the closed loop, and the installed system booting the generated closed-loop
+entry by default. L0 311/0, L1 PASS.
