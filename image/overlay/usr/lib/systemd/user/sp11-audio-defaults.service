@@ -1,6 +1,7 @@
 [Unit]
 Description=SP11: pin the platform sound speaker and microphone as PipeWire defaults
-After=wireplumber.service pipewire.service graphical-session.target
+After=wireplumber.service pipewire.service
+ConditionUser=!gdm
 PartOf=graphical-session.target
 Wants=wireplumber.service
 

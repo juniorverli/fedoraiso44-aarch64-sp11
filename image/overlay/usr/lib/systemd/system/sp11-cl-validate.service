@@ -1,7 +1,7 @@
 [Unit]
 Description=SP11 muted closed-loop validation (opt-in marker on the boot medium)
 Documentation=file:/usr/share/doc/sp11/closed-loop.md
-ConditionKernelCommandLine=sp11.nospk=1
+ConditionKernelCommandLine=sp11.nospk=1|sp11.nospk
 After=sound.target local-fs.target
 
 [Service]

@@ -1,2 +1,4 @@
 enable sp11-closed-loop-sense.service
 enable sp11-audio-defaults.service
+enable sp11-audio-safety.service
+enable sp11-post-session-collect.service

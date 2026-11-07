@@ -7,6 +7,7 @@ ConditionKernelCommandLine=!sp11.nospk
 # MultiMedia5 is taken, or ACP drops the whole card.
 After=wireplumber.service pipewire.service sp11-audio-defaults.service
 Wants=sp11-audio-defaults.service
+ConditionUser=!gdm
 PartOf=graphical-session.target
 
 [Service]

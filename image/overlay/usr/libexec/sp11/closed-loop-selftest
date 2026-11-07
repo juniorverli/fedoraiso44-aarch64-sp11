@@ -28,8 +28,11 @@ esac
 G=/sys/kernel/debug/sp11/guard
 [ -r "$G" ] || { say "no guard file; nothing to test"; exit 0; }
 
-# The holder is a user unit that starts with the session, after WirePlumber;
-# this system unit only polls the guard for it.
+# Print the starting state at once: if the machine is powered off before the
+# holder appears, the log still shows what the guard saw.
+say "guard at start: $(tr '\n' ' ' <"$G" 2>/dev/null)"
+# The holder is a user unit that starts with the session, after WirePlumber and
+# after sp11-audio-defaults; this system unit only polls the guard for it.
 for _ in $(seq 1 300); do
 	g=$(cat "$G" 2>/dev/null || true)
 	case $g in

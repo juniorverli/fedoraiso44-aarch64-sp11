@@ -2,7 +2,9 @@
 Description=SP11 silent closed-loop self-test (no audible output)
 ConditionKernelCommandLine=sp11.allow_nominal=1
 ConditionKernelCommandLine=!sp11.nospk
-After=sound.target
+# After=multi-user.target is a direct contradiction of the implicit ordering a
+# WantedBy adds, so multi-user does not wait for this oneshot while it polls.
+After=sound.target multi-user.target
 
 [Service]
 Type=oneshot
