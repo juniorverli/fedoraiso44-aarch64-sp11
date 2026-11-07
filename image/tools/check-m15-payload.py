@@ -122,7 +122,12 @@ def check(root, repo, record):
     assert grubgen.stat().st_mode & 0o111 and grubgen.read_bytes() == \
         (repo / 'image/overlay/usr/libexec/sp11/grub-closed-loop').read_bytes(), 'closed-loop GRUB generator'
     assert 'sp11.allow_nominal=1' in grubgen.read_text() and 'devicetree' in grubgen.read_text(), 'GRUB generator arguments'
-    assert not (root / 'etc/grub.d/45_sp11_closed_loop').exists(), 'the closed-loop menu entry must be installed post-installation only'
+    # The generator must ship in /etc/grub.d so Anaconda's grub2-mkconfig creates
+    # the entry in the target root and the installed system boots the closed loop
+    # by default; post-install reinstalls the same file.
+    grubd = root / 'etc/grub.d/45_sp11_closed_loop'
+    assert grubd.is_file() and grubd.read_bytes() == grubgen.read_bytes() and grubd.stat().st_mode & 0o111, \
+        'the closed-loop entry generator must ship in /etc/grub.d'
     for u in ('sp11-speaker-first-test.service',):
         assert not (root / 'usr/lib/systemd/system' / u).exists(), 'the first test must never be a unit'
     # Every published variant must also exist in the image root, next to the packaged
