@@ -5,8 +5,8 @@ commit = "c03c1a14507dfaf8b856c2608f9ac216021fc222"
 # Integration branch: the same series as committed patches on top of the pinned base.
 # The build still applies kernel/series to the pinned commit (Fedora kernel.spec); this
 # branch is the reviewable mirror and must stay identical to the series.
-branch = "sp11/rev30"
-branch_commit = "646c62db942f5a760368255cf142a3203ba230db"
+branch = "sp11/rev32"
+branch_commit = "3ab90be7f06037b00f9d12856201e61786125987"
 dtb = "qcom/x1p64100-microsoft-denali.dtb"
 localversion = ".sp11"
 
@@ -44,6 +44,7 @@ dist = ".fc44"
 # 23 = clear the stale boot GPU bandwidth vote when the GMU scales BW (2026-10-24 series).
 # 24 = active C-PHY trios and independent CSID/VFE RDI frame-path candidates.
 # 25 = audio calibration lifetime, calibration flags/VI identity and topology widget error candidates.
+# 31 = closed-loop speaker ceiling: patch 0032 (WSA RX/MIX 84 = 0 dB, PA 17 = +16.5 dB); D26 stays 81/6.
 # kernel-build.sh and kernel-check fail on a mismatch.
-series_rev = 30
-series_sha256 = "c6bde095be6d85c1a14257ead37a50eac410250a038bd9643b4dc51bbe0537be"
+series_rev = 32
+series_sha256 = "211fa637db5e250ca9b89ab73dd021cafd8a52df8f45bf901fe4d88f5acbf7b4"

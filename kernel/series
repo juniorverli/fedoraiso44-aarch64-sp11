@@ -1,5 +1,5 @@
 # Integrated patch series, applied in order on top of kernel/base.toml.
-# series_rev = 25
+# series_rev = 31
 # Owner: kernel worker. Each line is a path relative to the repository root,
 # pointing into hardware/<component>/patches/ or kernel/patches/ (integration).
 # M3 (D19): display-lcd 0001-0003, in this order (0003 needs 0002's context).
@@ -181,3 +181,8 @@ hardware/cameras/patches/0026-candidate-arm64-dts-qcom-denali-rear-camera-rotati
 kernel/patches/0029-audio-speakers-register-events-windows-payload.patch
 kernel/patches/0030-audio-speakers-fix-module-parameter-prefix.patch
 kernel/patches/0031-audio-speakers-bind-measured-calibration-to-vi-graph.patch
+# Revision 26: the closed-loop SP+VI topology gets the Windows endpoint ceiling
+# (WSA RX/MIX 84 = 0 dB, PA 17 = +16.5 dB). The D26/open-loop caps stay 81/6;
+# sp11_guard_closed_loop() only reports the parsed mode and gates no unmute.
+kernel/patches/0032-audio-speakers-raise-closed-loop-ceiling-to-windows-level.patch
+kernel/patches/0033-audio-speakers-remove-d26-open-loop-mode.patch
