@@ -17,7 +17,7 @@ echo
 echo "## arecord -L (names)"
 timeout 8 arecord -L 2>&1 | grep -v '^ ' | head -n 40
 echo
-echo "## amixer -c 0 contents (read only; D26 first test: PA Volume max 6, PA 0, DAC/COMP switches off)"
+echo "## amixer -c 0 contents (read only; D26: PA max 6 / RX-MIX max 81; closed-loop: PA max 17 / RX-MIX max 84; DAC/COMP switches)"
 timeout 10 amixer -c 0 contents 2>&1 | head -n 400
 echo
 echo "## D28 UCM files in effect (hashes only)"

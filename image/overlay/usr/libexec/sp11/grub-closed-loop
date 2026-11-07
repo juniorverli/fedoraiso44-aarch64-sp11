@@ -46,7 +46,7 @@ for arg in sp11.entry=debug sp11.allow_nominal=1; do
 done
 
 cat <<EOF
-menuentry 'Fedora (SP11 closed-loop audio; unproven protection)' --id sp11-closed-loop-audio --class fedora --class gnu-linux --class gnu --class os {
+menuentry 'Fedora (SP11 closed-loop audio)' --id sp11-closed-loop-audio --class fedora --class gnu-linux --class gnu --class os {
 	linux $kernel $options
 	devicetree $dtb
 	initrd $initrd

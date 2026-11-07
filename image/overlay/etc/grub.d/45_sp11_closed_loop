@@ -1,0 +1,54 @@
+#!/bin/sh
+# Emit one additional GRUB entry that boots the installed kernel with the m15-cl
+# device tree and the closed-loop audio arguments.
+#
+# Installed by sp11-post-install as /etc/grub.d/45_sp11_closed_loop only when the
+# private closed-loop topology and the m15-cl DTB are present (private image).
+# The entry is never the default; the normal Fedora entries are unchanged. It
+# reads the newest BLS entry so the kernel and initrd stay current across
+# upgrades, and it copies that entry's options so root= and subvolumes match.
+set -eu
+card=X1E80100-Microsoft-Surface-Pro-11
+real_dtb=/boot/dtb/qcom/x1p64100-microsoft-denali-m15-cl.dtb
+[ -r "$real_dtb" ] || exit 0
+[ -r "/usr/lib/firmware/qcom/x1e80100/$card-CL-tplg.bin" ] || exit 0
+
+conf=$(ls -1 /boot/loader/entries/*.conf 2>/dev/null | sort -V | tail -n1 || true)
+[ -n "$conf" ] || exit 0
+field() { sed -n "s/^$1 //p" "$conf" | head -n1; }
+version=$(field version)
+kernel=$(field linux)
+initrd=$(field initrd)
+options=$(field options)
+# A BLS entry written by the image build can name a build path; an installed system must
+# boot from /boot. Prefer the version-derived paths when they exist.
+if [ -n "$version" ] && [ -r "/boot/vmlinuz-$version" ] && [ -r "/boot/initramfs-$version.img" ]; then
+	kernel=/boot/vmlinuz-$version
+	initrd=/boot/initramfs-$version.img
+fi
+[ -n "$kernel" ] && [ -n "$initrd" ] || exit 0
+case $kernel in
+/boot/* | /*vmlinuz* | /*zImage*) ;;
+*) exit 0 ;;
+esac
+
+# The BLS kernel path shows where the boot filesystem starts inside GRUB.
+case $kernel in
+/boot/*) dtb=$real_dtb ;;
+*) dtb=${real_dtb#/boot} ;;
+esac
+
+for arg in sp11.entry=debug sp11.allow_nominal=1; do
+	case " $options " in
+	*" $arg "*) ;;
+	*) options="$options $arg" ;;
+	esac
+done
+
+cat <<EOF
+menuentry 'Fedora (SP11 closed-loop audio)' --id sp11-closed-loop-audio --class fedora --class gnu-linux --class gnu --class os {
+	linux $kernel $options
+	devicetree $dtb
+	initrd $initrd
+}
+EOF

@@ -130,6 +130,8 @@ Global and per-device `device.routes.default-sink-volume = 0.0` provide the fail
 
 ## 9. Log
 
+- 2026-11-07 (closed-loop volume): recovered the Windows endpoint maximum (`surface_audiominiext8380.inf` `MaxEpVolume` 0 dBFS; `acdb_cal_0D.acdb` analog PA target +16.5 dB), added kernel patch 0032 so only `SP11_MODE_CLOSED_LOOP` gets WSA RX/MIX 84 (0 dB) and PA 17 (+16.5 dB) while D26/open-loop stays 81/6, and added the closed-loop-only digital raise to `sp11-audio-safety` (gated by `sp11.allow_nominal=1`; the kernel `platform_max` remains the authority). Static apply/checkpatch/helper tests pass; no kernel or image build and no device run.
+
 - 2026-11-04 (muted VI implementation): matched the ACDB four-entry VI map to Linux's two-speaker map; added explicit CPS-required diagnostic generation, graph-open and metadata/readback candidates, no-read supervisor and safe CL DTB proposal. Host apply/checkpatch/tests pass; no kernel/image/ISO/device build or git write.
 
 - 2026-11-04: audited closed-loop completeness; confirmed the lifetime candidate is unintegrated; added calibration/guard and topology-error candidates, monitored capture supervisor, host checks and a muted-only matrix. No kernel/image build or device test.

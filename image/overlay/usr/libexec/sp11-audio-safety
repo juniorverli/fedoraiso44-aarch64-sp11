@@ -1,6 +1,38 @@
 #!/usr/bin/bash
 # Mute the platform card's sinks before setting their startup volume.
 set -euo pipefail
+
+# Closed-loop only: the parsed SP+VI topology raises the kernel ceiling to
+# WSA RX/MIX 84 (0 dB) and PA 17 (+16.5 dB), matching the Windows endpoint
+# (WaveSpeaker MaxEpVolume 0 dBFS and the ACDB +16.5 dB analog PA target).
+# The UCM boot value 72 (-12 dB) is the D26/open-loop operating point.
+#
+# The closed-loop audio entry is the one with sp11.allow_nominal=1 (the same
+# marker sp11-closed-loop-sense.service uses), except the speaker first-test
+# entry (sp11.entry=spk), the muted VI diagnostic (sp11.nospk) and the 5%
+# first-test level (sp11.audio_first_test=1).
+#
+# The kernel cap is the authority, not this marker: on D26/open-loop the
+# platform_max is 81, so the 84 write is rejected and logs "not set"; on the
+# closed-loop topology it is accepted. Thus a marker on a wrong entry cannot
+# raise the open-loop ceiling. The PA stays under the "Speakers Volume" remap
+# so the session volume still controls it.
+#
+# The speaker first-test entry (sp11.entry=spk) also uses the closed-loop
+# topology, so it gets the raised cap even though the digital raise above is
+# skipped. Keep its startup level at 5% as well, matching the first-test
+# minimum-volume policy.
+closed_loop=0
+cmdline=$(cat /proc/cmdline 2>/dev/null || true)
+case " $cmdline " in
+ *" sp11.allow_nominal=1 "*)
+  case " $cmdline " in
+   *" sp11.nospk"* | *" sp11.entry=spk "* | *" sp11.audio_first_test=1 "*) ;;
+   *) closed_loop=1 ;;
+  esac
+  ;;
+esac
+
 for _ in $(seq 1 300); do
  ids=$(timeout -k 1 2 pw-dump 2>/dev/null | python3 -c '
 import json, sys
@@ -33,12 +65,23 @@ if node and id and "platform-sound" in node.group(1): print(id.group(1))
     echo "sp11-audio-safety: sink $id did not report muted" >&2
     exit 1
    fi
-   if grep -qw 'sp11.audio_first_test=1' /proc/cmdline; then
+   if grep -qw 'sp11.audio_first_test=1' /proc/cmdline ||
+      grep -qw 'sp11.entry=spk' /proc/cmdline; then
     timeout -k 1 2 wpctl set-volume "$id" 5% >/dev/null
    else
     timeout -k 1 2 wpctl set-volume "$id" 100% >/dev/null
    fi
   done
+  if [ "$closed_loop" = 1 ]; then
+   for ctl in 'WSA WSA_RX0 Digital Volume' 'WSA WSA_RX1 Digital Volume' \
+              'WSA WSA_RX0_MIX Digital Volume' 'WSA WSA_RX1_MIX Digital Volume'; do
+    if timeout -k 1 2 amixer -c 0 sset "$ctl" 84 >/dev/null 2>&1; then
+     echo "sp11-audio-safety: closed-loop ceiling: $ctl = 84 (0 dB)"
+    else
+     echo "sp11-audio-safety: closed-loop ceiling: $ctl not set" >&2
+    fi
+   done
+  fi
   exit 0
  fi
  sleep 0.1

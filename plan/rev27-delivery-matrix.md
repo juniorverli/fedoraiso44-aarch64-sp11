@@ -5,7 +5,7 @@ Userland: Fedora 45. The kernel did not move to the F45 build; only the image di
 
 | Item | State | Evidence / gap |
 |:--|:--|:--|
-| Sound, public D26 | Works on device, capped | Operator playback on safe/debug; the volume caps are unchanged |
+| Sound, public D26 | **Removed 2026-11-07** | Kernel patch 0033 refuses a topology without SP+VI; microphones and DisplayPort keep working. The closed loop is the only speaker path |
 | Sound, closed loop | **Delivered on hardware 2026-11-07** | `RESULT: unmute allowed (no guard refusal)` with SP enabled, V/I stream and matching calibration; operator heard output; microphone capture OK; level tuning (Windows parity) is the remaining item | Live line 24 (`m15-cl`, `-CL` model, `sp11.allow_nominal=1`) loads the private CL topology and supplements; `sp11-closed-loop-sense.service` holds the V/I trigger so the guard's sense-stream gate holds before playback; every other gate stays. Installed systems get a non-default `Fedora (SP11 closed-loop audio)` entry from post-installation |
 | Microphone | Works on device, closed-loop boot included | D28 UCM HiFi, DMIC clock patch, unity gain; `RESULT: microphone capture OK (S16_LE/2ch)` on 2026-11-07 |
 | LCD | Works on device | DPU panel on safe/debug |

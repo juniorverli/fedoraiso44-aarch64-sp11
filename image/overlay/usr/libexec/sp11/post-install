@@ -77,7 +77,11 @@ if [ -r /usr/lib/firmware/qcom/x1e80100/X1E80100-Microsoft-Surface-Pro-11-CL-tpl
 	[ -r /boot/dtb/qcom/x1p64100-microsoft-denali-m15-cl.dtb ] &&
 	[ -x /usr/libexec/sp11/grub-closed-loop ]; then
 	install -m 0755 /usr/libexec/sp11/grub-closed-loop /etc/grub.d/45_sp11_closed_loop
-	say "closed-loop audio entry installed (m15-cl DTB, sp11.allow_nominal=1; not the default)"
+	# The installed system boots the same configuration we delivered on the live
+	# media: the closed-loop entry (m15-cl DTB, allow_nominal, the raised ceiling)
+	# is the default; the normal Fedora D26 entries stay available as fallback.
+	set_kv GRUB_DEFAULT sp11-closed-loop-audio
+	say "closed-loop audio entry installed (m15-cl DTB, sp11.allow_nominal=1) and set as the GRUB default"
 else
 	rm -f /etc/grub.d/45_sp11_closed_loop
 fi

@@ -11,15 +11,15 @@
   "installed_files": {
     "usr/share/alsa/ucm2/Qualcomm/x1e80100/MICROSOFT-Surface-Pro-11.conf": "3cd05b43f782795d343a6dad0373ef10f95704724e7d57b224172d077f8de38d",
     "usr/share/alsa/ucm2/Qualcomm/x1e80100/Surface11-HiFi.conf": "ba24e854477ce3ed0fc13c9dda6a7bb0bcf2d978f0fff4e672a6f879bdb6a90c",
-    "usr/share/alsa/ucm2/Qualcomm/x1e80100/Surface11-SpeakerSeq.conf": "163cd2d165fb3a0e7003f7ec8b7e7801f5f23737e4274ef9efb1cf091478c179",
-    "usr/share/alsa/ucm2/Qualcomm/x1e80100/Surface11-WsaInit.conf": "ca9d2725ed95bf5ade5ab6751b6e66b3e018bb0421535f71ba0626fdb7b97fbd",
+    "usr/share/alsa/ucm2/Qualcomm/x1e80100/Surface11-SpeakerSeq.conf": "6b7909fe3229e5ebd0cc8951cb671246c28798b16f5445f69f4b715e72e4fce4",
+    "usr/share/alsa/ucm2/Qualcomm/x1e80100/Surface11-WsaInit.conf": "ce63572afa6210b3d9e84e7cd223e2824aa21d0908934d1415ed1c4b44981dc6",
     "usr/share/alsa/ucm2/Qualcomm/x1e80100/x1e80100.conf": "95e36c3b62a24abca9673dbf3239f4c17395cf19a6cdc84c95c6f4b7c303d676",
     "usr/share/wireplumber/wireplumber.conf.d/51-sp11-audio-safety.conf": "83c0e8a319bc0102c8856a03780612b3ca7b48228f44182c1b739ea468051594",
     "etc/dconf/db/distro.d/90-sp11-audio-safety": "f322831aefd849cbc5f2b03ce28d3897efd4ef01c5050a84321867176a1ebd85",
     "etc/dconf/db/distro.d/locks/90-sp11-audio-safety": "4e7ac5841797af780f9063f94b1c59ec47a804b81033b294a029245e6f8e98c5",
-    "usr/libexec/sp11-audio-safety": "b5c2a145c7262b8fac389f323b543f99eb9babbec09764905b291b7ebbf7f355",
+    "usr/libexec/sp11-audio-safety": "06d59db08bf74bad2ef01a7eceadf14120cb0ef4a2e880067948fdd65a60884c",
     "usr/lib/systemd/user/sp11-audio-safety.service": "a669ab7d4902a7820bcc95f7bf4accbb682b44bfea4c490335da7166951c67a5",
-    "usr/share/wireplumber/wireplumber.conf.d/53-sp11-audio-ceiling.conf": "b4ea6117339102a6772fd94213ce6c224e72bbeb2073684ca0170bd0ec7010f5",
+    "usr/share/wireplumber/wireplumber.conf.d/53-sp11-audio-ceiling.conf": "015753b6bc93e8ec345f6032fbbcdbb711da62aed12617a0c45739bf67862049",
     "usr/libexec/sp11-post-session-collect": "950567d9507275fa1ca791697fe3f36590c463b477c6d5915715013cc956f53d",
     "usr/lib/systemd/user/sp11-post-session-collect.service": "9bf49ff3b0e9ab8f793d2cadd7a51feb115f3d0a5d42fb6130edd89aac72f3fd",
     "usr/share/wireplumber/wireplumber.conf.d/55-sp11-global-safety.conf": "9fe91139187a59ebe43ca66541cdad2a50cc28bd71454d0fce53447a4f73fbc3"
@@ -32,9 +32,9 @@
     "selector": "kernel request_firmware sound-model contract; no early selector service"
   },
   "software_policy": {
-    "initial_mute": "The later global sink default is 0.0, overriding the 0.05 hardware fallback. The helper verifies mute before setting 5% for sp11.audio_first_test=1 or 100% normally. Runtime confirmation is mandatory.",
+    "initial_mute": "The later global sink default is 0.0, overriding the 0.05 hardware fallback. The helper verifies mute before setting 5% for sp11.audio_first_test=1 or sp11.entry=spk, or 100% normally. Runtime confirmation is mandatory.",
     "volume_ceiling_percent": 100,
-    "enforcement": "Kernel caps PA at 6 (0 dB) and WSA RX/MIX at 81 (-3 dB); UCM sets digital volume to 72 (-12 dB). Pro Audio is disabled; the helper verifies mute before setting the startup level."
+    "enforcement": "Kernel caps D26/open-loop PA at 6 (0 dB) and WSA RX/MIX at 81 (-3 dB); UCM sets the digital boot value to 72 (-12 dB). The closed-loop SP+VI mode caps PA at 17 (+16.5 dB) and WSA RX/MIX at 84 (0 dB). sp11-audio-safety raises the four digital controls to 84 only on the sp11.allow_nominal=1 entry (the same marker the V/I sense service uses), excluding sp11.nospk, sp11.entry=spk and sp11.audio_first_test=1; the kernel platform_max (the authority) rejects the same write on D26/open-loop, so a marker on a wrong entry cannot raise that ceiling. The PA follows the \"Speakers Volume\" remap; a 100% sink is expected to reach the kernel cap (device confirmation pending). Pro Audio is disabled; the helper verifies mute before setting the startup level."
   },
   "routes": {
     "Speaker": "hw:${CardId},0",

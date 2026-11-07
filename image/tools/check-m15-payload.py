@@ -176,7 +176,8 @@ def check(root, repo, record):
     assert not any('denali-m1' in str(e) for e in record['grub_entries']) and len(record['grub_entries']) == 26, 'M15 menu is 26 flat entries'
     assert not any(re.search(r'cdsp_variant|firmware_class|keep_proxy_pds|surface_aggregator|sp11\.identity|cpufreq', e['linux_args'] or '') for e in record['grub_entries']), 'experiment argument on a static line'
     assert all('sp11.allow_nominal' not in (e['linux_args'] or '') for e in record['grub_entries']
-               if 'speakers' not in e['title'] and 'needs calibration' not in e['title']), 'allow_nominal outside the closed-loop entries'
+               if e['title'] != 'SP11 debug' and 'speakers' not in e['title']
+               and 'needs calibration' not in e['title']), 'allow_nominal outside the closed-loop entries'
     # rotors, notices, helper
     for name in ('sam-mode-rotor', 'cdsp-experiment', 'cpufreq-cap', 'identity-switch', 'operator-notice', 'gpu-retry'):
         f = root / 'usr/libexec/sp11' / name

@@ -120,6 +120,14 @@ def check(root, repo, record, release):
     assert all(token in safety_text for token in ('pw-dump', 'wpctl inspect @DEFAULT_AUDIO_SINK@',
                'wpctl get-volume "$id"', 'sp11.audio_first_test=1', 'wpctl set-volume "$id" 5%',
                'seq 1 300', 'exit 1')), 'sink discovery, mute readback or first-test policy missing'
+    # The closed-loop ceiling is the Windows endpoint value (WSA RX/MIX 84 = 0 dB)
+    # and must never be applied on the D26/open-loop, kill-switch or first-test paths.
+    for needle in ('sp11.allow_nominal=1', 'sp11.nospk', 'sp11.entry=spk',
+                   'sp11.audio_first_test=1', 'platform_max',
+                   'WSA WSA_RX0 Digital Volume', 'WSA WSA_RX1 Digital Volume',
+                   'WSA WSA_RX0_MIX Digital Volume', 'WSA WSA_RX1_MIX Digital Volume',
+                   'amixer -c 0 sset "$ctl" 84'):
+        assert needle in safety_text, f'closed-loop ceiling gate missing: {needle}'
     subprocess.run([sys.executable, '-I', str(repo / 'image/tools/audio-safety-selftest.py'), str(safety)],
                    check=True, capture_output=True)
     confdir = root / 'usr/share/wireplumber/wireplumber.conf.d'

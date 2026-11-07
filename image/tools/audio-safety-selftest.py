@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise sink discovery, mute verification and startup levels without audio hardware."""
+"""Exercise sink discovery, mute verification, startup levels and the closed-loop ceiling gate without audio hardware."""
 import json
 import os
 from pathlib import Path
@@ -25,12 +25,15 @@ case "$1" in
 esac
 ''')
     (binary / 'sleep').write_text('#!/bin/sh\nexit 0\n')
+    amixer_log = root / 'amixer'
+    (binary / 'amixer').write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$FIXTURE_AMIXER"\n')
     for path in binary.iterdir():
         path.chmod(0o755)
     script = root / 'helper'
     script.write_text(source.replace('/proc/cmdline', str(cmdline)).replace('seq 1 300', 'seq 1 2'))
     env = dict(os.environ, PATH=f'{binary}:/usr/bin:/bin', FIXTURE_DUMP=str(dump),
-               FIXTURE_INSPECT=str(inspect), FIXTURE_LOG=str(log), FIXTURE_MUTE='[MUTED]')
+               FIXTURE_INSPECT=str(inspect), FIXTURE_LOG=str(log), FIXTURE_MUTE='[MUTED]',
+               FIXTURE_AMIXER=str(amixer_log))
     # A realistic PipeWire device association, a node-name match, and an unrelated sink.
     dump.write_text(json.dumps([
         {'id': 42, 'type': 'PipeWire:Interface:Device', 'info': {'props': {'device.name': 'alsa_card.platform-sound'}}},
@@ -58,4 +61,25 @@ esac
     result = subprocess.run(['bash', str(script)], env=env, capture_output=True, text=True, timeout=10)
     assert result.returncode != 0 and 'did not report muted' in result.stderr
     assert 'set-volume' not in log.read_text()
-print('audio safety selection and mute fixtures passed')
+    # Closed-loop gate: the WSA RX/MIX digital controls are raised to 84 only on
+    # the sp11.allow_nominal=1 entry, and never on D26, the first-test entry or
+    # the kill-switch entry. The first-test entry keeps the 5% startup level.
+    dump.write_text(json.dumps([
+        {'id': 42, 'type': 'PipeWire:Interface:Device', 'info': {'props': {'device.name': 'alsa_card.platform-sound'}}},
+        {'id': 58, 'type': 'PipeWire:Interface:Node', 'info': {'props': {'media.class': 'Audio/Sink', 'node.name': 'alsa_output.platform-sound.speaker', 'device.id': 42}}},
+    ]))
+    env['FIXTURE_MUTE'] = '[MUTED]'
+    for line, amixer_calls, level in [
+            ('root=live sp11.allow_nominal=1 sp11.entry=debug', 4, '100%'),
+            ('root=live sp11.entry=safe', 0, '100%'),
+            ('root=live sp11.allow_nominal=1 sp11.entry=spk', 0, '5%'),
+            ('root=live sp11.allow_nominal=1 sp11.nospk=1', 0, '100%')]:
+        cmdline.write_text(line + '\n')
+        log.write_text('')
+        amixer_log.write_text('')
+        subprocess.run(['bash', str(script)], env=env, check=True, timeout=10)
+        calls = amixer_log.read_text().splitlines()
+        assert len(calls) == amixer_calls, (line, calls)
+        assert all(call.startswith('-c 0 sset WSA ') and call.endswith(' 84') for call in calls), (line, calls)
+        assert f'set-volume 58 {level}' in log.read_text(), (line, log.read_text())
+print('audio safety selection, mute and closed-loop ceiling fixtures passed')
