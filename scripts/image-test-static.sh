@@ -190,15 +190,15 @@ else
 fi
 titles=$(grep -o -E "^[[:space:]]*(menuentry|submenu) '[^']*'" "$cfg_esp" | sed -E "s/^[[:space:]]*(menuentry|submenu) '//;s/'\$//")
 if [ "$builder" = kiwi ]; then
-	# Rev25: one FLAT static menu (M13 style), 26 entries, no submenu
-	expect=$'SP11 debug\nSP11 debug, safe (no GPU)\nSP11 debug, no sound\nSP11 debug, touch off\nSP11 debug, speakers (closed-loop experiment; private)\nSP11 debug, USB + DSP trace\nSP11 debug, no early DSP\nSP11 debug, Wi-Fi unblock probe\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nSP11 debug, Spectra camera test\nSP11 debug, test multi-user (no GNOME)\nSP11 debug, test ignore unused (regulator)\nSP11 debug, test GPU pin off\nSP11 debug, test ACD off\nSP11 debug, test preemption off\nSP11 debug, test msm off (display may be off; logs only)\nSP11 debug, test software GL\nSP11 debug, test safe DTB + msm off + debug\nSP11 debug, test safe DTB + EFI pstore\nSP11 debug, test m15 DTB + safe services\nSP11 debug, safe, rear rotation test\nSP11 debug, safe, muted closed-loop VI\nSP11 debug, closed-loop audio (needs calibration)\nSP11 live, install from the desktop (keeps Windows)\nVM test (no devicetree)'
-	nentries=26
+	# Rev32: one FLAT static menu, three entries (closed-loop debug, live installer, VM test), no submenu
+	expect=$'SP11 debug\nSP11 live, install from the desktop (keeps Windows)\nVM test (no devicetree)'
+	nentries=3
 else
 	expect=$'SP11 debug\nSP11 debug + DRM trace\nSP11 debug nomodeset\nSP11 debug, stop in initramfs\nVM test (no devicetree)'
 	nentries=5
 fi
-[ "$titles" = "$expect" ] && pass 2.5 "exactly the M16 flat menu in order: debug, safe (no GPU, cameras enabled), no sound, touch off, speakers, USB + DSP trace, no early DSP, Wi-Fi unblock, nomodeset, stop in initramfs, Spectra camera test, seven rev25 debug isolation tests, three rev25b reset-axis tests, rear rotation and muted closed-loop safe tests, VM test" || fail 2.5 "entries differ: $(echo "$titles" | tr '\n' '|')"
-[ "$(grep -c '^set default=1$' "$cfg_esp")" = 1 ] && pass 2.6 "default entry is the second (SP11 safe)" || fail 2.6 "default is not entry 1 (safe)"
+[ "$titles" = "$expect" ] && pass 2.5 "exactly the three-entry menu in order: debug (full closed-loop delivery), live installer, VM test" || fail 2.5 "entries differ: $(echo "$titles" | tr '\n' '|')"
+[ "$(grep -c '^set default=0$' "$cfg_esp")" = 1 ] && pass 2.6 "default entry is the first (SP11 debug, full delivery)" || fail 2.6 "default is not the debug entry"
 bad=0
 # M15: every devicetree line is a fixed path (no GRUB variable anywhere); the file must exist on the ISO
 awk '/^[ \t]*menuentry /{t=$0} /^[ \t]+devicetree /{print $2 "\t" t}' "$cfg_esp" >"$W/dt-lines.txt"
@@ -220,21 +220,20 @@ ids_ok=1
 awk '/^[ \t]*menuentry /{t=$0} /^[[:space:]]+linux /{print t "\t" $0}' "$cfg_esp" >"$W/linux-lines.txt"
 while IFS=$'\t' read -r t l; do
 	id=$(echo "$t" | sed -n "s/.*--id sp11-\([a-z0-9-]*\).*/\1/p")
-	case $id in debug | safe | nosnd | notouch | spk | usbdbg | nodsp | wifi-unblock | nomodeset | initramfs | spectra | install | cldebug | vmtest | test-*) ;; *) ids_ok=0; fail 2.12 "unknown entry id '$id' ($t)" ;; esac
+	case $id in debug | install | vmtest) ;; *) ids_ok=0; fail 2.12 "unknown entry id '$id' ($t)" ;; esac
 	# The rev25 test entries carry a unique sp11.test=<id>; sp11.entry selects the service set.
-	case $id in test-safe-pstore | test-m15-safe | test-safe-camrot | test-safe-cl | install) want=safe ;; cldebug) want=debug ;; test-*) want=debug ;; *) want=$id ;; esac
+	case $id in install) want=safe ;; *) want=$id ;; esac
 	case $l in *" sp11.entry=$want"*) ;; *) ids_ok=0; fail 2.12 "entry '$t' lacks sp11.entry=$want" ;; esac
-	case $id in test-*) case $l in *" sp11.test=$id"*) ;; *) ids_ok=0; fail 2.12 "test entry '$t' lacks sp11.test=$id" ;; esac ;; esac
 	case $l in *console=ttyAMA0*) [ "$id" = vmtest ] || { ids_ok=0; fail 2.12 "serial console on a device entry: $t"; } ;; *) [ "$id" != vmtest ] || { ids_ok=0; fail 2.12 "VM entry lacks the serial console"; } ;; esac
 	case $l in *" debug "*loglevel=8*ignore_loglevel*) ;; *) ids_ok=0; fail 2.12 "entry '$t' is not verbose (debug loglevel=8 ignore_loglevel)" ;; esac
 done <"$W/linux-lines.txt"
 [ "$ids_ok" = 1 ] && [ "$(wc -l <"$W/linux-lines.txt")" = "$nentries" ] && pass 2.12 "every entry has sp11.entry=<id> and is verbose; serial console only on the VM entry"
 vm=$(awk '/^[ \t]*menuentry /{f=0} /^[ \t]*menuentry .VM test/{f=1} f&&/^[[:space:]]+devicetree /{print "x"}' "$cfg_esp")
 [ -z "$vm" ] && pass 2.8 "VM test entry has no devicetree" || fail 2.8 "VM test entry has a devicetree line"
-[ "$(grep -c -E "^[[:space:]]*menuentry '" "$cfg_esp")" = "$nentries" ] && [ "$(grep '^set default' "$cfg_esp")" = "set default=1" ] && pass 2.9 "VM test entry is not the default"
+[ "$(grep -c -E "^[[:space:]]*menuentry '" "$cfg_esp")" = "$nentries" ] && [ "$(grep '^set default' "$cfg_esp")" = "set default=0" ] && pass 2.9 "VM test entry is not the default"
 if [ "$builder" = kiwi ]; then
 	if python3 -I "$REPO/image/tools/check-m8-menu.py" "$cfg_esp" >"$W/m8-menu.txt" 2>&1; then
-		pass 2.17 "M15 flat static menu: 26 entries, no function except load_video, no load_env/save_env/grubenv/variable/submenu, fixed DTB per entry (line 1 m15 with GPU and cameras and no automatic sp11.gpu_diag, line 2 m15-safe fallback, rev25/rev25b test entries add one axis), exact diagnostic arguments, allow_nominal on the closed-loop entries only, no rotor/GPU/SAM/firmware_class argument on any line"
+		pass 2.17 "flat static menu: 3 entries, no function except load_video, no load_env/save_env/grubenv/variable/submenu, fixed m15-cl DTB on both device entries, exact diagnostic arguments, allow_nominal on both device entries, no rotor/GPU/SAM/firmware_class argument on any line"
 	else
 		fail 2.17 "M15 menu: $(cat "$W/m8-menu.txt")"
 	fi

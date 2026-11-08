@@ -82,7 +82,7 @@ def check(root, repo, record):
     assert (root / 'usr/sbin').is_symlink() and (root / 'usr/sbin').readlink().as_posix() == 'bin', \
         '/usr/sbin is not the usrmerge symlink to bin'
     vi_rule = root / 'usr/share/wireplumber/wireplumber.conf.d/54-sp11-vi-trigger.conf'
-    assert vi_rule.is_file() and 'MultiMedia5' in vi_rule.read_text() and 'node.disabled' in vi_rule.read_text(), \
+    assert vi_rule.is_file() and vi_rule.read_text().count('~.*MultiMedia5.*') == 2 and 'node.disabled' in vi_rule.read_text(), \
         'the V/I trigger must be hidden from PipeWire'
     defaults_unit = root / 'usr/lib/systemd/user/sp11-audio-defaults.service'
     assert 'ExecStart=/usr/libexec/sp11/audio-defaults' in defaults_unit.read_text(), 'audio defaults unit'
@@ -178,11 +178,11 @@ def check(root, repo, record):
     assert not any('sp11.gpu_dtb' in (e['linux_args'] or '') for e in record['grub_entries']), 'GPU DTB argument in the M15 menu'
     assert 'RESET THE MACHINE' in hooks.read_text() and 'line 2' in hooks.read_text(), 'GPU hooks lack the plain reset warning'
     assert 'sp11-boot-state' in hooks.read_text() and 'grubenv' not in hooks.read_text().replace('no grubenv', ''), 'GPU hooks must use the boot-state helper only'
-    assert not any('denali-m1' in str(e) for e in record['grub_entries']) and len(record['grub_entries']) == 26, 'M15 menu is 26 flat entries'
+    assert len(record['grub_entries']) == 3 and [e['devicetree'] for e in record['grub_entries']] == [True, True, False], 'the menu must have two device entries and one VM entry'
     assert not any(re.search(r'cdsp_variant|firmware_class|keep_proxy_pds|surface_aggregator|sp11\.identity|cpufreq', e['linux_args'] or '') for e in record['grub_entries']), 'experiment argument on a static line'
-    assert all('sp11.allow_nominal' not in (e['linux_args'] or '') for e in record['grub_entries']
-               if e['title'] != 'SP11 debug' and 'speakers' not in e['title']
-               and 'needs calibration' not in e['title']), 'allow_nominal outside the closed-loop entries'
+    assert all(('sp11.allow_nominal=1' in (e['linux_args'] or '').split()) == (i < 2)
+               for i, e in enumerate(record['grub_entries'])), 'allow_nominal must be on both device entries only'
+    # The record stores only DTB presence; check-m8-menu.py validates each actual DTB path.
     # rotors, notices, helper
     for name in ('sam-mode-rotor', 'cdsp-experiment', 'cpufreq-cap', 'identity-switch', 'operator-notice', 'gpu-retry'):
         f = root / 'usr/libexec/sp11' / name

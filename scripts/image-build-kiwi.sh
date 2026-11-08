@@ -493,10 +493,9 @@ for f in "$chk"/_* "$chk/esp-grub.cfg"; do
 	# kernel arguments only: a menu title or a parameter value such as shutdown_mode=quiet is not the kernel argument `quiet`
 	if grep -E '^[[:space:]]*(linux|linuxefi)[[:space:]]' "$f" | tr -s ' \t' '\n\n' | grep -x -E 'quiet|rhgb|splash' >/dev/null; then log "FAIL: quiet/rhgb/splash argument in $f"; exit 1; fi
 done
-n=$(grep -c "^menuentry '" "$chk/_boot_grub2_grub.cfg"); [ "$n" = 26 ] || { log "FAIL: $n top-level menu entries, expected 26 (M15: flat static menu, rev25/25b tests, two safe camera/audio tests and the installer)"; exit 1; }
+n=$(grep -c "^menuentry '" "$chk/_boot_grub2_grub.cfg"); [ "$n" = 3 ] || { log "FAIL: $n top-level menu entries, expected 3 (debug delivery, live installer, VM test)"; exit 1; }
 [ "$(grep -c -E '^[[:space:]]*submenu[[:space:]]' "$chk/_boot_grub2_grub.cfg")" = 0 ] || { log "FAIL: submenu command in the M15 menu"; exit 1; }
-for e in debug safe nosnd notouch spk usbdbg nodsp wifi-unblock nomodeset initramfs spectra vmtest; do grep -q "sp11.entry=$e\$" "$chk/_boot_grub2_grub.cfg" || { log "FAIL: no entry with sp11.entry=$e"; exit 1; }; done
-for e in test-multi-user test-ignore-unused test-pinoff test-acd-off test-preempt-off test-msm-off test-softgl test-safe-debug test-safe-pstore test-m15-safe test-safe-camrot test-safe-cl; do grep -q "sp11.test=$e " "$chk/_boot_grub2_grub.cfg" || { log "FAIL: no debug test entry with sp11.test=$e"; exit 1; }; done
+for e in debug safe vmtest; do grep -q "sp11.entry=$e\$" "$chk/_boot_grub2_grub.cfg" || { log "FAIL: no entry with sp11.entry=$e"; exit 1; }; done
 SP11_RELEASE=$rel python3 -I "$REPO/image/tools/check-m8-menu.py" "$chk/_boot_grub2_grub.cfg"
 for f in x1p64100-microsoft-denali-m15 x1p64100-microsoft-denali-m15-safe x1p64100-microsoft-denali-m15-nosnd x1p64100-microsoft-denali-m15-notouch x1p64100-microsoft-denali-m15-spk x1p64100-microsoft-denali-m15-spectra x1p64100-microsoft-denali-m15-safe-camrot x1p64100-microsoft-denali-m15-safe-cl x1p64100-microsoft-denali-m15-cl; do
 	xorriso -indev "$iso" -find "/boot/dtb/qcom/$f.dtb" -type f 2>/dev/null | grep -q . || { log "FAIL: /boot/dtb/qcom/$f.dtb not on the ISO"; exit 1; }
@@ -575,7 +574,7 @@ record = {
     "module_policy": {"qcom_battmgr": "blacklist + install false + dracut omit_drivers (D23)",
                       "ucsi_glink": "retained early", "ath12k.debug_mask": "0x70; CONFIG_ATH12K_DEBUG=y; output checked by L0",
                       "scmi_cpufreq": "modules-load.d/sp11-cpufreq.conf (soc-boot R-I2); cap by default, lifted only by the boot-medium marker sp11/cpufreq-uncapped"},
-    "menu": "M15 flat static menu, 26 entries, no GRUB function except load_video, no grubenv, no variable: debug (m15 with GPU and cameras), safe (m15-safe), nosnd, notouch, spk, usbdbg, nodsp, wifi-unblock, nomodeset, initramfs, spectra, seven rev25 debug isolation tests (multi-user, ignore-unused, pinoff, acd-off, preempt-off, msm-off, softgl), three rev25b reset-axis tests (safe DTB + debug services, safe DTB + EFI pstore, m15 DTB + safe services), safe rear-rotation test, muted safe closed-loop VI test, interactive installer (keeps Windows, fixes the UEFI boot), debug closed-loop audio entry, vmtest; each test carries a unique sp11.test=<id> and its intended sp11.entry mark",
+    "menu": "flat static menu with three entries: debug (m15-cl, closed-loop audio, allow_nominal, GPU skipped), live installer (m15-safe, keeps Windows) and the VM test used by L1; no GRUB function except load_video, no grubenv, no variable",
     "diagnostic_args_reason": {"debug": "M15 line 1: m15 DTB (microphones + rear/front/IR camera nodes + GPU/GMU/zap), no automatic GPU two-step (manually add sp11.gpu_diag=1; may reset the machine), USB dynamic debug (usb-typec R-I1), PDR dynamic debug, DSP trace string without power:power_domain_target; nothing variable",
                                "safe": "m15-safe: microphones only, camera and GPU nodes off (the M13/M14-safe content); the always-booting fallback, line 1 arguments except entry marker",
                                "nosnd": "m15-nosnd: sound card off", "notouch": "touch-pen section 8: m15-notouch, touch child disabled",

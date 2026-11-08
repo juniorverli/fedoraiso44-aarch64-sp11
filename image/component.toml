@@ -3,5 +3,5 @@ name = "Fedora 44 aarch64 live image"
 phase = 1
 status = "testing"
 depends_on = []
-updated = "2026-11-02"
-gaps = ["Revision 20 D34 audio fail-safe and per-channel capture, GPU runtime PM pinning and GMU observation and post-session diagnostics require an ISO build, L0/L1 and device evidence; Wi-Fi firmware fallback and keyboard reboot mitigation require device evidence"]
+updated = "2026-11-08"
+gaps = ["Install-entry closed-loop audio and WirePlumber regex require a rebuilt ISO, L0/L1 and device evidence; Revision 20 D34 audio fail-safe and per-channel capture, GPU runtime PM pinning and GMU observation and post-session diagnostics require an ISO build, L0/L1 and device evidence; Wi-Fi firmware fallback and keyboard reboot mitigation require device evidence"]

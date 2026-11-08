@@ -74,36 +74,35 @@ def main():
     p, detail = policy(cfg)
     ok("policy checker accepts the menu", p, detail)
     pin_lines = [l for l in cfg.splitlines() if l.lstrip().startswith("linux ") and "sp11.gpu_pin=" in l]
-    ok("shipped menu has the GPU pin opt-out only on the pin-off, msm-off and safe-debug test entries",
-       len(pin_lines) == 3 and all("sp11.gpu_pin=0" in l for l in pin_lines)
-       and all(any(t in l for t in ("sp11.test=test-pinoff", "sp11.test=test-msm-off", "sp11.test=test-safe-debug")) for l in pin_lines),
-       f"{len(pin_lines)} linux lines carry sp11.gpu_pin")
+    ok("shipped menu carries no GPU pin opt-out (manual GRUB edits only)", len(pin_lines) == 0, f"{len(pin_lines)} linux lines carry sp11.gpu_pin")
     opt_out = cfg.replace("sp11.entry=debug", "sp11.gpu_pin=0 sp11.entry=debug", 1)
     ok("policy checker accepts the manual debug GPU pin opt-out", opt_out != cfg and policy(opt_out)[0])
     mutants = {
-        "debug as default": re.sub(r"(?m)^set default=1$", "set default=0", cfg, count=1),
+        "default moved off the debug entry": re.sub(r"(?m)^set default=0$", "set default=1", cfg, count=1),
         "a GRUB function": cfg.replace("load_video\nset gfxpayload", "function f {\n\techo x\n}\nload_video\nset gfxpayload", 1),
         "a load_env": cfg.replace("set timeout_style=menu", "load_env\nset timeout_style=menu", 1),
         "a save_env": cfg.replace("set timeout_style=menu", "save_env x\nset timeout_style=menu", 1),
-        "a variable DTB": cfg.replace("denali-m15.dtb", "denali-${d}.dtb", 1),
+        "a variable DTB": cfg.replace("denali-m15-cl.dtb", "denali-${d}.dtb", 1),
         "a submenu": cfg.rstrip() + "\nsubmenu 'x' {\n}\n",
-        "a separate GPU DTB": cfg.replace("denali-m15-nosnd.dtb", "denali-m15-gpu.dtb", 1),
-        "sp11.gpu_diag=1 on safe": cfg.replace("sp11.entry=safe", "sp11.gpu_diag=1 sp11.entry=safe", 1),
+        "a separate GPU DTB": cfg.replace("denali-m15-cl.dtb", "denali-m15-gpu.dtb", 1),
         "sp11.gpu_diag=1 on debug": cfg.replace("sp11.entry=debug", "sp11.gpu_diag=1 sp11.entry=debug", 1),
-        "a GRUB-chosen GPU DTB argument": cfg.replace("sp11.entry=nosnd", "sp11.gpu_dtb=m15 sp11.entry=nosnd", 1),
-        "a rotor argument": cfg.replace("sp11.entry=nosnd", "sp11.cdsp_variant=1 sp11.entry=nosnd", 1),
-        "firmware_class.path": cfg.replace("sp11.entry=notouch", "firmware_class.path=/x sp11.entry=notouch", 1),
-        "m15 DTB on a second entry": cfg.replace("denali-m15-notouch.dtb", "denali-m15.dtb", 1),
-        "allow_nominal outside spk": cfg.replace("sp11.entry=nosnd", "sp11.allow_nominal=1 sp11.entry=nosnd", 1),
-        "module_blacklist outside the Spectra entry": cfg.replace("sp11.entry=nosnd", "module_blacklist=camera_x1e80100 sp11.entry=nosnd", 1),
-        "m15-spectra DTB on a second entry": cfg.replace("denali-m15-notouch.dtb", "denali-m15-spectra.dtb", 1),
+        "sp11.gpu_diag=1 on install": cfg.replace("sp11.entry=safe", "sp11.gpu_diag=1 sp11.entry=safe", 1),
+        "a GRUB-chosen GPU DTB argument": cfg.replace("sp11.entry=safe", "sp11.gpu_dtb=m15 sp11.entry=safe", 1),
+        "a rotor argument": cfg.replace("sp11.entry=safe", "sp11.cdsp_variant=1 sp11.entry=safe", 1),
+        "firmware_class.path": cfg.replace("sp11.entry=safe", "firmware_class.path=/x sp11.entry=safe", 1),
+        "m15-safe DTB on install": cfg.rsplit("denali-m15-cl.dtb", 1)[0] + "denali-m15-safe.dtb" + cfg.rsplit("denali-m15-cl.dtb", 1)[1],
+        "missing allow_nominal on install": cfg[:cfg.index("menuentry 'SP11 live")] + cfg[cfg.index("menuentry 'SP11 live"):].replace("sp11.allow_nominal=1 ", "", 1),
+        "missing msm.skip_gpu on install": cfg.replace("msm.skip_gpu=1 sp11.entry=safe", "sp11.entry=safe", 1),
+        "wrong install entry mark": cfg.replace("sp11.entry=safe", "sp11.entry=install", 1),
+        "allow_nominal on VM": cfg.replace("sp11.entry=vmtest", "sp11.allow_nominal=1 sp11.entry=vmtest", 1),
+        "module_blacklist on an entry": cfg.replace("sp11.entry=safe", "module_blacklist=camera_x1e80100 sp11.entry=safe", 1),
         "missing EFI pstore enable": cfg.replace("efi_pstore.pstore_disable=0 ", "", 1),
         "missing always kmsg dump": cfg.replace("printk.always_kmsg_dump=1 ", "", 1),
-        "EFI pstore enable on safe": cfg.replace("sp11.entry=safe", "efi_pstore.pstore_disable=0 sp11.entry=safe", 1),
-        "always kmsg dump on safe": cfg.replace("sp11.entry=safe", "printk.always_kmsg_dump=1 sp11.entry=safe", 1),
+        "missing EFI pstore enable on install": cfg[:cfg.index("menuentry 'SP11 live")] + cfg[cfg.index("menuentry 'SP11 live"):].replace("efi_pstore.pstore_disable=0 ", "", 1),
+        "missing always kmsg dump on install": cfg[:cfg.index("menuentry 'SP11 live")] + cfg[cfg.index("menuentry 'SP11 live"):].replace("printk.always_kmsg_dump=1 ", "", 1),
         "GPU pin enabled marker on debug": cfg.replace("sp11.entry=debug", "sp11.gpu_pin=1 sp11.entry=debug", 1),
         "duplicate GPU pin opt-out on debug": cfg.replace("sp11.entry=debug", "sp11.gpu_pin=0 sp11.gpu_pin=0 sp11.entry=debug", 1),
-        "GPU pin skip on safe": cfg.replace("sp11.entry=safe", "sp11.gpu_pin=0 sp11.entry=safe", 1),
+        "GPU pin opt-out on install": cfg.replace("sp11.entry=safe", "sp11.gpu_pin=0 sp11.entry=safe", 1),
         "quiet": cfg.replace("sp11.entry=safe", "quiet sp11.entry=safe", 1),
     }
     for name, text in mutants.items():

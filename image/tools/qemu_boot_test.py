@@ -21,31 +21,8 @@ import time
 
 import pexpect
 
-ENTRIES = [   # M16: one flat static menu (M13 style); the VM entry is the LAST line, selected by counting Down keys
+ENTRIES = [   # three flat entries; the VM entry is the LAST line, selected from the debug default
     "SP11 debug",
-    "SP11 debug, safe (no GPU)",
-    "SP11 debug, no sound",
-    "SP11 debug, touch off",
-    "SP11 debug, speakers (closed-loop experiment; private)",
-    "SP11 debug, USB + DSP trace",
-    "SP11 debug, no early DSP",
-    "SP11 debug, Wi-Fi unblock probe",
-    "SP11 debug nomodeset",
-    "SP11 debug, stop in initramfs",
-    "SP11 debug, Spectra camera test",
-    "SP11 debug, test multi-user (no GNOME)",
-    "SP11 debug, test ignore unused (regulator)",
-    "SP11 debug, test GPU pin off",
-    "SP11 debug, test ACD off",
-    "SP11 debug, test preemption off",
-    "SP11 debug, test msm off (display may be off; logs only)",
-    "SP11 debug, test software GL",
-    "SP11 debug, test safe DTB + msm off + debug",
-    "SP11 debug, test safe DTB + EFI pstore",
-    "SP11 debug, test m15 DTB + safe services",
-    "SP11 debug, safe, rear rotation test",
-    "SP11 debug, safe, muted closed-loop VI",
-    "SP11 debug, closed-loop audio (needs calibration)",
     "SP11 live, install from the desktop (keeps Windows)",
     "VM test (no devicetree)",
 ]
@@ -305,7 +282,7 @@ def main():
                 if a.legacy_menu:
                     idx = ENTRIES.index(a.entry)
                 else:
-                    idx = (ENTRIES.index(a.entry) - 1) % len(ENTRIES)   # flat menu starts at the safe default (index 1)
+                    idx = ENTRIES.index(a.entry) % len(ENTRIES)   # flat menu starts at the debug default (index 0)
                 for _ in range(idx):
                     child.send(b"\x1b[B")
                     time.sleep(0.5)
