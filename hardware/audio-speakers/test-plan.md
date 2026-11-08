@@ -1,5 +1,36 @@
 # audio-speakers test plan
 
+## 2026-11-08: install entry, pre-audible check
+
+The following is an install-entry check; it does not itself authorize an audible step. The install entry boots the same m15-cl closed-loop configuration as the debug entry: kernel patch 0033 selects `SP11_MODE_CLOSED_LOOP` only with `sp11.allow_nominal=1` plus the SP module in the parsed topology, patch 0032 installs the 84/17 maxima only in that mode, and the amplifier unmute stays guard-gated on every playback start (SP, V/I stream, calibration identity, CPS policy, fault latch). The pre-audible precondition is therefore the live guard state, not a lower cap: before any audible step, confirm that the guard reports `CLOSED_LOOP` with SP, VI and matching calibration, that the Speaker sink and Mic source exist, and that a refused or failed parse would leave 81/6 and reject the 84 write. No `sp11.nospk` bypass, fault clearing, tone or audible test is authorized by this document.
+
+After those changes are reviewed and built, the operator boots the **install entry**. From the active graphical user's session, without opening a playback PCM, record exit status and:
+
+```bash
+cat /proc/cmdline
+tr -d '\0' </proc/device-tree/sound/model; printf '\n'
+wpctl status
+pw-dump > /tmp/sp11-install-pw.json
+python3 - <<'PYGRAPH'
+import json
+with open('/tmp/sp11-install-pw.json') as f:
+    for obj in json.load(f):
+        p = (obj.get('info') or {}).get('props') or {}
+        if p.get('media.class') in ('Audio/Sink', 'Audio/Source'):
+            print(obj.get('id'), p.get('media.class'), p.get('node.name'),
+                  p.get('node.description'), p.get('device.id'), p.get('api.alsa.pcm.card'))
+PYGRAPH
+wpctl get-volume @DEFAULT_AUDIO_SINK@
+systemctl --user status sp11-audio-defaults.service sp11-audio-safety.service sp11-closed-loop-sense.service --no-pager
+journalctl --user -b -u sp11-audio-defaults.service -u sp11-audio-safety.service -u sp11-closed-loop-sense.service --no-pager
+sudo cat /sys/kernel/debug/sp11/guard
+sudo journalctl -k -b --no-pager | grep -Ei 'sp11:|speaker protection|speaker volume caps|calibration|feedback|wsa884|fault'
+amixer -c 0 cget name='SpkrLeft PA Volume'
+amixer -c 0 cget name='SpkrRight PA Volume'
+```
+
+Require `sp11.entry=safe`, `sp11.allow_nominal=1`, the CL sound model, the actual selected m15-cl DTB, a **built-in Speaker Audio/Sink and Mic Audio/Source** (not MultiMedia5), verified by node properties and `wpctl inspect <id>`, and a muted built-in sink. Require the holder active and holding the identified MultiMedia5 capture without errors or restart loop; require guard `mode: closed-loop` (CLOSED_LOOP), `loaded: 1`, `caps_ready: 1`, `vi_streams` at least 1, `cal_mask: 0x3`, `cal_graph_matches_vi: 1`, `vi_ambiguous: 0`, `fault: 0`, `nospk: 0` and the expected nominal policy. Confirm SP is present from the selected CL topology and policy/loader evidence and VI is present from the active holder and guard; record the actual loaded firmware and calibration identities. Check all PA/RX/MIX maxima, not just the two commands above. If a field, node, evidence, cap, mute or service is missing or inconsistent, stop; use the speaker-off fallback and capture logs. A mode selection alone is not evidence that SP is active or VI data is valid. Before playback the SP graph may be down, `sp_enabled: 0` and `allowed: no`; do not force a playback graph or treat that idle state as a reason to bypass a gate. Any later audible step stays with the operator and must first establish active SP and VI, matching calibration, all guard gates and an operator-approved safe procedure. The checks do not prove protection efficacy or physical silence.
+
 ## 2026-11-04: next muted VI-only diagnostic (current)
 
 This section supersedes all conflicting closed-loop instructions below, including the old request for `sp11.allow_nominal=1`, the old flags-0 supplement and any instruction to inspect or save capture bytes. It is a plan, not permission to bypass S1/D26. **No playback open, tone, automatic test, unmute, private samples or speaker output.** The rev25c private ISO now carries the kernel candidates, the `m15-safe-cl` DTB and the private CL files, and adds the nondefault `SP11 debug, safe, muted closed-loop VI` entry (`sp11.nospk=1`), so this is its first device plan; nothing has been run on the device yet. See [implementation evidence and integration prerequisites](evidence/2026-11-04-muted-vi-implementation.md).
