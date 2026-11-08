@@ -91,6 +91,10 @@ def check(root, repo, record, release):
     enable, disable = speaker_seq.split('DisableSequence', 1)
     for control in ('SpkrLeft PA Volume', 'SpkrRight PA Volume'):
         assert enable.count(f"cset \"name='{control}' 6\"") == 1, control
+    # The closed-loop operating point: 0 dBFS digital at every speaker enable; on
+    # a D26 topology the kernel platform_max rejects it and the 72 boot value stays.
+    for control in ('WSA_RX0', 'WSA_RX1', 'WSA_RX0_MIX', 'WSA_RX1_MIX'):
+        assert enable.count(f"cset \"name='WSA {control} Digital Volume' 84\"") == 1, control
     for control in ('SpkrLeft PA Volume', 'SpkrRight PA Volume'):
         assert f"cset \"name='{control}' 0\"" in disable, control
     writes = re.findall(r"cset\s+\"name='(?:SpkrLeft PA Volume|SpkrRight PA Volume|Speakers Volume)'\s+(\d+)\"", speaker_seq)

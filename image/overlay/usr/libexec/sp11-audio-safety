@@ -73,6 +73,14 @@ if node and id and "platform-sound" in node.group(1): print(id.group(1))
    fi
   done
   if [ "$closed_loop" = 1 ]; then
+   # The closed loop is protected: unmute so the desktop actually plays.
+   for id in $ids; do
+    if timeout -k 1 2 wpctl set-mute "$id" 0 >/dev/null 2>&1; then
+     echo "sp11-audio-safety: closed-loop sink $id unmuted at 100%"
+    else
+     echo "sp11-audio-safety: closed-loop sink $id could not be unmuted" >&2
+    fi
+   done
    for ctl in 'WSA WSA_RX0 Digital Volume' 'WSA WSA_RX1 Digital Volume' \
               'WSA WSA_RX0_MIX Digital Volume' 'WSA WSA_RX1_MIX Digital Volume'; do
     if timeout -k 1 2 amixer -c 0 sset "$ctl" 84 >/dev/null 2>&1; then

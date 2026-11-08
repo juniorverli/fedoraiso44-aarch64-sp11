@@ -82,4 +82,7 @@ esac
         assert len(calls) == amixer_calls, (line, calls)
         assert all(call.startswith('-c 0 sset WSA ') and call.endswith(' 84') for call in calls), (line, calls)
         assert f'set-volume 58 {level}' in log.read_text(), (line, log.read_text())
+        closed = (line.startswith('root=live sp11.allow_nominal=1')
+                  and 'sp11.entry=spk' not in line and 'sp11.nospk' not in line)
+        assert ('set-mute 58 0' in log.read_text()) == closed, (line, log.read_text())
 print('audio safety selection, mute and closed-loop ceiling fixtures passed')
